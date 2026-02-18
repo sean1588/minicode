@@ -21,7 +21,7 @@ export class Session {
 
   private readonly messages: SessionMessage[];
 
-  constructor(id = randomUUID()) {
+  constructor(id: string = randomUUID()) {
     this.id = id;
     this.createdAt = new Date();
     this.messages = [];

@@ -140,14 +140,15 @@ export class AnthropicModelClient implements ModelClient {
     tools: ToolSchema[];
     maxTokens: number;
   }): Promise<ModelResponse> {
-    const response = await withRetry(() =>
+    const response = await withRetry<Anthropic.Messages.Message>(() =>
       this.client.messages.create({
         model: params.model,
         max_tokens: params.maxTokens,
         system: params.system,
         messages: toAnthropicMessages(params.messages),
-        tools: params.tools,
-      }),
+        tools: params.tools as unknown as Anthropic.Messages.ToolUnion[],
+        stream: false,
+      }) as Promise<Anthropic.Messages.Message>,
     );
 
     return parseResponse(response);
