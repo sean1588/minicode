@@ -77,4 +77,14 @@ Create `agent.config.json` in the project root to override defaults:
 - `npm run dev` - start the CLI in TypeScript mode
 - `npm run build` - compile TypeScript to `dist/`
 - `npm start` - run compiled CLI
+- `npm run lint` - run ESLint on TypeScript source and tests
 - `npm test` - run Node test suite
+
+## Continuous Integration
+
+GitHub Actions workflow: `.github/workflows/ci.yml`
+
+- Runs on every push and pull request
+- Executes:
+  - `npm run lint`
+  - `npm test`
