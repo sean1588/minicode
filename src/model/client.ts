@@ -183,18 +183,19 @@ function toOpenAICompatibleMessages(
     }
 
     if (message.role === "assistant") {
+      const toolCalls = message.toolCalls?.map((toolCall) => ({
+        id: toolCall.id,
+        type: "function" as const,
+        function: {
+          name: toolCall.name,
+          arguments: JSON.stringify(toolCall.input),
+        },
+      }));
+
       converted.push({
         role: "assistant",
         content: message.content.length > 0 ? message.content : null,
-        tool_calls:
-          message.toolCalls?.map((toolCall) => ({
-            id: toolCall.id,
-            type: "function",
-            function: {
-              name: toolCall.name,
-              arguments: JSON.stringify(toolCall.input),
-            },
-          })) ?? undefined,
+        ...(toolCalls ? { tool_calls: toolCalls } : {}),
       });
       continue;
     }
@@ -325,7 +326,7 @@ export class AnthropicModelClient implements ModelClient {
 
 export class OpenAICompatibleModelClient implements ModelClient {
   private readonly baseUrl: string;
-  private readonly apiKey?: string;
+  private readonly apiKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
 
   constructor(params?: {
@@ -388,7 +389,9 @@ export function createModelClient(config: AgentConfig): ModelClient {
   if (config.modelProvider === "openai-compatible") {
     return new OpenAICompatibleModelClient({
       baseUrl: config.openAiBaseUrl,
-      apiKey: config.openAiApiKey,
+      ...(config.openAiApiKey !== undefined
+        ? { apiKey: config.openAiApiKey }
+        : {}),
     });
   }
   return new AnthropicModelClient();

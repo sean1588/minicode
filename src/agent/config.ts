@@ -124,6 +124,10 @@ export async function loadAgentConfig(
     ...parseUserDenylist(fileConfig.commandDenylist),
   ];
 
+  const openAiApiKey =
+    process.env.OPENAI_API_KEY ??
+    fileConfig.openAiApiKey;
+
   return {
     modelProvider: parseModelProvider(
       process.env.MODEL_PROVIDER ?? fileConfig.modelProvider,
@@ -170,9 +174,7 @@ export async function loadAgentConfig(
       process.env.OPENAI_BASE_URL ??
       fileConfig.openAiBaseUrl ??
       "http://localhost:1234/v1",
-    openAiApiKey:
-      process.env.OPENAI_API_KEY ??
-      fileConfig.openAiApiKey,
+    ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
   };
 }
 
