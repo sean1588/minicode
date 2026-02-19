@@ -3,7 +3,7 @@ import process from "node:process";
 
 import { CodingAgent } from "./agent/agent.js";
 import { loadAgentConfig } from "./agent/config.js";
-import { AnthropicModelClient } from "./model/client.js";
+import { createModelClient } from "./model/client.js";
 import { ToolRegistry } from "./tools/registry.js";
 
 function printBanner(): void {
@@ -13,7 +13,7 @@ function printBanner(): void {
 
 async function runSingleTurn(task: string): Promise<void> {
   const config = await loadAgentConfig();
-  const modelClient = new AnthropicModelClient();
+  const modelClient = createModelClient(config);
   const toolRegistry = ToolRegistry.createDefault(config);
   const agent = new CodingAgent({
     config,
@@ -27,7 +27,7 @@ async function runSingleTurn(task: string): Promise<void> {
 
 async function runInteractive(): Promise<void> {
   const config = await loadAgentConfig();
-  const modelClient = new AnthropicModelClient();
+  const modelClient = createModelClient(config);
   const toolRegistry = ToolRegistry.createDefault(config);
   const agent = new CodingAgent({
     config,
@@ -37,6 +37,7 @@ async function runInteractive(): Promise<void> {
 
   printBanner();
   console.log(`Workspace: ${config.workspaceRoot}`);
+  console.log(`Provider: ${config.modelProvider}`);
   console.log(`Model: ${config.model}`);
 
   const rl = createInterface({

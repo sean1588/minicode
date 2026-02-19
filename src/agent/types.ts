@@ -25,6 +25,7 @@ export interface ToolResultMessage {
 export type SessionMessage = UserMessage | AssistantMessage | ToolResultMessage;
 
 export interface AgentConfig {
+  modelProvider: "anthropic" | "openai-compatible";
   model: string;
   maxSteps: number;
   maxTokens: number;
@@ -36,6 +37,8 @@ export interface AgentConfig {
   confirmDestructive: boolean;
   keepRecentMessages: number;
   loopDetectionWindow: number;
+  openAiBaseUrl?: string;
+  openAiApiKey?: string;
 }
 
 export interface ToolSchema {

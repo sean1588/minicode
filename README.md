@@ -20,7 +20,8 @@ MVP autonomous coding agent CLI implemented from `plans/PRD.md` and
 ## Requirements
 
 - Node.js 22+
-- Anthropic API key
+- Anthropic API key (for Anthropic provider)
+- OpenAI-compatible endpoint (for local/remote OpenAI-style providers, e.g. LM Studio)
 - `rg` available in PATH (recommended for fast search)
 
 ## Setup
@@ -30,7 +31,24 @@ npm install
 cp .env.example .env
 ```
 
-Set `ANTHROPIC_API_KEY` in `.env`.
+Set `ANTHROPIC_API_KEY` in `.env` when using `MODEL_PROVIDER=anthropic`.
+
+### Use with LM Studio (OpenAI-compatible)
+
+Set these values in `.env`:
+
+```bash
+MODEL_PROVIDER=openai-compatible
+MODEL=qwen2.5-coder-7b-instruct
+OPENAI_BASE_URL=http://localhost:1234/v1
+OPENAI_API_KEY=
+```
+
+Then start your model server in LM Studio and run:
+
+```bash
+npm run dev
+```
 
 ## Usage
 
@@ -59,6 +77,7 @@ Create `agent.config.json` in the project root to override defaults:
 
 ```json
 {
+  "modelProvider": "anthropic",
   "model": "claude-sonnet-4-20250514",
   "maxSteps": 25,
   "maxTokens": 4096,
@@ -68,7 +87,9 @@ Create `agent.config.json` in the project root to override defaults:
   "confirmDestructive": false,
   "maxFileSizeBytes": 1000000,
   "keepRecentMessages": 12,
-  "loopDetectionWindow": 6
+  "loopDetectionWindow": 6,
+  "openAiBaseUrl": "http://localhost:1234/v1",
+  "openAiApiKey": ""
 }
 ```
 

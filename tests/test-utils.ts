@@ -2,6 +2,7 @@ import type { AgentConfig } from "../src/agent/types.js";
 
 export function createTestAgentConfig(workspaceRoot: string): AgentConfig {
   return {
+    modelProvider: "anthropic",
     model: "test-model",
     maxSteps: 10,
     maxTokens: 1024,
@@ -13,5 +14,6 @@ export function createTestAgentConfig(workspaceRoot: string): AgentConfig {
     confirmDestructive: false,
     keepRecentMessages: 10,
     loopDetectionWindow: 6,
+    openAiBaseUrl: "http://localhost:1234/v1",
   };
 }

@@ -21,6 +21,7 @@ const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
 ];
 
 interface AgentConfigFile {
+  modelProvider?: string;
   model?: string;
   maxSteps?: number;
   maxTokens?: number;
@@ -32,6 +33,8 @@ interface AgentConfigFile {
   maxFileSizeBytes?: number;
   keepRecentMessages?: number;
   loopDetectionWindow?: number;
+  openAiBaseUrl?: string;
+  openAiApiKey?: string;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -91,6 +94,21 @@ function parseUserDenylist(patterns: string[] | undefined): RegExp[] {
   return denylist;
 }
 
+function parseModelProvider(
+  value: string | undefined,
+): "anthropic" | "openai-compatible" {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "openai-compatible" ||
+    normalized === "openai" ||
+    normalized === "lmstudio" ||
+    normalized === "lm-studio"
+  ) {
+    return "openai-compatible";
+  }
+  return "anthropic";
+}
+
 export async function loadAgentConfig(
   cwd = process.cwd(),
 ): Promise<AgentConfig> {
@@ -107,6 +125,9 @@ export async function loadAgentConfig(
   ];
 
   return {
+    modelProvider: parseModelProvider(
+      process.env.MODEL_PROVIDER ?? fileConfig.modelProvider,
+    ),
     model:
       process.env.MODEL ??
       fileConfig.model ??
@@ -145,6 +166,13 @@ export async function loadAgentConfig(
       process.env.LOOP_DETECTION_WINDOW,
       fileConfig.loopDetectionWindow ?? 6,
     ),
+    openAiBaseUrl:
+      process.env.OPENAI_BASE_URL ??
+      fileConfig.openAiBaseUrl ??
+      "http://localhost:1234/v1",
+    openAiApiKey:
+      process.env.OPENAI_API_KEY ??
+      fileConfig.openAiApiKey,
   };
 }
 
