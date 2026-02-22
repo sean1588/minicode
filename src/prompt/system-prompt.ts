@@ -28,10 +28,14 @@ function renderToolList(tools: ToolSchema[]): string {
     .join("\n");
 }
 
-export function buildSystemPrompt(config: AgentConfig, tools: ToolSchema[]): string {
+export function buildSystemPrompt(
+  config: AgentConfig,
+  tools: ToolSchema[],
+  codeMap?: string,
+): string {
   const projectType = detectProjectType(config.workspaceRoot);
 
-  return [
+  const sections: string[] = [
     "[Identity]",
     "You are a coding agent. You help developers read, understand, and modify code in their projects.",
     "",
@@ -39,6 +43,13 @@ export function buildSystemPrompt(config: AgentConfig, tools: ToolSchema[]): str
     `Working directory: ${config.workspaceRoot}`,
     `Project type: ${projectType}`,
     "",
+  ];
+
+  if (codeMap && codeMap.length > 0) {
+    sections.push("[Project Code Map]", codeMap, "");
+  }
+
+  sections.push(
     "[Tool Descriptions]",
     "You have the following tools available:",
     renderToolList(tools),
@@ -58,6 +69,8 @@ export function buildSystemPrompt(config: AgentConfig, tools: ToolSchema[]): str
     "- Never modify files outside the workspace directory.",
     "- Never run destructive commands without explicit user confirmation.",
     "- Ask for clarification if user intent is ambiguous.",
-  ].join("\n");
+  );
+
+  return sections.join("\n");
 }
 

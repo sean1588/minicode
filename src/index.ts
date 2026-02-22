@@ -4,6 +4,7 @@ import process from "node:process";
 
 import { CodingAgent } from "./agent/agent.js";
 import { loadAgentConfig } from "./agent/config.js";
+import { buildProjectIndex } from "./indexer/project-index.js";
 import { createModelClient } from "./model/client.js";
 import { ToolRegistry } from "./tools/registry.js";
 
@@ -16,10 +17,17 @@ async function runSingleTurn(task: string): Promise<void> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
   const toolRegistry = ToolRegistry.createDefault(config);
+  let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
+  try {
+    projectIndex = await buildProjectIndex(config.workspaceRoot);
+  } catch {
+    projectIndex = undefined;
+  }
   const agent = new CodingAgent({
     config,
     modelClient,
     toolRegistry,
+    ...(projectIndex !== undefined ? { projectIndex } : {}),
   });
 
   const response = await agent.runTurn(task);
@@ -30,10 +38,17 @@ async function runInteractive(): Promise<void> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
   const toolRegistry = ToolRegistry.createDefault(config);
+  let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
+  try {
+    projectIndex = await buildProjectIndex(config.workspaceRoot);
+  } catch {
+    projectIndex = undefined;
+  }
   const agent = new CodingAgent({
     config,
     modelClient,
     toolRegistry,
+    ...(projectIndex !== undefined ? { projectIndex } : {}),
   });
 
   printBanner();
