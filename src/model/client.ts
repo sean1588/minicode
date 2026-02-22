@@ -337,7 +337,12 @@ export class OpenAICompatibleModelClient implements ModelClient {
     this.baseUrl = normalizeBaseUrl(
       params?.baseUrl ?? process.env.OPENAI_BASE_URL ?? "http://localhost:1234/v1",
     );
-    this.apiKey = params?.apiKey ?? process.env.OPENAI_API_KEY;
+    const isOpenRouter = this.baseUrl.includes("openrouter");
+    this.apiKey =
+      params?.apiKey ??
+      (isOpenRouter
+        ? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY
+        : process.env.OPENAI_API_KEY);
     this.fetchImpl = params?.fetchImpl ?? fetch;
   }
 
@@ -351,8 +356,21 @@ export class OpenAICompatibleModelClient implements ModelClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (this.apiKey && this.apiKey.trim().length > 0) {
-      headers.Authorization = `Bearer ${this.apiKey}`;
+    const apiKey = this.apiKey?.trim();
+    if (apiKey && apiKey.length > 0) {
+      if (
+        this.baseUrl.includes("openrouter") &&
+        apiKey.startsWith("sk-proj-")
+      ) {
+        throw new Error(
+          "OpenRouter requires an OpenRouter API key (sk-or-v1-...), not an OpenAI key (sk-proj-...). Get one at https://openrouter.ai/keys",
+        );
+      }
+      headers.Authorization = `Bearer ${apiKey}`;
+    } else if (this.baseUrl.includes("openrouter")) {
+      throw new Error(
+        "Missing OpenRouter API key. Set OPENAI_API_KEY or OPENROUTER_API_KEY in .env. Get one at https://openrouter.ai/keys",
+      );
     }
 
     const response = await withRetry(async () => {

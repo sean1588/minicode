@@ -1,12 +1,14 @@
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
 
 import type { AgentConfig } from "./types.js";
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
   /\brm\s+-rf\s+\//i,
@@ -124,9 +126,16 @@ export async function loadAgentConfig(
     ...parseUserDenylist(fileConfig.commandDenylist),
   ];
 
-  const openAiApiKey =
-    process.env.OPENAI_API_KEY ??
-    fileConfig.openAiApiKey;
+  const rawBaseUrl =
+    process.env.OPENAI_BASE_URL ??
+    fileConfig.openAiBaseUrl ??
+    "http://localhost:1234/v1";
+  const isOpenRouter = rawBaseUrl.includes("openrouter");
+  const openAiApiKey = isOpenRouter
+    ? (process.env.OPENROUTER_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      fileConfig.openAiApiKey)
+    : (process.env.OPENAI_API_KEY ?? fileConfig.openAiApiKey);
 
   return {
     modelProvider: parseModelProvider(
@@ -170,10 +179,7 @@ export async function loadAgentConfig(
       process.env.LOOP_DETECTION_WINDOW,
       fileConfig.loopDetectionWindow ?? 6,
     ),
-    openAiBaseUrl:
-      process.env.OPENAI_BASE_URL ??
-      fileConfig.openAiBaseUrl ??
-      "http://localhost:1234/v1",
+    openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
   };
 }
