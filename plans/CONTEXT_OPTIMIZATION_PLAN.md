@@ -57,9 +57,22 @@ This is the gap we target.
 
 ## 3. Proposed Approach
 
-Use the **TypeScript compiler API** (`typescript` package — already a devDependency) to build a type-aware code index at function/class granularity. The agent receives a compact code map in its system prompt and uses specialized tools to fetch only the code it needs.
+Build a **plugin-based indexer platform** that uses language-specific parsers to construct a type-aware code index at function/class granularity. The agent receives a compact code map in its system prompt and uses specialized tools to fetch only the code it needs. Each language is supported by a **LanguagePlugin** — a module that implements a defined interface for extracting symbols and dependencies from source files.
 
-### 3.1 Why the TypeScript Compiler API
+The first (reference) plugin uses the **TypeScript compiler API** (`typescript` package — already a devDependency). The plugin interface is designed so that community contributors can add support for Python, Go, Rust, and other languages without touching the agent core.
+
+### 3.1 Why a Plugin Architecture
+
+The core insight — that code has deterministic structure exploitable for context pruning — applies to every language with a parser. But the *best* parser differs per language:
+
+- **TypeScript/JavaScript:** The TS compiler API provides full type resolution, call graphs, and import resolution — far richer than generic parsers.
+- **Python:** Python's built-in `ast` module or tree-sitter gives function/class extraction; type stubs (`.pyi`) and tools like pyright add type information.
+- **Go:** `go/parser` and `go/types` provide a complete type-checked AST natively.
+- **Rust:** `syn` or rust-analyzer APIs provide deep type and trait resolution.
+
+A one-size-fits-all approach (e.g., tree-sitter for everything) sacrifices depth. A hardcoded multi-language approach doesn't scale. The plugin architecture gives each language its best-in-class parser while keeping the agent core language-agnostic.
+
+### 3.2 Why the TypeScript Compiler API (Reference Plugin)
 
 | Capability | tree-sitter | TS Compiler API |
 |---|---|---|
@@ -70,7 +83,53 @@ Use the **TypeScript compiler API** (`typescript` package — already a devDepen
 | Import resolution | Text-based only | Full module resolution |
 | Cross-file references | Limited | Complete |
 
-Since mini-coder targets TypeScript/JavaScript specifically, the TS compiler API provides strictly more information at acceptable cost. Indexing runs once at session start and can be incrementally updated.
+The TypeScript plugin serves as the reference implementation that proves the interface is sufficient. It demonstrates the maximum depth achievable when a plugin has access to a full type checker.
+
+### 3.3 The LanguagePlugin Interface
+
+Every plugin implements the same contract:
+
+```typescript
+interface LanguagePlugin {
+  /** Unique plugin identifier, e.g. "typescript", "python", "rust" */
+  name: string;
+
+  /** File extensions this plugin handles, e.g. [".ts", ".tsx", ".js", ".jsx"] */
+  extensions: string[];
+
+  /** Whether this plugin can index a given file */
+  canIndex(filePath: string): boolean;
+
+  /** Extract symbols from a single file's content */
+  indexFile(filePath: string, content: string): IndexedSymbol[];
+
+  /**
+   * Resolve cross-file dependencies between symbols.
+   * Optional — if not implemented, the core falls back to import-path heuristics.
+   */
+  resolveDependencies?(
+    symbols: IndexedSymbol[],
+    projectFiles: Map<string, string>,
+  ): DependencyEdge[];
+}
+```
+
+Key design choices that make this community-friendly:
+
+- **`indexFile` works on a single file** — plugin authors don't need to manage multi-file state or understand the agent internals
+- **`resolveDependencies` is optional** — a basic plugin that just extracts signatures is still useful; the core can fall back to import-path matching
+- **`content` is passed in** — the plugin doesn't need file system access, making it testable and sandboxable
+- **Output is plain data objects** — no classes to extend, no framework to learn
+
+### 3.4 Plugin Discovery and Distribution
+
+Plugins can be distributed and loaded through three mechanisms:
+
+1. **Built-in plugins** (`src/indexer/plugins/`): Ship with mini-coder. The TypeScript plugin is the first built-in.
+2. **Local plugins** (`~/.mini-coder/plugins/` or `<project>/.mini-coder/plugins/`): `.ts` or `.js` files that export a `LanguagePlugin`. No publishing required — good for personal or team-internal plugins.
+3. **npm packages** (`mini-coder-plugin-<language>`): Published to npm following a naming convention. The core discovers installed packages by convention at startup.
+
+The plugin loader checks in order: built-in → local project → local user → npm packages. For a given file, the first plugin whose `canIndex()` returns true handles it. If no plugin matches, the file is treated as plain text (standard `read_file` behavior).
 
 ## 4. Architecture
 
@@ -108,31 +167,53 @@ Since mini-coder targets TypeScript/JavaScript specifically, the TS compiler API
 
 ```
 src/indexer/
-├── project-index.ts    # Top-level: index a project, expose query API
-├── ast-walker.ts       # Walk TS AST, extract symbols and signatures
-├── dependency-graph.ts # Build import/export + call graph edges
-├── code-map.ts         # Generate compact text skeleton for system prompt
-└── types.ts            # IndexedSymbol, DependencyEdge, CodeMap types
+├── types.ts              # LanguagePlugin interface, IndexedSymbol, DependencyEdge
+├── project-index.ts      # Language-agnostic index: aggregates plugin output, exposes query API
+├── code-map.ts           # Language-agnostic skeleton generator for system prompt
+├── plugin-loader.ts      # Detect project languages, discover and load plugins
+└── plugins/
+    └── typescript.ts     # Reference plugin: TS compiler API-based extraction
 ```
+
+The separation is deliberate: everything outside `plugins/` is language-agnostic. Adding a new language means adding a single file to `plugins/` (or installing an npm package) — no changes to the core indexer, tools, or agent loop.
 
 ### 4.2 Core Types
 
 ```typescript
+interface LanguagePlugin {
+  name: string;
+  extensions: string[];
+  canIndex(filePath: string): boolean;
+  indexFile(filePath: string, content: string): IndexedSymbol[];
+  resolveDependencies?(
+    symbols: IndexedSymbol[],
+    projectFiles: Map<string, string>,
+  ): DependencyEdge[];
+}
+
 interface IndexedSymbol {
   name: string;
+  qualifiedName: string;     // e.g. "MyClass.myMethod" — unique within project
   kind: "function" | "class" | "interface" | "type" | "variable" | "method";
   filePath: string;
   startLine: number;
   endLine: number;
-  signature: string;        // e.g. "async chat(params: ChatParams): Promise<ModelResponse>"
-  exportedFrom?: string;    // module path if exported
-  dependencies: string[];   // symbol names this symbol references
+  signature: string;         // e.g. "async chat(params: ChatParams): Promise<ModelResponse>"
+  exported: boolean;
+  dependencies: string[];    // qualified names of referenced symbols
+}
+
+interface DependencyEdge {
+  from: string;              // qualified name
+  to: string;                // qualified name
+  kind: "calls" | "imports" | "extends" | "implements" | "references";
 }
 
 interface ProjectIndex {
   symbols: Map<string, IndexedSymbol>;
   files: Map<string, IndexedSymbol[]>;
-  dependencyEdges: Array<{ from: string; to: string; kind: "calls" | "imports" | "extends" | "implements" }>;
+  dependencyEdges: DependencyEdge[];
+  plugins: LanguagePlugin[];  // loaded plugins for this project
 
   getSymbol(name: string): IndexedSymbol | undefined;
   getSymbolsInFile(filePath: string): IndexedSymbol[];
@@ -143,9 +224,42 @@ interface ProjectIndex {
 
 ### 4.3 Component Details
 
-#### `ast-walker.ts` — Symbol Extraction
+#### `plugin-loader.ts` — Plugin Discovery
 
-Walks the TypeScript AST using `ts.forEachChild()` and extracts:
+Discovers and loads language plugins at session start:
+
+1. Scan built-in plugins (`src/indexer/plugins/*.ts`)
+2. Scan local project plugins (`<workspace>/.mini-coder/plugins/`)
+3. Scan user plugins (`~/.mini-coder/plugins/`)
+4. Scan installed npm packages matching `mini-coder-plugin-*`
+5. Validate each plugin implements the `LanguagePlugin` interface
+6. Register plugins, resolving extension conflicts (first match wins)
+
+```typescript
+async function loadPlugins(workspaceRoot: string): Promise<LanguagePlugin[]> {
+  const plugins: LanguagePlugin[] = [];
+
+  // Built-in plugins
+  plugins.push(new TypeScriptPlugin());
+
+  // Local project plugins
+  const projectPluginDir = path.join(workspaceRoot, ".mini-coder", "plugins");
+  plugins.push(...await loadPluginsFromDir(projectPluginDir));
+
+  // User plugins
+  const userPluginDir = path.join(os.homedir(), ".mini-coder", "plugins");
+  plugins.push(...await loadPluginsFromDir(userPluginDir));
+
+  // npm plugins (mini-coder-plugin-*)
+  plugins.push(...await loadNpmPlugins(workspaceRoot));
+
+  return plugins;
+}
+```
+
+#### `plugins/typescript.ts` — Reference Plugin (TypeScript)
+
+The built-in TypeScript plugin uses the TS compiler API to provide deep, type-aware indexing. It walks the AST using `ts.forEachChild()` and extracts:
 
 - **Function declarations:** Name, parameters (with types), return type, line range
 - **Class declarations:** Name, extends/implements, method signatures, property types
@@ -153,23 +267,26 @@ Walks the TypeScript AST using `ts.forEachChild()` and extracts:
 - **Exported variables:** Name, type annotation or inferred type
 - **Arrow functions assigned to `const`:** Treated as named functions
 
-For each symbol, the walker captures the **signature** (declaration line without the body) and the **line range** (for later surgical extraction).
+For each symbol, the plugin captures the **signature** (declaration line without the body) and the **line range** (for later surgical extraction).
 
 ```typescript
-// Example: walking a source file
-function walkSourceFile(sourceFile: ts.SourceFile, checker: ts.TypeChecker): IndexedSymbol[] {
+// Example: the TypeScript plugin's indexFile implementation
+function indexFile(filePath: string, content: string): IndexedSymbol[] {
+  const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true);
   const symbols: IndexedSymbol[] = [];
 
   function visit(node: ts.Node) {
     if (ts.isFunctionDeclaration(node) && node.name) {
       symbols.push({
         name: node.name.text,
+        qualifiedName: node.name.text,
         kind: "function",
-        filePath: sourceFile.fileName,
+        filePath,
         startLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
         endLine: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
         signature: extractSignature(node, sourceFile),
-        dependencies: extractDependencies(node, checker),
+        exported: hasExportModifier(node),
+        dependencies: extractDependencies(node),
       });
     }
     // ... similar for ClassDeclaration, InterfaceDeclaration, TypeAliasDeclaration
@@ -181,16 +298,40 @@ function walkSourceFile(sourceFile: ts.SourceFile, checker: ts.TypeChecker): Ind
 }
 ```
 
-#### `dependency-graph.ts` — Relationship Resolution
-
-Uses the TypeScript type checker to resolve:
+The TypeScript plugin also implements `resolveDependencies()` using `ts.createProgram()` and the type checker to resolve:
 
 1. **Import edges:** `import { X } from "./module"` → edge from current file symbols to X
 2. **Call edges:** Function A calls function B → edge A→B (resolved through the type checker, not text matching)
 3. **Type reference edges:** Function A uses type T → edge A→T
 4. **Inheritance edges:** Class A extends B / implements I → edges A→B, A→I
 
-The dependency graph enables the critical operation: **given a symbol, return only what it depends on**.
+#### What a Community Plugin Looks Like
+
+A Python plugin author would create a file or npm package that exports a `LanguagePlugin`:
+
+```typescript
+// mini-coder-plugin-python/index.ts
+import { execSync } from "child_process";
+import type { LanguagePlugin, IndexedSymbol } from "mini-coder";
+
+const plugin: LanguagePlugin = {
+  name: "python",
+  extensions: [".py", ".pyi"],
+  canIndex: (filePath) => filePath.endsWith(".py") || filePath.endsWith(".pyi"),
+  indexFile: (filePath, content) => {
+    // Shell out to a Python script that uses ast.parse()
+    const result = execSync("python3 extract_symbols.py", {
+      input: content,
+      encoding: "utf-8",
+    });
+    return JSON.parse(result) as IndexedSymbol[];
+  },
+};
+
+export default plugin;
+```
+
+The plugin author doesn't need to understand the agent loop, model client, or tool system. They implement `indexFile`, return `IndexedSymbol[]`, and everything else (code map, tools, system prompt) works automatically.
 
 #### `code-map.ts` — Skeleton Generator
 
@@ -298,7 +439,16 @@ At session start (before the first model call), the indexer runs:
 Session Start
   │
   ▼
-Build ProjectIndex (ts.createProgram → walk AST → build dependency graph)
+Discover and load plugins (built-in → local → npm)
+  │
+  ▼
+Scan workspace files, route each to matching plugin via canIndex()
+  │
+  ▼
+Build ProjectIndex (each plugin extracts symbols → merge into unified index)
+  │
+  ▼
+Resolve dependencies (plugins with resolveDependencies → fallback to import heuristics)
   │
   ▼
 Generate Code Map (compact skeleton, ~1000 tokens)
@@ -310,7 +460,7 @@ Inject Code Map into System Prompt
 Agent loop begins (model has full project overview from token 1)
 ```
 
-Indexing a typical project (50–100 files) takes <2 seconds with the TS compiler API. The index is held in memory and can be incrementally updated when `write_file` or `edit_file` modifies a file.
+Indexing a typical project (50–100 files) takes <2 seconds. The index is held in memory and can be incrementally updated when `write_file` or `edit_file` modifies a file. Plugin loading adds negligible overhead — plugins are loaded once at startup.
 
 ### 6.2 Two-Phase Context Flow
 
@@ -369,19 +519,21 @@ Same task with code map + surgical reads:
 
 ## 8. Implementation Phases
 
-### Phase 1: Code Map (MVP)
+### Phase 1: Plugin Interface + Code Map (MVP)
 
-- Implement `ast-walker.ts` — extract function/class/interface signatures
-- Implement `code-map.ts` — generate text skeleton
+- Define the `LanguagePlugin` interface in `src/indexer/types.ts`
+- Implement `plugin-loader.ts` — discover and load plugins
+- Implement the TypeScript plugin (`plugins/typescript.ts`) — extract function/class/interface signatures
+- Implement `code-map.ts` — language-agnostic text skeleton generator
 - Inject code map into system prompt at session start
 - No new tools yet — model uses existing `read_file` but with better orientation
 
-**Effort:** ~2–3 days
-**Impact:** Model makes better-targeted `read_file` calls, reducing unnecessary reads
+**Effort:** ~3–4 days
+**Impact:** Model makes better-targeted `read_file` calls; plugin interface is established from day one
 
 ### Phase 2: `read_symbol` Tool
 
-- Implement `project-index.ts` — queryable symbol index
+- Implement `project-index.ts` — language-agnostic queryable symbol index
 - Implement `read_symbol` tool — extract a single function/class body
 - Register tool in tool registry
 - Update system prompt to recommend `read_symbol` for code files
@@ -391,8 +543,8 @@ Same task with code map + surgical reads:
 
 ### Phase 3: Dependency Graph + Advanced Tools
 
-- Implement `dependency-graph.ts` — import/call/type edges
-- Implement `find_references` and `get_dependencies` tools
+- Add `resolveDependencies()` to the TypeScript plugin — import/call/type edges via the type checker
+- Implement `find_references` and `get_dependencies` tools (language-agnostic — they query the index)
 - Add dependency cone extraction to `read_symbol` (auto-include referenced types)
 
 **Effort:** ~3–5 days
@@ -400,13 +552,24 @@ Same task with code map + surgical reads:
 
 ### Phase 4: Incremental Updates + Polish
 
-- Re-index files after `write_file` / `edit_file` modifications
+- Re-index files after `write_file` / `edit_file` modifications (re-run plugin on changed file)
 - Rank symbols by relevance for token-budgeted code maps
 - Cache index to disk for faster session startup on repeat projects
 - Performance profiling and optimization
 
 **Effort:** ~2–3 days
 **Impact:** Production-ready, responsive to edits
+
+### Phase 5: Plugin Ecosystem
+
+- Publish the `LanguagePlugin` interface as a documented spec
+- Create a plugin template repository (boilerplate + tests + README)
+- Implement a second language plugin (Python via tree-sitter or `ast` module) as proof the interface works across languages
+- Add plugin documentation to README: how to install, develop, and publish plugins
+- Set up npm package discovery for `mini-coder-plugin-*` packages
+
+**Effort:** ~3–5 days
+**Impact:** Community can contribute language support; mini-coder becomes a platform
 
 ## 9. Trade-offs and Risks
 
@@ -424,6 +587,10 @@ Same task with code map + surgical reads:
 | Indexing too slow for large projects | Low | Incremental parsing; skip node_modules |
 | TS compiler API breaks on malformed code | Low | Graceful fallback to `read_file` |
 | Dependency cone too large for deeply connected code | Medium | Depth limit on dependency resolution (default: 2) |
+| Plugin quality variance across languages | Medium | Validate plugin output against `IndexedSymbol` schema; log warnings for malformed data |
+| Plugin version incompatibility | Low | Semver the `LanguagePlugin` interface; check plugin compatibility at load time |
+| Security of third-party plugins | Low | Plugins run in the same process — same trust model as npm packages. Document this clearly. Future: consider sandboxing via worker threads |
+| Plugin `resolveDependencies` missing | Expected | Core falls back to import-path heuristics — plugins without dependency resolution still provide code maps and `read_symbol` |
 
 ### 9.3 Fallback Strategy
 
@@ -434,6 +601,8 @@ The system always degrades gracefully:
 
 ## 10. Success Criteria
 
+### 10.1 Core Indexer
+
 - [ ] Code map generation works for the mini-coder project itself
 - [ ] `read_symbol` returns a single function body with correct line numbers
 - [ ] `find_references` returns accurate cross-file references
@@ -442,3 +611,13 @@ The system always degrades gracefully:
 - [ ] Agent completes the same tasks successfully with a 7B–14B model that previously required a frontier model
 - [ ] Indexing completes in <3 seconds for projects with 100 files
 - [ ] No regression: agent still works correctly on non-TypeScript files via `read_file`
+
+### 10.2 Plugin System
+
+- [ ] `LanguagePlugin` interface is defined, documented, and stable
+- [ ] TypeScript plugin passes all tests as the reference implementation
+- [ ] A second language plugin (Python) loads and produces valid `IndexedSymbol[]` output
+- [ ] Plugin loader discovers built-in, local, and npm plugins correctly
+- [ ] A plugin template repository exists with boilerplate, tests, and documentation
+- [ ] Agent works on a mixed-language project (e.g., TypeScript + Python) using both plugins simultaneously
+- [ ] Graceful degradation: files with no matching plugin fall through to standard `read_file`

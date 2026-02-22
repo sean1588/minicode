@@ -65,6 +65,17 @@ Code naturally separates **interface** (what a thing does) from **implementation
 
 This separation means we can send the entire project's interface (all signatures) at minimal cost, and only fetch implementations on demand. For a 100-file TypeScript project, the full signature map might be 1,000–1,500 tokens — compared to 50,000–100,000 tokens for all source code.
 
+### 2.5 These Properties Are Language-Universal
+
+The structural properties that enable context pruning — deterministic AST, explicit dependencies, signature-body separation — are not unique to TypeScript. They are shared by every mainstream programming language:
+
+- **Python** has `def`, `class`, type hints (`def process(data: list[int]) -> Result:`), and explicit `import` statements. Python's `ast` module parses these with certainty.
+- **Go** has strong typing, explicit interfaces, and a standard `go/parser` + `go/types` toolchain that provides full type-checked ASTs.
+- **Rust** has one of the richest type systems in mainstream use — traits, lifetimes, generics — all statically resolvable. `syn` and rust-analyzer provide deep AST access.
+- **Java/C#** have nominal type systems, explicit interfaces, and mature IDE-grade parsers (Eclipse JDT, Roslyn).
+
+The *degree* of type information varies — Python with no type hints provides less than TypeScript with strict mode — but the core operations (extract symbols, identify boundaries, resolve imports) work across all of them. This motivates a **plugin-based architecture**: a common interface for context pruning, with language-specific implementations that exploit each language's parser and type system to their fullest depth.
+
 ## 3. The Type-Aware Dependency Cone Hypothesis
 
 ### 3.1 Definition
@@ -131,7 +142,22 @@ Trains a small model to select relevant lines given a task description.
 - **Weaknesses:** Requires training data, requires inference of the skimmer model (additional compute and latency), may not preserve syntactic validity
 - **Examples:** SWE-Pruner (0.6B parameter skimmer)
 
-### 4.4 Hybrid: Structural + Task-Aware Ranking
+### 4.4 Platform Approach: Language-Specific Depth Behind a Common Interface
+
+An alternative to choosing a single pruning strategy is to define a **common interface** for context extraction and let language-specific implementations choose the best strategy for their ecosystem.
+
+This is distinct from the one-size-fits-all approach of tools like tree-sitter (which provides broad language coverage at the cost of depth) and from monolithic multi-language implementations (which don't scale). The platform approach acknowledges that:
+
+- The TypeScript compiler API provides richer information for TypeScript than any generic parser ever could
+- Python's `ast` module understands Python idioms (decorators, `*args`, comprehensions) that tree-sitter's generic grammar may flatten
+- Go's `go/types` package resolves interface satisfaction — critical for understanding Go codebases — in a way no external tool replicates
+- Rust's trait resolution and lifetime analysis require Rust-native tooling
+
+By defining a minimal plugin interface (`indexFile → IndexedSymbol[]`, optionally `resolveDependencies → DependencyEdge[]`), the platform achieves both breadth (any language can be supported) and depth (each language gets its best-in-class parser). The core agent — code map generation, tool dispatch, token budgeting — remains language-agnostic.
+
+This also enables a community-driven ecosystem: language experts can contribute plugins for their language without understanding the agent internals. The plugin interface acts as a clean contract between "language understanding" and "context optimization."
+
+### 4.5 Hybrid: Structural + Task-Aware Ranking
 
 The most promising direction combines structural extraction with lightweight task-aware ranking:
 
@@ -161,7 +187,17 @@ Structured pruning directly addresses all three:
 2. Every token in context is relevant to the task, maximizing attention utility
 3. Less noise means the model's limited capacity is spent on the task, not on filtering
 
-### 5.3 Scope Limitations
+### 5.3 The Plugin Multiplier
+
+A plugin-based architecture amplifies the small model viability thesis beyond any single language. Without plugins, the optimization is limited to TypeScript/JavaScript — a large ecosystem, but far from universal. With plugins:
+
+- A Python developer can run a 7B model locally against a Django codebase with the same context efficiency as TypeScript
+- A Go developer gets type-aware pruning using `go/types` — something no existing coding agent offers for Go
+- A Rust developer gets trait-resolution-aware context — critical for understanding Rust codebases where trait implementations are scattered across modules
+
+Each plugin multiplies the number of developers for whom small local models become viable. The community contribution model means language coverage grows without centralized development effort. If the plugin interface is well-designed, the ecosystem can grow faster than any single team could build.
+
+### 5.4 Scope Limitations
 
 This thesis applies to **scoped tasks** — edits to a specific function, implementation of a defined interface, localized bug fixes. It does not claim small models can match frontier models on:
 
@@ -198,7 +234,18 @@ The system needs heuristics for when structured pruning is insufficient:
 - When the model explicitly requests full file context after receiving a pruned view
 - When the dependency cone exceeds the token budget (suggesting the code is too interconnected for surgical extraction)
 
-### 6.5 Evaluation Methodology
+### 6.5 Plugin Interface Design: The Minimal Sufficient Contract
+
+Designing a plugin interface that works across languages with vastly different type systems is a non-trivial challenge. Key tensions include:
+
+- **Type expressiveness varies:** TypeScript has structural typing, Go has nominal interfaces, Rust has traits with lifetimes, Python has optional type hints. The `IndexedSymbol` schema must be expressive enough to capture useful type information from rich type systems while remaining meaningful when a language provides less.
+- **Dependency resolution depth varies:** The TypeScript type checker can resolve every reference in a project. Python's dynamic nature means some dependencies are only knowable at runtime. The plugin interface must handle this gracefully — `resolveDependencies` is optional for exactly this reason.
+- **Signature formats differ:** A Go function signature looks nothing like a Rust trait implementation. The `signature` field is a human-readable string, not a structured type — this is deliberate. The model reads signatures as text; it does not need a machine-parseable type representation.
+- **Project structure conventions differ:** TypeScript uses `import/export`, Python uses `import` with `__init__.py` packages, Go uses package-level visibility, Rust uses `mod` declarations. The plugin must map these to the common `DependencyEdge` format.
+
+The hypothesis is that a minimal interface — `indexFile` returning `IndexedSymbol[]` with `name`, `kind`, `signature`, `startLine`, `endLine` — captures sufficient information for effective context pruning across languages, even when some fields (like `dependencies`) are less precise in dynamically-typed languages. Empirical validation across multiple language plugins is needed to confirm or refine this.
+
+### 6.6 Evaluation Methodology
 
 Measuring the effectiveness of context pruning requires:
 - A benchmark of representative coding tasks with known-correct solutions
