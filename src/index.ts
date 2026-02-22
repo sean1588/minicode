@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import process from "node:process";
 

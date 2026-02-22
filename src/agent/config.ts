@@ -8,7 +8,11 @@ import dotenv from "dotenv";
 import type { AgentConfig } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+const envPath = __dirname.includes(`${path.sep}dist${path.sep}`)
+  ? path.resolve(__dirname, "../../../.env")
+  : path.resolve(__dirname, "../../.env");
+dotenv.config({ path: envPath });
+dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
   /\brm\s+-rf\s+\//i,
