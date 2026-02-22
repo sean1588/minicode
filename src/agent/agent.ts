@@ -2,6 +2,7 @@ import { buildSystemPrompt } from "../prompt/system-prompt.js";
 import { ensureStepWithinLimit } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
+import type { ProjectIndex } from "../indexer/types.js";
 import type { AgentConfig, ModelClient, ToolCall } from "./types.js";
 
 function stableSerialize(value: unknown): string {
@@ -26,17 +27,20 @@ export class CodingAgent {
   private readonly config: AgentConfig;
   private readonly modelClient: ModelClient;
   private readonly toolRegistry: ToolRegistry;
+  private readonly projectIndex: ProjectIndex | undefined;
 
   constructor(params: {
     config: AgentConfig;
     modelClient: ModelClient;
     toolRegistry: ToolRegistry;
     session?: Session;
+    projectIndex?: ProjectIndex;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
     this.toolRegistry = params.toolRegistry;
     this.session = params.session ?? new Session();
+    this.projectIndex = params.projectIndex;
   }
 
   getSession(): Session {
@@ -50,7 +54,12 @@ export class CodingAgent {
     });
 
     const toolSchemas = this.toolRegistry.getToolSchemas();
-    const systemPrompt = buildSystemPrompt(this.config, toolSchemas);
+    const codeMap = this.projectIndex?.getCodeMap();
+    const systemPrompt = buildSystemPrompt(
+      this.config,
+      toolSchemas,
+      codeMap,
+    );
     const recentToolCallFingerprints: string[] = [];
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {

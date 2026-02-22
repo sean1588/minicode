@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { test } from "node:test";
 
 import { CodingAgent } from "../src/agent/agent.js";
+import { buildProjectIndex } from "../src/indexer/project-index.js";
 import type {
   ModelClient,
   ModelResponse,
@@ -110,4 +112,57 @@ test("agent stops on repeated identical tool calls", async () => {
 
   const result = await agent.runTurn("Do something");
   assert.match(result, /repeated identical tool calls/);
+});
+
+test("agent omits code map when projectIndex is not provided", async () => {
+  let capturedSystem = "";
+  const spyClient: ModelClient = {
+    async chat(params) {
+      capturedSystem = params.system;
+      return {
+        text: "Done.",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  await agent.runTurn("Hello");
+  assert.ok(!capturedSystem.includes("[Project Code Map]"));
+});
+
+test("agent includes code map in system prompt when projectIndex is provided", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const projectIndex = await buildProjectIndex(root);
+
+  let capturedSystem = "";
+  const spyClient: ModelClient = {
+    async chat(params) {
+      capturedSystem = params.system;
+      return {
+        text: "Task complete.",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig(root),
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    projectIndex,
+  });
+
+  await agent.runTurn("List the project structure");
+  assert.ok(capturedSystem.includes("[Project Code Map]"));
+  assert.ok(capturedSystem.includes("CodingAgent"));
 });

@@ -1,0 +1,224 @@
+import ts from "typescript";
+
+import type { IndexedSymbol, LanguagePlugin } from "../types.js";
+
+const EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
+
+function getLine(sourceFile: ts.SourceFile, position: number): number {
+  const { line } = sourceFile.getLineAndCharacterOfPosition(position);
+  return line + 1;
+}
+
+function extractSignature(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+): string {
+  const fullText = node.getText(sourceFile);
+  const sourceText = sourceFile.getText();
+
+  const getSigEnd = (): number | null => {
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isMethodDeclaration(node) ||
+      ts.isConstructorDeclaration(node)
+    ) {
+      return node.body?.getStart(sourceFile) ?? null;
+    }
+    if (ts.isArrowFunction(node) && ts.isBlock(node.body)) {
+      return node.body.getStart(sourceFile);
+    }
+    if (ts.isClassDeclaration(node)) {
+      const text = sourceText.slice(node.getStart(), node.getEnd());
+      const braceIdx = text.indexOf("{");
+      return braceIdx >= 0 ? node.getStart() + braceIdx : null;
+    }
+    return null;
+  };
+
+  const sigEnd = getSigEnd();
+  if (sigEnd !== null) {
+    const sig = sourceText.slice(node.getStart(), sigEnd).trim();
+    return sig.endsWith(")") ? sig : sig;
+  }
+
+  return fullText;
+}
+
+function isExported(node: ts.Declaration): boolean {
+  if (ts.canHaveModifiers(node)) {
+    const mods = ts.getModifiers(node);
+    if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function createPlugin(): LanguagePlugin {
+  return {
+    name: "typescript",
+    extensions: EXTENSIONS,
+
+    canIndex(filePath: string): boolean {
+      const lower = filePath.toLowerCase();
+      return EXTENSIONS.some((ext) => lower.endsWith(ext));
+    },
+
+    indexFile(filePath: string, content: string): IndexedSymbol[] {
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        content,
+        ts.ScriptTarget.Latest,
+        true,
+      );
+
+      const symbols: IndexedSymbol[] = [];
+      let currentClass: string | null = null;
+
+      function visit(node: ts.Node): void {
+        if (ts.isFunctionDeclaration(node) && node.name) {
+          const name = node.name.getText(sourceFile);
+          const qualifiedName = currentClass ? `${currentClass}.${name}` : name;
+          symbols.push({
+            name,
+            qualifiedName,
+            kind: "function",
+            filePath,
+            startLine: getLine(sourceFile, node.getStart(sourceFile)),
+            endLine: getLine(sourceFile, node.getEnd()),
+            signature: extractSignature(node, sourceFile),
+            exported: isExported(node),
+            dependencies: [],
+          });
+          return;
+        }
+
+        if (ts.isClassDeclaration(node) && node.name) {
+          const name = node.name.getText(sourceFile);
+          const prevClass = currentClass;
+          currentClass = name;
+          symbols.push({
+            name,
+            qualifiedName: name,
+            kind: "class",
+            filePath,
+            startLine: getLine(sourceFile, node.getStart(sourceFile)),
+            endLine: getLine(sourceFile, node.getEnd()),
+            signature: extractSignature(node, sourceFile),
+            exported: isExported(node),
+            dependencies: [],
+          });
+          ts.forEachChild(node, visit);
+          currentClass = prevClass;
+          return;
+        }
+
+        if (ts.isConstructorDeclaration(node)) {
+          const qualifiedName = currentClass
+            ? `${currentClass}.constructor`
+            : "constructor";
+          symbols.push({
+            name: "constructor",
+            qualifiedName,
+            kind: "method",
+            filePath,
+            startLine: getLine(sourceFile, node.getStart(sourceFile)),
+            endLine: getLine(sourceFile, node.getEnd()),
+            signature: extractSignature(node, sourceFile),
+            exported: false,
+            dependencies: [],
+          });
+          return;
+        }
+
+        if (ts.isMethodDeclaration(node) && node.name) {
+          const name =
+            ts.isComputedPropertyName(node.name)
+              ? "[computed]"
+              : node.name.getText(sourceFile);
+          const qualifiedName = currentClass ? `${currentClass}.${name}` : name;
+          symbols.push({
+            name,
+            qualifiedName,
+            kind: "method",
+            filePath,
+            startLine: getLine(sourceFile, node.getStart(sourceFile)),
+            endLine: getLine(sourceFile, node.getEnd()),
+            signature: extractSignature(node, sourceFile),
+            exported: false,
+            dependencies: [],
+          });
+          return;
+        }
+
+        if (ts.isInterfaceDeclaration(node) && node.name) {
+          const name = node.name.getText(sourceFile);
+          symbols.push({
+            name,
+            qualifiedName: name,
+            kind: "interface",
+            filePath,
+            startLine: getLine(sourceFile, node.getStart(sourceFile)),
+            endLine: getLine(sourceFile, node.getEnd()),
+            signature: node.getText(sourceFile).split("\n")[0] ?? `interface ${name}`,
+            exported: isExported(node),
+            dependencies: [],
+          });
+          return;
+        }
+
+        if (ts.isTypeAliasDeclaration(node) && node.name) {
+          const name = node.name.getText(sourceFile);
+          symbols.push({
+            name,
+            qualifiedName: name,
+            kind: "type",
+            filePath,
+            startLine: getLine(sourceFile, node.getStart(sourceFile)),
+            endLine: getLine(sourceFile, node.getEnd()),
+            signature: node.getText(sourceFile).split("\n")[0] ?? `type ${name}`,
+            exported: isExported(node),
+            dependencies: [],
+          });
+          return;
+        }
+
+        if (ts.isVariableStatement(node)) {
+          const exported =
+            node.modifiers?.some(
+              (m) => m.kind === ts.SyntaxKind.ExportKeyword,
+            ) ?? false;
+          for (const decl of node.declarationList.declarations) {
+            const init = decl.initializer;
+            if (
+              ts.isIdentifier(decl.name) &&
+              init &&
+              (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+            ) {
+              const name = decl.name.getText(sourceFile);
+              symbols.push({
+                name,
+                qualifiedName: name,
+                kind: "function",
+                filePath,
+                startLine: getLine(sourceFile, decl.getStart(sourceFile)),
+                endLine: getLine(sourceFile, decl.getEnd()),
+                signature: extractSignature(decl, sourceFile),
+                exported,
+                dependencies: [],
+              });
+            }
+          }
+          return;
+        }
+
+        ts.forEachChild(node, visit);
+      }
+
+      visit(sourceFile);
+      return symbols;
+    },
+  };
+}
+
+export const typescriptPlugin: LanguagePlugin = createPlugin();
