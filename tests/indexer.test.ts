@@ -123,6 +123,29 @@ test("Code map includes Python symbols in mixed project", async () => {
   assert.ok(codeMap.includes("helper"), "code map should include Python symbol");
 });
 
+test("verify-index fixture exercises full indexing pipeline", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const fixtureRoot = path.join(root, "test-programs", "verify-index");
+  const index = await buildProjectIndex(fixtureRoot);
+
+  assert.ok(index.getSymbol("Processor"), "Processor class");
+  assert.ok(index.getSymbol("Processor.run"), "Processor.run method");
+  assert.ok(index.getSymbol("parse"), "parse function");
+  assert.ok(index.getSymbol("Task"), "Task interface");
+
+  const taskRefs = index.dependencyEdges.filter((e) => e.to === "Task");
+  assert.ok(taskRefs.length >= 2, "Task should have multiple references");
+
+  const implementsEdges = index.dependencyEdges.filter(
+    (e) => e.kind === "implements" && e.from === "Processor",
+  );
+  assert.ok(implementsEdges.length >= 1, "Processor should implement TaskRunner");
+
+  const codeMap = index.getCodeMap();
+  assert.ok(codeMap.includes("Processor"));
+  assert.ok(codeMap.includes("parseAndProcess"));
+});
+
 test("Code map generator produces expected format", () => {
   const symbols = typescriptPlugin.indexFile("sample.ts", SAMPLE_TS);
   const byFile = new Map([["sample.ts", symbols]]);
