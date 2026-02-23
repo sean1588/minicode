@@ -1,6 +1,8 @@
+import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
 import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ProjectIndex } from "../indexer/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectNonEmptyString } from "./helpers.js";
 
@@ -30,7 +32,10 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-export function createEditFileTool(config: AgentConfig): ToolDefinition {
+export function createEditFileTool(
+  config: AgentConfig,
+  projectIndex?: ProjectIndex,
+): ToolDefinition {
   return {
     name: "edit_file",
     description:
@@ -76,6 +81,12 @@ export function createEditFileTool(config: AgentConfig): ToolDefinition {
 
       const updated = current.replace(oldString, newString);
       await writeFile(filePath, updated, "utf8");
+
+      if (projectIndex) {
+        const relPath = path.relative(config.workspaceRoot, filePath);
+        projectIndex.reindexFile(relPath, updated);
+      }
+
       return `Updated "${requestedPath}" successfully.`;
     },
   };

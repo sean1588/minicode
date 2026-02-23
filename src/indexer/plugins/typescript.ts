@@ -1,6 +1,13 @@
+import path from "node:path";
+
 import ts from "typescript";
 
-import type { IndexedSymbol, LanguagePlugin } from "../types.js";
+import type {
+  DependencyEdge,
+  DependencyEdgeKind,
+  IndexedSymbol,
+  LanguagePlugin,
+} from "../types.js";
 
 const EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 
@@ -217,6 +224,152 @@ function createPlugin(): LanguagePlugin {
 
       visit(sourceFile);
       return symbols;
+    },
+
+    resolveDependencies(
+      symbols: IndexedSymbol[],
+      projectFiles: Map<string, string>,
+    ): DependencyEdge[] {
+      const symbolSet = new Set(symbols.map((s) => s.qualifiedName));
+      const edges: DependencyEdge[] = [];
+      const rootDir = "/project";
+
+      function addEdge(
+        from: string,
+        to: string,
+        kind: DependencyEdgeKind,
+      ): void {
+        if (symbolSet.has(to)) {
+          edges.push({ from, to, kind });
+        }
+      }
+
+      function collectTypeRefs(node: ts.Node, from: string): void {
+        if (ts.isTypeReferenceNode(node)) {
+          const name = node.typeName.getText();
+          addEdge(from, name, "references");
+          if (ts.isQualifiedName(node.typeName)) {
+            const left = node.typeName.left;
+            if (ts.isIdentifier(left)) {
+              addEdge(from, left.getText(), "references");
+            }
+          }
+        }
+        ts.forEachChild(node, (n) => collectTypeRefs(n, from));
+      }
+
+      function collectCalls(node: ts.Node, from: string): void {
+        if (ts.isCallExpression(node)) {
+          const expr = node.expression;
+          if (ts.isIdentifier(expr)) {
+            addEdge(from, expr.getText(), "calls");
+          } else if (ts.isNewExpression(expr) && expr.expression) {
+            if (ts.isIdentifier(expr.expression)) {
+              addEdge(from, expr.expression.getText(), "calls");
+            }
+          }
+        }
+        ts.forEachChild(node, (n) => collectCalls(n, from));
+      }
+
+      for (const [filePath, content] of projectFiles) {
+        const fullPath = path.join(rootDir, filePath);
+        const sourceFile = ts.createSourceFile(
+          fullPath,
+          content,
+          ts.ScriptTarget.Latest,
+          true,
+        );
+
+        let currentClass: string | null = null;
+
+        function visit(node: ts.Node): void {
+          if (ts.isClassDeclaration(node) && node.name) {
+            const name = node.name.getText(sourceFile);
+            const prevClass = currentClass;
+            currentClass = name;
+
+            if (symbolSet.has(name)) {
+              for (const clause of node.heritageClauses ?? []) {
+                for (const type of clause.types) {
+                  const expr = type.expression;
+                  const target =
+                    ts.isIdentifier(expr)
+                      ? expr.getText()
+                      : ts.isPropertyAccessExpression(expr)
+                        ? expr.expression.getText()
+                        : expr.getText();
+                  const kind: DependencyEdgeKind =
+                    clause.token === ts.SyntaxKind.ExtendsKeyword
+                      ? "extends"
+                      : "implements";
+                  addEdge(name, target, kind);
+                }
+              }
+            }
+
+            ts.forEachChild(node, visit);
+            currentClass = prevClass;
+            return;
+          }
+
+          if (ts.isConstructorDeclaration(node)) {
+            const from = currentClass ? `${currentClass}.constructor` : "constructor";
+            if (symbolSet.has(from)) {
+              collectTypeRefs(node, from);
+              collectCalls(node, from);
+            }
+            return;
+          }
+
+          if (ts.isMethodDeclaration(node) && node.name) {
+            const name =
+              ts.isComputedPropertyName(node.name)
+                ? "[computed]"
+                : node.name.getText(sourceFile);
+            const from = currentClass ? `${currentClass}.${name}` : name;
+            if (symbolSet.has(from)) {
+              collectTypeRefs(node, from);
+              collectCalls(node, from);
+            }
+            return;
+          }
+
+          if (ts.isFunctionDeclaration(node) && node.name) {
+            const name = node.name.getText(sourceFile);
+            const from = currentClass ? `${currentClass}.${name}` : name;
+            if (symbolSet.has(from)) {
+              collectTypeRefs(node, from);
+              collectCalls(node, from);
+            }
+            return;
+          }
+
+          if (ts.isVariableStatement(node)) {
+            for (const decl of node.declarationList.declarations) {
+              const init = decl.initializer;
+              if (
+                ts.isIdentifier(decl.name) &&
+                init &&
+                (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+              ) {
+                const name = decl.name.getText(sourceFile);
+                if (symbolSet.has(name)) {
+                  collectTypeRefs(decl, name);
+                  collectCalls(decl, name);
+                }
+              }
+            }
+            return;
+          }
+
+          ts.forEachChild(node, visit);
+        }
+
+        visit(sourceFile);
+      }
+
+      return edges;
     },
   };
 }

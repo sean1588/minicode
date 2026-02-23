@@ -38,17 +38,21 @@ async function collectSourceFiles(
   }
 }
 
-function createProjectIndex(
+export function createProjectIndex(
   symbols: Map<string, IndexedSymbol>,
   files: Map<string, IndexedSymbol[]>,
   dependencyEdges: DependencyEdge[],
   plugins: LanguagePlugin[],
+  projectFiles: Map<string, string>,
+  workspaceRoot: string,
 ): ProjectIndex {
   return {
     symbols,
     files,
     dependencyEdges,
     plugins,
+    projectFiles,
+    workspaceRoot,
 
     getSymbol(name: string): IndexedSymbol | undefined {
       const direct = symbols.get(name);
@@ -63,14 +67,73 @@ function createProjectIndex(
       return files.get(filePath) ?? [];
     },
 
-    getDependencyCone(symbolName: string, depth?: number): IndexedSymbol[] {
-      void symbolName;
-      void depth;
-      return [];
+    getDependencyCone(symbolName: string, depth = 2): IndexedSymbol[] {
+      const target = symbols.get(symbolName) ?? [...symbols.values()].find(
+        (s) => s.name === symbolName || s.qualifiedName === symbolName,
+      );
+      if (!target) return [];
+
+      const result = new Map<string, IndexedSymbol>();
+      result.set(target.qualifiedName, target);
+
+      let frontier = new Set<string>([target.qualifiedName]);
+      for (let d = 0; d < depth; d += 1) {
+        const next = new Set<string>();
+        for (const from of frontier) {
+          for (const edge of dependencyEdges) {
+            if (edge.from === from) {
+              const dep = symbols.get(edge.to) ?? [...symbols.values()].find(
+                (s) => s.qualifiedName === edge.to || s.name === edge.to,
+              );
+              if (dep && !result.has(dep.qualifiedName)) {
+                result.set(dep.qualifiedName, dep);
+                next.add(dep.qualifiedName);
+              }
+            }
+          }
+        }
+        frontier = next;
+      }
+
+      return [...result.values()];
     },
 
     getCodeMap(tokenBudget?: number): string {
-      return generateCodeMap(files, tokenBudget);
+      return generateCodeMap(files, tokenBudget, dependencyEdges);
+    },
+
+    reindexFile(filePath: string, content: string): void {
+      const relPath = path.isAbsolute(filePath)
+        ? path.relative(workspaceRoot, filePath)
+        : path.normalize(filePath);
+
+      const plugin = getPluginForFile(relPath, plugins);
+      if (!plugin) return;
+
+      const oldSymbols = files.get(relPath) ?? [];
+      for (const sym of oldSymbols) {
+        symbols.delete(sym.qualifiedName);
+      }
+      files.delete(relPath);
+
+      projectFiles.set(relPath, content);
+      const extracted = plugin.indexFile(relPath, content);
+
+      for (const sym of extracted) {
+        symbols.set(sym.qualifiedName, sym);
+        const existing = files.get(relPath) ?? [];
+        existing.push(sym);
+        files.set(relPath, existing);
+      }
+
+      for (const p of plugins) {
+        if (p.resolveDependencies) {
+          const allSymbols = [...symbols.values()];
+          const edges = p.resolveDependencies(allSymbols, projectFiles);
+          dependencyEdges.splice(0, dependencyEdges.length, ...edges);
+          break;
+        }
+      }
     },
   };
 }
@@ -89,6 +152,7 @@ export async function buildProjectIndex(
 
   const symbols = new Map<string, IndexedSymbol>();
   const files = new Map<string, IndexedSymbol[]>();
+  const projectFiles = new Map<string, string>();
 
   for (const relPath of sourceFiles) {
     const plugin = getPluginForFile(relPath, plugins);
@@ -102,6 +166,7 @@ export async function buildProjectIndex(
       continue;
     }
 
+    projectFiles.set(relPath, content);
     const extracted = plugin.indexFile(relPath, content);
 
     for (const sym of extracted) {
@@ -112,10 +177,22 @@ export async function buildProjectIndex(
     }
   }
 
+  let dependencyEdges: DependencyEdge[] = [];
+  for (const plugin of plugins) {
+    if (plugin.resolveDependencies) {
+      const allSymbols = [...symbols.values()];
+      const edges = plugin.resolveDependencies(allSymbols, projectFiles);
+      dependencyEdges = edges;
+      break;
+    }
+  }
+
   return createProjectIndex(
     symbols,
     files,
-    [],
+    dependencyEdges,
     plugins,
+    projectFiles,
+    root,
   );
 }

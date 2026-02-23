@@ -1,4 +1,4 @@
-import type { IndexedSymbol } from "./types.js";
+import type { DependencyEdge, IndexedSymbol } from "./types.js";
 
 const DEFAULT_TOKEN_BUDGET = 1500;
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -18,24 +18,45 @@ function formatSymbol(
   return `${indent}${symbol.kind} ${symbol.qualifiedName}\n${indent}  ${symbol.signature}`;
 }
 
+function isEntryPointFile(filePath: string): boolean {
+  return filePath === "src/index.ts" || filePath.endsWith("/index.ts");
+}
+
+function createSymbolRanker(edges: DependencyEdge[]) {
+  const refCount = new Map<string, number>();
+  for (const e of edges) {
+    refCount.set(e.to, (refCount.get(e.to) ?? 0) + 1);
+  }
+  return (a: IndexedSymbol, b: IndexedSymbol): number => {
+    if (a.exported !== b.exported) return a.exported ? -1 : 1;
+    const refA = refCount.get(a.qualifiedName) ?? 0;
+    const refB = refCount.get(b.qualifiedName) ?? 0;
+    if (refA !== refB) return refB - refA;
+    const entryA = isEntryPointFile(a.filePath) ? 1 : 0;
+    const entryB = isEntryPointFile(b.filePath) ? 1 : 0;
+    return entryB - entryA;
+  };
+}
+
 /**
  * Generate a compact code map from symbols grouped by file.
- * Exported symbols are included first; if over budget, truncate with a footer.
+ * Ranks symbols by: exported > high reference count > entry points.
+ * When over budget, truncates with a footer.
  */
 export function generateCodeMap(
   symbolsByFile: Map<string, IndexedSymbol[]>,
   tokenBudget = DEFAULT_TOKEN_BUDGET,
+  dependencyEdges?: DependencyEdge[],
 ): string {
   const lines: string[] = ["# Project Code Map", ""];
-
-  const exportedFirst = (a: IndexedSymbol, b: IndexedSymbol): number => {
-    if (a.exported !== b.exported) return a.exported ? -1 : 1;
-    return 0;
-  };
+  const rank = dependencyEdges
+    ? createSymbolRanker(dependencyEdges)
+    : (a: IndexedSymbol, b: IndexedSymbol) =>
+        (a.exported === b.exported ? 0 : a.exported ? -1 : 1);
 
   let totalTokens = estimateTokens(lines.join("\n"));
-  let truncatedFiles = 0;
   let truncatedSymbols = 0;
+  const filesWithTruncation = new Set<string>();
 
   const sortedFiles = [...symbolsByFile.keys()].sort();
 
@@ -43,7 +64,7 @@ export function generateCodeMap(
     const symbols = symbolsByFile.get(filePath);
     if (!symbols?.length) continue;
 
-    const sorted = [...symbols].sort(exportedFirst);
+    const sorted = [...symbols].sort(rank);
     let currentClass: string | null = null;
 
     const fileLines: string[] = [`  ${filePath}`];
@@ -62,6 +83,7 @@ export function generateCodeMap(
 
       if (totalTokens + blockTokens > tokenBudget) {
         truncatedSymbols += 1;
+        filesWithTruncation.add(filePath);
         continue;
       }
 
@@ -72,13 +94,15 @@ export function generateCodeMap(
     if (fileLines.length > 1) {
       lines.push(...fileLines, "");
     } else {
-      truncatedFiles += 1;
+      truncatedSymbols += symbols.length;
+      filesWithTruncation.add(filePath);
     }
   }
 
-  if (truncatedSymbols > 0 || truncatedFiles > 0) {
+  if (truncatedSymbols > 0) {
+    const fileCount = filesWithTruncation.size;
     lines.push(
-      `... and ${truncatedSymbols} more symbols in ${truncatedFiles} additional files`,
+      `... and ${truncatedSymbols} more symbols in ${fileCount} file${fileCount === 1 ? "" : "s"}`,
     );
   }
 

@@ -70,13 +70,28 @@ export function createReadSymbolTool(
           .map((line, i) => `${startLine + i}|${line}`)
           .join("\n");
 
-        return [
+        const parts: string[] = [
           `# ${symbol.qualifiedName} (${symbol.kind})`,
           `File: ${symbol.filePath}`,
           `Lines: ${symbol.startLine}-${symbol.endLine}`,
           "",
           formatted,
-        ].join("\n");
+        ];
+
+        const cone = projectIndex.getDependencyCone(name, 1);
+        const typeRefs = cone.filter(
+          (s) =>
+            s.qualifiedName !== symbol.qualifiedName &&
+            (s.kind === "interface" || s.kind === "type"),
+        );
+        if (typeRefs.length > 0) {
+          parts.push("", "## Referenced Types", "");
+          for (const ref of typeRefs) {
+            parts.push(`### ${ref.qualifiedName}`, ref.signature, "");
+          }
+        }
+
+        return parts.join("\n");
       }
 
       return [

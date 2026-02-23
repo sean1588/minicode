@@ -78,7 +78,21 @@ test("read_symbol appears in tool registry schemas when projectIndex provided", 
 
   assert.ok(readSymbol, "read_symbol should be in schemas");
   assert.ok(readSymbol!.description.includes("function") || readSymbol!.description.includes("class"));
-  assert.ok(readSymbol!.input_schema.properties?.name);
+  const props = readSymbol!.input_schema.properties as Record<string, unknown> | undefined;
+  assert.ok(props && "name" in props);
+});
+
+test("read_symbol includes Referenced Types section for parseResponse", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const config = createTestAgentConfig(root);
+  const projectIndex = await buildProjectIndex(root);
+  const tool = createReadSymbolTool(config, projectIndex);
+
+  const result = await tool.execute({ name: "parseResponse" });
+
+  assert.ok(result.includes("## Referenced Types"));
+  assert.ok(result.includes("ModelResponse"));
+  assert.ok(result.includes("ToolCall"));
 });
 
 test("read_symbol is not in tool registry when projectIndex is undefined", () => {

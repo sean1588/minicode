@@ -56,6 +56,7 @@ export function buildSystemPrompt(
     "",
     "[Tool Usage Guidelines]",
     "- Use read_symbol to read specific functions or classes by name — it is more efficient than read_file for code.",
+    "- Use find_references to see what uses a symbol; use get_dependencies to see what a symbol depends on.",
     "- Use read_file for non-code files or when you need the full file.",
     "- Always read a file before editing it.",
     "- Use search to find relevant code before making changes.",

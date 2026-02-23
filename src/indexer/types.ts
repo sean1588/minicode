@@ -65,9 +65,14 @@ export interface ProjectIndex {
   files: Map<string, IndexedSymbol[]>;
   dependencyEdges: DependencyEdge[];
   plugins: LanguagePlugin[];
+  projectFiles: Map<string, string>;
+  workspaceRoot: string;
 
   getSymbol(name: string): IndexedSymbol | undefined;
   getSymbolsInFile(filePath: string): IndexedSymbol[];
   getDependencyCone(symbolName: string, depth?: number): IndexedSymbol[];
   getCodeMap(tokenBudget?: number): string;
+
+  /** Re-index a file after it has been modified. Updates symbols and dependency edges. */
+  reindexFile(filePath: string, content: string): void;
 }
