@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
+import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createEditFileTool } from "../src/tools/edit-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { createTestAgentConfig } from "./test-utils.js";
@@ -47,6 +48,35 @@ test("edit_file fails when old_string is not unique", async () => {
 
   const unchanged = await readFile(filePath, "utf8");
   assert.equal(unchanged, "repeat repeat repeat");
+});
+
+test("edit_file triggers reindex when projectIndex provided", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const { mkdir } = await import("node:fs/promises");
+  const filePath = path.join(workspaceRoot, "src", "util.ts");
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const initialContent = `export function add(a: number, b: number): number {
+  return a + b;
+}
+`;
+  await writeFile(filePath, initialContent, "utf8");
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const before = index.getSymbol("add");
+  assert.ok(before?.signature.includes("a: number, b: number"));
+
+  const editTool = createEditFileTool(
+    createTestAgentConfig(workspaceRoot),
+    index,
+  );
+  await editTool.execute({
+    path: "src/util.ts",
+    old_string: "a: number, b: number",
+    new_string: "a: number, b: number, c?: number",
+  });
+
+  const after = index.getSymbol("add");
+  assert.ok(after?.signature.includes("c?: number"), "index should reflect edit");
 });
 
 test("read_file supports negative offset and line limits", async () => {

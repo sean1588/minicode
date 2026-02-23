@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
@@ -180,13 +182,17 @@ test("ProjectIndex getSymbolsInFile returns empty for non-existent file", async 
   assert.equal(symbols.length, 0);
 });
 
-test("ProjectIndex getDependencyCone returns empty in Phase 1", async () => {
+test("ProjectIndex getDependencyCone returns target and dependencies", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const index = await buildProjectIndex(root);
 
-  const cone = index.getDependencyCone("CodingAgent.runTurn", 2);
+  const cone = index.getDependencyCone("parseResponse", 1);
   assert.ok(Array.isArray(cone));
-  assert.equal(cone.length, 0);
+  assert.ok(cone.length >= 1, "should include target symbol");
+  assert.ok(
+    cone.some((s) => s.qualifiedName === "parseResponse"),
+    "should include parseResponse",
+  );
 });
 
 test("Code map handles empty symbols map", () => {
@@ -204,4 +210,35 @@ test("Code map nests methods under class", () => {
   assert.ok(map.includes("runTurn"));
   const runTurnLine = map.split("\n").find((l) => l.includes("runTurn"));
   assert.ok(runTurnLine?.startsWith("    "), "method should be indented under class");
+});
+
+test("reindexFile updates symbols and code map after file change", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "mini-coder-reindex-"));
+  const samplePath = path.join(workspaceRoot, "sample.ts");
+  const initialContent = `export function greet(name: string): string {
+  return \`Hello, \${name}\`;
+}
+`;
+  await writeFile(samplePath, initialContent, "utf8");
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const sym = index.getSymbol("greet");
+  assert.ok(sym, "should find greet");
+  assert.ok(sym!.signature.includes("name: string"), "initial signature");
+
+  const updatedContent = `export function greet(name: string, title?: string): string {
+  return title ? \`Hello, \${title} \${name}\` : \`Hello, \${name}\`;
+}
+`;
+  index.reindexFile("sample.ts", updatedContent);
+
+  const updatedSym = index.getSymbol("greet");
+  assert.ok(updatedSym, "should still find greet");
+  assert.ok(
+    updatedSym!.signature.includes("title?: string"),
+    "signature should reflect updated params",
+  );
+
+  const codeMap = index.getCodeMap();
+  assert.ok(codeMap.includes("title?: string"), "code map should reflect new signature");
 });

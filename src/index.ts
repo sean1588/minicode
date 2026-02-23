@@ -1,12 +1,20 @@
 #!/usr/bin/env node
+import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import process from "node:process";
 
 import { CodingAgent } from "./agent/agent.js";
 import { loadAgentConfig } from "./agent/config.js";
+import {
+  computeFileHashes,
+  loadIndex,
+  saveIndex,
+} from "./indexer/cache.js";
 import { buildProjectIndex } from "./indexer/project-index.js";
 import { createModelClient } from "./model/client.js";
 import { ToolRegistry } from "./tools/registry.js";
+
+const CACHE_DIR = ".mini-coder/cache";
 
 function printBanner(): void {
   console.log("mini-coder MVP");
@@ -18,7 +26,15 @@ async function runSingleTurn(task: string): Promise<void> {
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   try {
-    projectIndex = await buildProjectIndex(config.workspaceRoot);
+    const cacheDir = path.join(config.workspaceRoot, CACHE_DIR);
+    const fileHashes = await computeFileHashes(config.workspaceRoot);
+    const cached = await loadIndex(cacheDir, fileHashes);
+    if (cached) {
+      projectIndex = cached;
+    } else {
+      projectIndex = await buildProjectIndex(config.workspaceRoot);
+      await saveIndex(projectIndex, cacheDir, fileHashes);
+    }
   } catch {
     projectIndex = undefined;
   }
@@ -39,7 +55,15 @@ async function runInteractive(): Promise<void> {
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   try {
-    projectIndex = await buildProjectIndex(config.workspaceRoot);
+    const cacheDir = path.join(config.workspaceRoot, CACHE_DIR);
+    const fileHashes = await computeFileHashes(config.workspaceRoot);
+    const cached = await loadIndex(cacheDir, fileHashes);
+    if (cached) {
+      projectIndex = cached;
+    } else {
+      projectIndex = await buildProjectIndex(config.workspaceRoot);
+      await saveIndex(projectIndex, cacheDir, fileHashes);
+    }
   } catch {
     projectIndex = undefined;
   }

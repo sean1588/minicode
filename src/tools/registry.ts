@@ -1,6 +1,8 @@
 import type { AgentConfig, ToolDefinition, ToolSchema } from "../agent/types.js";
 import type { ProjectIndex } from "../indexer/types.js";
 import { createEditFileTool } from "./edit-file.js";
+import { createFindReferencesTool } from "./find-references.js";
+import { createGetDependenciesTool } from "./get-dependencies.js";
 import { createListFilesTool } from "./list-files.js";
 import { createReadFileTool } from "./read-file.js";
 import { createReadSymbolTool } from "./read-symbol.js";
@@ -41,14 +43,16 @@ export class ToolRegistry {
   ): ToolRegistry {
     const tools: ToolDefinition[] = [
       createReadFileTool(config),
-      createWriteFileTool(config),
-      createEditFileTool(config),
+      createWriteFileTool(config, projectIndex),
+      createEditFileTool(config, projectIndex),
       createSearchTool(config),
       createListFilesTool(config),
       createRunCommandTool(config),
     ];
     if (projectIndex) {
       tools.push(createReadSymbolTool(config, projectIndex));
+      tools.push(createFindReferencesTool(projectIndex));
+      tools.push(createGetDependenciesTool(projectIndex));
     }
     return new ToolRegistry(tools);
   }
