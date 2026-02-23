@@ -1,7 +1,9 @@
 import type { AgentConfig, ToolDefinition, ToolSchema } from "../agent/types.js";
+import type { ProjectIndex } from "../indexer/types.js";
 import { createEditFileTool } from "./edit-file.js";
 import { createListFilesTool } from "./list-files.js";
 import { createReadFileTool } from "./read-file.js";
+import { createReadSymbolTool } from "./read-symbol.js";
 import { createRunCommandTool } from "./run-command.js";
 import { createSearchTool } from "./search.js";
 import { createWriteFileTool } from "./write-file.js";
@@ -33,15 +35,22 @@ export class ToolRegistry {
     }
   }
 
-  static createDefault(config: AgentConfig): ToolRegistry {
-    return new ToolRegistry([
+  static createDefault(
+    config: AgentConfig,
+    projectIndex?: ProjectIndex,
+  ): ToolRegistry {
+    const tools: ToolDefinition[] = [
       createReadFileTool(config),
       createWriteFileTool(config),
       createEditFileTool(config),
       createSearchTool(config),
       createListFilesTool(config),
       createRunCommandTool(config),
-    ]);
+    ];
+    if (projectIndex) {
+      tools.push(createReadSymbolTool(config, projectIndex));
+    }
+    return new ToolRegistry(tools);
   }
 
   getToolSchemas(): ToolSchema[] {

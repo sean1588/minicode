@@ -55,6 +55,8 @@ export function buildSystemPrompt(
     renderToolList(tools),
     "",
     "[Tool Usage Guidelines]",
+    "- Use read_symbol to read specific functions or classes by name — it is more efficient than read_file for code.",
+    "- Use read_file for non-code files or when you need the full file.",
     "- Always read a file before editing it.",
     "- Use search to find relevant code before making changes.",
     "- Prefer edit_file over write_file for existing files.",
