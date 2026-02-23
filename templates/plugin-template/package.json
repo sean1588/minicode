@@ -1,0 +1,21 @@
+{
+  "name": "mini-coder-plugin-template",
+  "version": "0.1.0",
+  "description": "Template for mini-coder language plugins",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "tsx": "^4.21.0"
+  },
+  "files": [
+    "dist"
+  ]
+}

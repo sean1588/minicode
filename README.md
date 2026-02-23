@@ -16,6 +16,42 @@ MVP autonomous coding agent CLI implemented from `plans/PRD.md` and
   - `search` (ripgrep, grep fallback)
   - `list_files`
   - `run_command`
+- **Context optimization:** Code map in system prompt, `read_symbol`, `find_references`, `get_dependencies`
+- **Plugin system:** Extensible language support (TypeScript, Python built-in)
+
+## Context Optimization
+
+mini-coder reduces token usage by indexing your project and providing targeted tools:
+
+- **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
+- **`read_symbol`** — Read a specific function or class by name, with referenced types.
+- **`find_references`** — Find all symbols that reference a given symbol.
+- **`get_dependencies`** — Get the dependency cone of a symbol.
+
+The index is cached in `.mini-coder/cache/` for faster startup on subsequent runs.
+
+## Plugin System
+
+### Supported Languages
+
+| Language | Extensions | Plugin |
+|----------|------------|--------|
+| TypeScript/JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | Built-in |
+| Python | `.py` | Built-in |
+
+### Installing Plugins
+
+**npm:** Add a package matching `mini-coder-plugin-*` to your dependencies:
+
+```bash
+npm install mini-coder-plugin-python  # example
+```
+
+**Local:** Place a `.js` file in `<workspace>/.mini-coder/plugins/`. It must export a `LanguagePlugin` (default or named `plugin`).
+
+### Creating Plugins
+
+See [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) for the full specification. Quick start: copy `templates/plugin-template/` and implement `indexFile()`.
 
 ## Requirements
 
