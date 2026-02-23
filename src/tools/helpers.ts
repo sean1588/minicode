@@ -9,6 +9,20 @@ export function expectNonEmptyString(
   return value;
 }
 
+export function expectOptionalBoolean(
+  input: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  const value = input[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`Input "${key}" must be a boolean when provided.`);
+  }
+  return value;
+}
+
 export function expectOptionalNumber(
   input: Record<string, unknown>,
   key: string,

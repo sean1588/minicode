@@ -16,13 +16,13 @@ function printBanner(): void {
 async function runSingleTurn(task: string): Promise<void> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
-  const toolRegistry = ToolRegistry.createDefault(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   try {
     projectIndex = await buildProjectIndex(config.workspaceRoot);
   } catch {
     projectIndex = undefined;
   }
+  const toolRegistry = ToolRegistry.createDefault(config, projectIndex);
   const agent = new CodingAgent({
     config,
     modelClient,
@@ -37,13 +37,13 @@ async function runSingleTurn(task: string): Promise<void> {
 async function runInteractive(): Promise<void> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
-  const toolRegistry = ToolRegistry.createDefault(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   try {
     projectIndex = await buildProjectIndex(config.workspaceRoot);
   } catch {
     projectIndex = undefined;
   }
+  const toolRegistry = ToolRegistry.createDefault(config, projectIndex);
   const agent = new CodingAgent({
     config,
     modelClient,
