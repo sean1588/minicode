@@ -16,7 +16,8 @@
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --max-warnings=0",
-    "test": "node --test --import tsx \"tests/**/*.test.ts\""
+    "test": "node --test --import tsx \"tests/**/*.test.ts\"",
+    "verify-index": "node --import tsx test-programs/verify-index/verify.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",
