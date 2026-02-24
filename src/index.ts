@@ -57,6 +57,7 @@ async function runInteractive(
     toolRegistry,
     verbose,
     ...(projectIndex !== undefined ? { projectIndex } : {}),
+    onProgress: (msg) => console.error(`  ${msg}`),
   });
 
   printBanner();
