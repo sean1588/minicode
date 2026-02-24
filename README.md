@@ -161,10 +161,17 @@ Interactive mode:
 npm run dev
 ```
 
-Single task mode:
+With an initial task (runs the task as the first message, then stays interactive for follow-up):
 
 ```bash
 npm run dev -- "Add error handling to src/api.ts and run tests"
+```
+
+Verbose mode (log prompts, model responses, and tool invocations to stderr):
+
+```bash
+npm run dev -- --verbose "Fix the bug"
+npm run dev -- -v
 ```
 
 Build and run compiled output:

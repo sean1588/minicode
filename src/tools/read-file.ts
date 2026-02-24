@@ -40,7 +40,7 @@ export function createReadFileTool(config: AgentConfig): ToolDefinition {
   return {
     name: "read_file",
     description:
-      "Read the contents of a file and return it with line numbers.",
+      "Read file contents with line numbers. For large files, use offset and limit to read only needed lines. Prefer read_symbol for code files when you need a specific function or class.",
     inputSchema: {
       type: "object",
       properties: {

@@ -16,12 +16,24 @@ import { ToolRegistry } from "./tools/registry.js";
 
 const CACHE_DIR = ".mini-coder/cache";
 
+function parseArgs(argv: string[]): { verbose: boolean; task: string } {
+  const args = argv.slice(2);
+  const verbose =
+    args.includes("--verbose") || args.includes("-v");
+  const filtered = args.filter((a) => a !== "--verbose" && a !== "-v");
+  const task = filtered.join(" ").trim();
+  return { verbose, task };
+}
+
 function printBanner(): void {
   console.log("mini-coder MVP");
   console.log('Type your request, or "/exit" to quit.');
 }
 
-async function runSingleTurn(task: string): Promise<void> {
+async function runInteractive(
+  verbose: boolean,
+  initialTask?: string,
+): Promise<void> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
@@ -43,35 +55,7 @@ async function runSingleTurn(task: string): Promise<void> {
     config,
     modelClient,
     toolRegistry,
-    ...(projectIndex !== undefined ? { projectIndex } : {}),
-  });
-
-  const response = await agent.runTurn(task);
-  console.log(response);
-}
-
-async function runInteractive(): Promise<void> {
-  const config = await loadAgentConfig();
-  const modelClient = createModelClient(config);
-  let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
-  try {
-    const cacheDir = path.join(config.workspaceRoot, CACHE_DIR);
-    const fileHashes = await computeFileHashes(config.workspaceRoot);
-    const cached = await loadIndex(cacheDir, fileHashes);
-    if (cached) {
-      projectIndex = cached;
-    } else {
-      projectIndex = await buildProjectIndex(config.workspaceRoot);
-      await saveIndex(projectIndex, cacheDir, fileHashes);
-    }
-  } catch {
-    projectIndex = undefined;
-  }
-  const toolRegistry = ToolRegistry.createDefault(config, projectIndex);
-  const agent = new CodingAgent({
-    config,
-    modelClient,
-    toolRegistry,
+    verbose,
     ...(projectIndex !== undefined ? { projectIndex } : {}),
   });
 
@@ -79,6 +63,9 @@ async function runInteractive(): Promise<void> {
   console.log(`Workspace: ${config.workspaceRoot}`);
   console.log(`Provider: ${config.modelProvider}`);
   console.log(`Model: ${config.model}`);
+  if (verbose) {
+    console.log("Verbose: enabled");
+  }
 
   const rl = createInterface({
     input: process.stdin,
@@ -95,8 +82,17 @@ async function runInteractive(): Promise<void> {
     rl.close();
   });
 
+  let pendingInput: string | null = initialTask ?? null;
+
   while (!shuttingDown) {
-    const input = await rl.question("\nYou> ");
+    const input =
+      pendingInput !== null
+        ? pendingInput
+        : await rl.question("\nYou> ");
+    if (pendingInput !== null) {
+      console.log(`\nYou> ${input}`);
+    }
+    pendingInput = null;
     const trimmed = input.trim();
     if (trimmed.length === 0) {
       continue;
@@ -108,6 +104,7 @@ async function runInteractive(): Promise<void> {
 
     if (trimmed === "/help") {
       console.log('Commands: "/help", "/exit"');
+      console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
       continue;
     }
 
@@ -125,13 +122,8 @@ async function runInteractive(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const cliTask = process.argv.slice(2).join(" ").trim();
-  if (cliTask.length > 0) {
-    await runSingleTurn(cliTask);
-    return;
-  }
-
-  await runInteractive();
+  const { verbose, task } = parseArgs(process.argv);
+  await runInteractive(verbose, task.length > 0 ? task : undefined);
 }
 
 main().catch((error: unknown) => {

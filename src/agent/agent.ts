@@ -22,12 +22,15 @@ function signatureForToolCall(toolCall: ToolCall): string {
   return `${toolCall.name}:${stableSerialize(toolCall.input)}`;
 }
 
+const VERBOSE_SEP = "─".repeat(60);
+
 export class CodingAgent {
   private readonly session: Session;
   private readonly config: AgentConfig;
   private readonly modelClient: ModelClient;
   private readonly toolRegistry: ToolRegistry;
   private readonly projectIndex: ProjectIndex | undefined;
+  private readonly verbose: boolean;
 
   constructor(params: {
     config: AgentConfig;
@@ -35,12 +38,14 @@ export class CodingAgent {
     toolRegistry: ToolRegistry;
     session?: Session;
     projectIndex?: ProjectIndex;
+    verbose?: boolean;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
     this.toolRegistry = params.toolRegistry;
     this.session = params.session ?? new Session();
     this.projectIndex = params.projectIndex;
+    this.verbose = params.verbose ?? false;
   }
 
   getSession(): Session {
@@ -69,19 +74,45 @@ export class CodingAgent {
         this.config.keepRecentMessages,
       );
 
+      const messages = this.session.getMessages();
+      if (this.verbose) {
+        console.error(`\n${VERBOSE_SEP}`);
+        console.error(`[verbose] Request (step ${step})`);
+        console.error(`${VERBOSE_SEP}`);
+        console.error("\n[System Prompt]\n", systemPrompt);
+        console.error("\n[Messages]\n", JSON.stringify(messages, null, 2));
+        console.error(VERBOSE_SEP);
+      }
+
       const response = await this.modelClient.chat({
         model: this.config.model,
         system: systemPrompt,
-        messages: this.session.getMessages(),
+        messages,
         tools: toolSchemas,
         maxTokens: this.config.maxTokens,
       });
+
+      if (this.verbose) {
+        console.error(`\n${VERBOSE_SEP}`);
+        console.error("[verbose] Response");
+        console.error(`${VERBOSE_SEP}`);
+        console.error("Text:", response.text);
+        console.error("Tool calls:", response.toolCalls.length);
+        if (response.toolCalls.length > 0) {
+          console.error(
+            "Tools:",
+            response.toolCalls.map((t) => `${t.name}(${JSON.stringify(t.input)})`).join(", "),
+          );
+        }
+        console.error("Usage:", response.usage);
+        console.error(VERBOSE_SEP);
+      }
 
       if (response.toolCalls.length === 0) {
         const finalText =
           response.text.length > 0
             ? response.text
-            : "Task complete. No further tool calls were needed.";
+            : "The model returned no response or tool calls. If you asked for code changes or other work, try rephrasing your request or using a model with stronger tool-use support.";
         this.session.addMessage({
           role: "assistant",
           content: finalText,
@@ -118,10 +149,19 @@ export class CodingAgent {
           return loopMessage;
         }
 
+        if (this.verbose) {
+          console.error(`\n${VERBOSE_SEP}`);
+          console.error(`[verbose] Tool: ${toolCall.name}`);
+          console.error("Arguments:", JSON.stringify(toolCall.input, null, 2));
+        }
         const toolResult = await this.toolRegistry.execute(
           toolCall.name,
           toolCall.input,
         );
+        if (this.verbose) {
+          console.error("Output:", toolResult);
+          console.error(VERBOSE_SEP);
+        }
         this.session.addMessage({
           role: "tool",
           toolCallId: toolCall.id,
