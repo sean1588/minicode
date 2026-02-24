@@ -22,7 +22,17 @@ function signatureForToolCall(toolCall: ToolCall): string {
   return `${toolCall.name}:${stableSerialize(toolCall.input)}`;
 }
 
+function formatToolCallForProgress(toolCall: ToolCall, maxArgsLen = 100): string {
+  const argsStr = JSON.stringify(toolCall.input);
+  const truncated =
+    argsStr.length > maxArgsLen
+      ? argsStr.slice(0, maxArgsLen) + "..."
+      : argsStr;
+  return `${toolCall.name}(${truncated})`;
+}
+
 const VERBOSE_SEP = "─".repeat(60);
+const PROGRESS_THINKING_MAX = 200;
 
 export class CodingAgent {
   private readonly session: Session;
@@ -31,6 +41,7 @@ export class CodingAgent {
   private readonly toolRegistry: ToolRegistry;
   private readonly projectIndex: ProjectIndex | undefined;
   private readonly verbose: boolean;
+  private readonly onProgress: ((message: string) => void) | undefined;
 
   constructor(params: {
     config: AgentConfig;
@@ -39,6 +50,7 @@ export class CodingAgent {
     session?: Session;
     projectIndex?: ProjectIndex;
     verbose?: boolean;
+    onProgress?: (message: string) => void;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
@@ -46,6 +58,7 @@ export class CodingAgent {
     this.session = params.session ?? new Session();
     this.projectIndex = params.projectIndex;
     this.verbose = params.verbose ?? false;
+    this.onProgress = params.onProgress;
   }
 
   getSession(): Session {
@@ -120,6 +133,14 @@ export class CodingAgent {
         return finalText;
       }
 
+      if (this.onProgress && response.text.length > 0) {
+        const truncated =
+          response.text.length > PROGRESS_THINKING_MAX
+            ? response.text.slice(0, PROGRESS_THINKING_MAX) + "..."
+            : response.text;
+        this.onProgress(`thinking: ${truncated}`);
+      }
+
       this.session.addMessage({
         role: "assistant",
         content: response.text,
@@ -149,6 +170,9 @@ export class CodingAgent {
           return loopMessage;
         }
 
+        if (this.onProgress) {
+          this.onProgress(`tool_call: ${formatToolCallForProgress(toolCall)}`);
+        }
         if (this.verbose) {
           console.error(`\n${VERBOSE_SEP}`);
           console.error(`[verbose] Tool: ${toolCall.name}`);
