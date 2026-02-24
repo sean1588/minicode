@@ -98,6 +98,7 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>): Promise<string> => {
+      const maxOutputChars = 12_000;
       const pattern = expectNonEmptyString(input, "pattern");
       const requestedPath = getOptionalString(input, "path") ?? ".";
       const include = getOptionalString(input, "include");
@@ -113,6 +114,22 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
         "--color",
         "never",
         "--no-heading",
+        "--binary-files",
+        "without-match",
+        "--glob",
+        "!.mini-coder/**",
+        "--glob",
+        "!node_modules/**",
+        "--glob",
+        "!package-lock.json",
+        "--glob",
+        "!yarn.lock",
+        "--glob",
+        "!pnpm-lock.yaml",
+        "--glob",
+        "!*.min.js",
+        "-m",
+        "50",
       ];
       if (include) {
         rgArgs.push("--glob", include);
@@ -133,7 +150,11 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
         if (result.code !== 0) {
           throw new Error(result.stderr || "ripgrep search failed.");
         }
-        return result.stdout.trimEnd();
+        const output = result.stdout.trimEnd();
+        if (output.length > maxOutputChars) {
+          return `${output.slice(0, maxOutputChars)}\n\n[... output truncated, ${output.length - maxOutputChars} more chars ...]`;
+        }
+        return output;
       } catch (error) {
         const commandError = error as NodeJS.ErrnoException;
         if (commandError.code !== "ENOENT") {
@@ -142,7 +163,19 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
       }
 
       // Minimal fallback for systems without rg installed.
-      const grepArgs = ["-RIn", pattern, relativeTarget];
+      const grepArgs = [
+        "-RIn",
+        "--exclude-dir=.mini-coder",
+        "--exclude-dir=node_modules",
+        "--exclude-dir=.git",
+        "--exclude=package-lock.json",
+        "--exclude=yarn.lock",
+        "--exclude=pnpm-lock.yaml",
+        "-m",
+        "50",
+        pattern,
+        relativeTarget,
+      ];
       const fallbackResult = await runCommand(
         "grep",
         grepArgs,
@@ -155,7 +188,11 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
       if (fallbackResult.code !== 0) {
         throw new Error(fallbackResult.stderr || "grep search failed.");
       }
-      return fallbackResult.stdout.trimEnd();
+      const fallbackOutput = fallbackResult.stdout.trimEnd();
+      if (fallbackOutput.length > maxOutputChars) {
+        return `${fallbackOutput.slice(0, maxOutputChars)}\n\n[... output truncated, ${fallbackOutput.length - maxOutputChars} more chars ...]`;
+      }
+      return fallbackOutput;
     },
   };
 }
