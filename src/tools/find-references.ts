@@ -1,6 +1,11 @@
 import type { ToolDefinition } from "../agent/types.js";
 import type { ProjectIndex } from "../indexer/types.js";
-import { expectNonEmptyString } from "./helpers.js";
+import {
+  expectNonEmptyString,
+  expectOptionalNumber,
+} from "./helpers.js";
+
+const DEFAULT_LIMIT = 50;
 
 export function createFindReferencesTool(
   projectIndex: ProjectIndex,
@@ -15,12 +20,24 @@ export function createFindReferencesTool(
           type: "string",
           description: "Symbol name or qualified name to find references for.",
         },
+        skip: {
+          type: "number",
+          description:
+            "Number of results to skip (for pagination). Default 0.",
+        },
+        limit: {
+          type: "number",
+          description:
+            "Max number of results to return. Default 50.",
+        },
       },
       required: ["name"],
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>): Promise<string> => {
       const name = expectNonEmptyString(input, "name");
+      const skip = Math.max(0, expectOptionalNumber(input, "skip") ?? 0);
+      const limit = Math.max(1, Math.min(100, expectOptionalNumber(input, "limit") ?? DEFAULT_LIMIT));
 
       const symbol = projectIndex.getSymbol(name);
       if (!symbol) {
@@ -35,15 +52,15 @@ export function createFindReferencesTool(
         return `No references found for "${name}".`;
       }
 
-      const maxItems = 50;
-      const shown = refs.slice(0, maxItems);
+      const shown = refs.slice(skip, skip + limit);
       const lines = shown.map((e) => `- ${e.from} (${e.kind})`);
+      const remaining = refs.length - skip - shown.length;
       const footer =
-        refs.length > maxItems
-          ? `\n... and ${refs.length - maxItems} more`
+        remaining > 0
+          ? `\n... and ${remaining} more (use skip: ${skip + limit}, limit: ${limit} for next page)`
           : "";
       return [
-        `# References to ${symbol.qualifiedName}`,
+        `# References to ${symbol.qualifiedName} (${refs.length} total)`,
         "",
         ...lines,
         footer,
