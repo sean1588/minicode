@@ -110,8 +110,11 @@ async function runInteractive(
     }
 
     try {
-      const response = await agent.runTurn(trimmed);
-      console.log(`\nAgent> ${response}`);
+      const { text, usage } = await agent.runTurn(trimmed);
+      console.log(`\nAgent> ${text}`);
+      if (usage) {
+        console.error(`  tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown runtime failure";

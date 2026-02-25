@@ -65,7 +65,10 @@ export class CodingAgent {
     return this.session;
   }
 
-  async runTurn(userMessage: string): Promise<string> {
+  async runTurn(userMessage: string): Promise<{
+    text: string;
+    usage?: { inputTokens: number; outputTokens: number };
+  }> {
     this.session.addMessage({
       role: "user",
       content: userMessage,
@@ -79,6 +82,8 @@ export class CodingAgent {
       codeMap,
     );
     const recentToolCallFingerprints: string[] = [];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {
       ensureStepWithinLimit(step, this.config.maxSteps);
@@ -105,6 +110,9 @@ export class CodingAgent {
         maxTokens: this.config.maxTokens,
       });
 
+      totalInputTokens += response.usage.inputTokens;
+      totalOutputTokens += response.usage.outputTokens;
+
       if (this.verbose) {
         console.error(`\n${VERBOSE_SEP}`);
         console.error("[verbose] Response");
@@ -130,7 +138,10 @@ export class CodingAgent {
           role: "assistant",
           content: finalText,
         });
-        return finalText;
+        return {
+          text: finalText,
+          usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+        };
       }
 
       if (this.onProgress && response.text.length > 0) {
@@ -167,7 +178,10 @@ export class CodingAgent {
             role: "assistant",
             content: loopMessage,
           });
-          return loopMessage;
+          return {
+            text: loopMessage,
+            usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+          };
         }
 
         if (this.onProgress) {
@@ -201,7 +215,10 @@ export class CodingAgent {
       role: "assistant",
       content: stepLimitMessage,
     });
-    return stepLimitMessage;
+    return {
+      text: stepLimitMessage,
+      usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+    };
   }
 }
 
