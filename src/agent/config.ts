@@ -39,6 +39,7 @@ interface AgentConfigFile {
   maxFileSizeBytes?: number;
   keepRecentMessages?: number;
   loopDetectionWindow?: number;
+  maxToolOutputChars?: number;
   openAiBaseUrl?: string;
   openAiApiKey?: string;
 }
@@ -182,6 +183,10 @@ export async function loadAgentConfig(
     loopDetectionWindow: parseNumber(
       process.env.LOOP_DETECTION_WINDOW,
       fileConfig.loopDetectionWindow ?? 6,
+    ),
+    maxToolOutputChars: parseNumber(
+      process.env.MAX_TOOL_OUTPUT_CHARS,
+      fileConfig.maxToolOutputChars ?? 15_000,
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),

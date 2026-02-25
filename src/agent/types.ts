@@ -37,6 +37,7 @@ export interface AgentConfig {
   confirmDestructive: boolean;
   keepRecentMessages: number;
   loopDetectionWindow: number;
+  maxToolOutputChars: number;
   openAiBaseUrl: string;
   openAiApiKey?: string;
 }

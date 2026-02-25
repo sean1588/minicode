@@ -26,6 +26,32 @@ function extractSignature(line: string, fullName: string): string {
   return fullName;
 }
 
+function extractDocstring(lines: string[], afterLineIndex: number): string | undefined {
+  const i = afterLineIndex;
+  if (i >= lines.length) return undefined;
+  const line = lines[i];
+  if (!line || line.trim().length === 0) return undefined;
+  const trimmed = line.trim();
+  const tripleDouble = trimmed.startsWith('"""');
+  const tripleSingle = trimmed.startsWith("'''");
+  if (!tripleDouble && !tripleSingle) return undefined;
+  const quote = tripleDouble ? '"""' : "'''";
+  if (trimmed.length >= 6 && trimmed.endsWith(quote)) {
+    return trimmed.slice(3, -3).trim();
+  }
+  const parts: string[] = [trimmed.slice(3)];
+  for (let j = i + 1; j < lines.length; j++) {
+    const next = lines[j] ?? "";
+    if (next.includes(quote)) {
+      const endIdx = next.indexOf(quote);
+      parts.push(next.slice(0, endIdx).trim());
+      break;
+    }
+    parts.push(next.trim());
+  }
+  return parts.join("\n").trim() || undefined;
+}
+
 export const pythonPlugin: LanguagePlugin = {
   name: "python",
   extensions: EXTENSIONS,
@@ -50,6 +76,7 @@ export const pythonPlugin: LanguagePlugin = {
       if (classMatch && indent === 0) {
         const name = classMatch[1] ?? "Unknown";
         currentClass = name;
+        const doc = extractDocstring(lines, i + 1);
         symbols.push({
           name,
           qualifiedName: name,
@@ -60,6 +87,7 @@ export const pythonPlugin: LanguagePlugin = {
           signature: extractSignature(line, name),
           exported: false,
           dependencies: [],
+          ...(doc && { docComment: doc }),
         });
         continue;
       }
@@ -70,6 +98,7 @@ export const pythonPlugin: LanguagePlugin = {
         const qualifiedName = currentClass ? `${currentClass}.${name}` : name;
         const sig = extractSignature(line, qualifiedName);
         const kind = currentClass && indent > 0 ? "method" : "function";
+        const doc = extractDocstring(lines, i + 1);
 
         symbols.push({
           name,
@@ -81,6 +110,7 @@ export const pythonPlugin: LanguagePlugin = {
           signature: sig,
           exported: false,
           dependencies: [],
+          ...(doc && { docComment: doc }),
         });
         continue;
       }

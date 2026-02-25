@@ -22,6 +22,8 @@ export interface IndexedSymbol {
   signature: string;
   exported: boolean;
   dependencies: string[];
+  /** JSDoc, docstring, or other doc comment when present. */
+  docComment?: string;
 }
 
 /**

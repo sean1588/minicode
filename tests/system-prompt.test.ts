@@ -19,6 +19,7 @@ function createMinimalConfig(workspaceRoot: string): AgentConfig {
     confirmDestructive: false,
     keepRecentMessages: 10,
     loopDetectionWindow: 6,
+    maxToolOutputChars: 15_000,
     openAiBaseUrl: "http://localhost:1234/v1",
   };
 }
