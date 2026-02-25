@@ -92,8 +92,8 @@ test("agent executes tool calls and returns final assistant text", async () => {
     toolRegistry: new ToolRegistry([createEchoTool()]),
   });
 
-  const result = await agent.runTurn("Make a change");
-  assert.equal(result, "Done. Change applied.");
+  const { text } = await agent.runTurn("Make a change");
+  assert.equal(text, "Done. Change applied.");
 
   const messages = agent.getSession().getMessages();
   assert.equal(messages.length, 4);
@@ -110,8 +110,8 @@ test("agent stops on repeated identical tool calls", async () => {
     toolRegistry: new ToolRegistry([createEchoTool()]),
   });
 
-  const result = await agent.runTurn("Do something");
-  assert.match(result, /repeated identical tool calls/);
+  const { text } = await agent.runTurn("Do something");
+  assert.match(text, /repeated identical tool calls/);
 });
 
 test("agent omits code map when projectIndex is not provided", async () => {
