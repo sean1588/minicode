@@ -35,11 +35,18 @@ export function createFindReferencesTool(
         return `No references found for "${name}".`;
       }
 
-      const lines = refs.map((e) => `- ${e.from} (${e.kind})`);
+      const maxItems = 50;
+      const shown = refs.slice(0, maxItems);
+      const lines = shown.map((e) => `- ${e.from} (${e.kind})`);
+      const footer =
+        refs.length > maxItems
+          ? `\n... and ${refs.length - maxItems} more`
+          : "";
       return [
         `# References to ${symbol.qualifiedName}`,
         "",
         ...lines,
+        footer,
       ].join("\n");
     },
   };

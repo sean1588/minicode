@@ -36,15 +36,22 @@ export function createGetDependenciesTool(
 
       const cone = projectIndex.getDependencyCone(name, depth);
 
-      const lines = cone.map((s) => {
+      const maxItems = 50;
+      const shown = cone.slice(0, maxItems);
+      const lines = shown.map((s) => {
         const header = `${s.kind} ${s.qualifiedName}`;
         return `${header}\n  ${s.signature}`;
       });
+      const footer =
+        cone.length > maxItems
+          ? `\n\n... and ${cone.length - maxItems} more`
+          : "";
 
       return [
         `# Dependencies of ${symbol.qualifiedName} (depth ${depth})`,
         "",
         ...lines,
+        footer,
       ].join("\n\n");
     },
   };
