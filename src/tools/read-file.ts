@@ -26,14 +26,22 @@ function parseLineOffset(totalLines: number, rawOffset: number | undefined): num
   return Math.max(1, totalLines + rawOffset + 1);
 }
 
-function parseLimit(rawLimit: number | undefined): number | undefined {
-  if (rawLimit === undefined) {
-    return undefined;
+const DEFAULT_LINE_LIMIT = 500;
+
+function parseLimit(
+  rawLimit: number | undefined,
+  totalLines: number,
+): number {
+  if (rawLimit !== undefined) {
+    if (!Number.isInteger(rawLimit) || rawLimit < 0) {
+      throw new Error(`"limit" must be a non-negative integer when provided.`);
+    }
+    return rawLimit;
   }
-  if (!Number.isInteger(rawLimit) || rawLimit < 0) {
-    throw new Error(`"limit" must be a non-negative integer when provided.`);
+  if (totalLines > DEFAULT_LINE_LIMIT) {
+    return DEFAULT_LINE_LIMIT;
   }
-  return rawLimit;
+  return totalLines;
 }
 
 export function createReadFileTool(config: AgentConfig): ToolDefinition {
@@ -65,7 +73,6 @@ export function createReadFileTool(config: AgentConfig): ToolDefinition {
       const requestedPath = expectNonEmptyString(input, "path");
       const offset = expectOptionalNumber(input, "offset");
       const limit = expectOptionalNumber(input, "limit");
-      const parsedLimit = parseLimit(limit);
 
       const filePath = resolveWorkspacePath(requestedPath, config.workspaceRoot);
       const fileStat = await stat(filePath);
@@ -81,7 +88,21 @@ export function createReadFileTool(config: AgentConfig): ToolDefinition {
 
       const lines = content.split(/\r?\n/);
       const startLine = parseLineOffset(lines.length, offset);
-      return formatWithLineNumbers(content, startLine, parsedLimit);
+      const effectiveLimit = parseLimit(limit, lines.length);
+      const output = formatWithLineNumbers(content, startLine, effectiveLimit);
+
+      if (
+        limit === undefined &&
+        lines.length > DEFAULT_LINE_LIMIT &&
+        effectiveLimit < lines.length
+      ) {
+        const remaining = Math.max(
+          0,
+          lines.length - (startLine - 1) - effectiveLimit,
+        );
+        return `${output}\n\n[... truncated, ${remaining} more lines. Use offset and limit to read specific sections.]`;
+      }
+      return output;
     },
   };
 }

@@ -105,13 +105,26 @@ export function createRunCommandTool(config: AgentConfig): ToolDefinition {
         timeoutMs,
       );
 
+      const maxStdoutChars = 8_000;
+      const maxStderrChars = 4_000;
+
+      let stdoutOut = result.stdout.length > 0 ? result.stdout : "(empty)";
+      if (stdoutOut.length > maxStdoutChars) {
+        stdoutOut = `${stdoutOut.slice(0, maxStdoutChars)}\n[... truncated, ${result.stdout.length - maxStdoutChars} more chars ...]`;
+      }
+
+      let stderrOut = result.stderr.length > 0 ? result.stderr : "(empty)";
+      if (stderrOut.length > maxStderrChars) {
+        stderrOut = `${stderrOut.slice(0, maxStderrChars)}\n[... truncated, ${result.stderr.length - maxStderrChars} more chars ...]`;
+      }
+
       return [
         `exit_code: ${result.exitCode ?? "null"}`,
         `timed_out: ${result.timedOut ? "true" : "false"}`,
         "stdout:",
-        result.stdout.length > 0 ? result.stdout : "(empty)",
+        stdoutOut,
         "stderr:",
-        result.stderr.length > 0 ? result.stderr : "(empty)",
+        stderrOut,
       ].join("\n");
     },
   };
