@@ -192,10 +192,14 @@ export class CodingAgent {
           console.error(`[verbose] Tool: ${toolCall.name}`);
           console.error("Arguments:", JSON.stringify(toolCall.input, null, 2));
         }
-        const toolResult = await this.toolRegistry.execute(
+        let toolResult = await this.toolRegistry.execute(
           toolCall.name,
           toolCall.input,
         );
+        const maxChars = this.config.maxToolOutputChars;
+        if (maxChars > 0 && toolResult.length > maxChars) {
+          toolResult = `${toolResult.slice(0, maxChars)}\n\n[... truncated, ${toolResult.length - maxChars} more chars ...]`;
+        }
         if (this.verbose) {
           console.error("Output:", toolResult);
           console.error(VERBOSE_SEP);

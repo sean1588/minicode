@@ -75,8 +75,33 @@ export function createReadSymbolTool(
           `File: ${symbol.filePath}`,
           `Lines: ${symbol.startLine}-${symbol.endLine}`,
           "",
-          formatted,
         ];
+        if (symbol.docComment) {
+          parts.push("## Description", "", symbol.docComment, "");
+        }
+        parts.push(formatted);
+
+        const usedBy = projectIndex.dependencyEdges
+          .filter(
+            (e) =>
+              e.to === symbol.qualifiedName || e.to === symbol.name,
+          )
+          .slice(0, 5)
+          .map((e) => e.from);
+        if (usedBy.length > 0) {
+          parts.push("", "## Used by", "", usedBy.map((s) => `- ${s}`).join("\n"));
+        }
+
+        const calls = projectIndex.dependencyEdges
+          .filter(
+            (e) =>
+              e.from === symbol.qualifiedName || e.from === symbol.name,
+          )
+          .slice(0, 5)
+          .map((e) => e.to);
+        if (calls.length > 0) {
+          parts.push("", "## Calls", "", calls.map((s) => `- ${s}`).join("\n"));
+        }
 
         const cone = projectIndex.getDependencyCone(name, 1);
         const typeRefs = cone.filter(
@@ -94,13 +119,17 @@ export function createReadSymbolTool(
         return parts.join("\n");
       }
 
-      return [
+      const sigParts = [
         `# ${symbol.qualifiedName} (${symbol.kind})`,
         `File: ${symbol.filePath}`,
         `Lines: ${symbol.startLine}-${symbol.endLine}`,
         "",
-        symbol.signature,
-      ].join("\n");
+      ];
+      if (symbol.docComment) {
+        sigParts.push("## Description", "", symbol.docComment, "");
+      }
+      sigParts.push(symbol.signature);
+      return sigParts.join("\n");
     },
   };
 }

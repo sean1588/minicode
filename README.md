@@ -30,6 +30,16 @@ mini-coder reduces token usage by indexing your project and providing targeted t
 
 The index is cached in `.mini-coder/cache/` for faster startup on subsequent runs.
 
+### Small models (8k–32k context)
+
+For small models like gpt-oss-20b, reduce context usage:
+
+```bash
+MAX_CONTEXT_TOKENS=6000   # Leave room for response
+KEEP_RECENT_MESSAGES=8    # Fewer messages to fit
+MAX_STEPS=15              # Shorter turns
+```
+
 ## Plugin System
 
 ### Supported Languages
@@ -107,7 +117,8 @@ OPENAI_API_KEY=
 | `OPENAI_API_KEY` | No | none | Optional for local servers; required if your endpoint enforces auth |
 | `MAX_STEPS` | No | `25` | Max agent loop iterations per user turn |
 | `MAX_TOKENS` | No | `4096` | Max model output tokens per model call |
-| `MAX_CONTEXT_TOKENS` | No | `120000` | Approximate session history trimming target |
+| `MAX_CONTEXT_TOKENS` | No | `120000` | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
+| `MAX_TOOL_OUTPUT_CHARS` | No | `15000` | Max chars per tool result before truncation. Set to `0` to disable. |
 | `WORKSPACE_ROOT` | No | current working directory | Root directory tools are allowed to access |
 | `COMMAND_TIMEOUT_MS` | No | `30000` | Timeout for shell/search commands |
 | `MAX_FILE_SIZE_BYTES` | No | `1000000` | Read limit for `read_file` |

@@ -61,6 +61,19 @@ function isExported(node: ts.Declaration): boolean {
   return false;
 }
 
+function extractJSDoc(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
+  const nodeWithJSDoc = node as ts.Node & { jsDoc?: ts.NodeArray<ts.JSDoc> };
+  const jsDoc = nodeWithJSDoc.jsDoc?.[0];
+  if (!jsDoc) return undefined;
+  const fullText = jsDoc.getText(sourceFile);
+  const cleaned = fullText
+    .replace(/^\s*\/\*\*/, "")
+    .replace(/\*\/\s*$/, "")
+    .replace(/^\s*\*\s?/gm, "")
+    .trim();
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 function createPlugin(): LanguagePlugin {
   return {
     name: "typescript",
@@ -86,6 +99,7 @@ function createPlugin(): LanguagePlugin {
         if (ts.isFunctionDeclaration(node) && node.name) {
           const name = node.name.getText(sourceFile);
           const qualifiedName = currentClass ? `${currentClass}.${name}` : name;
+          const doc = extractJSDoc(node, sourceFile);
           symbols.push({
             name,
             qualifiedName,
@@ -96,6 +110,7 @@ function createPlugin(): LanguagePlugin {
             signature: extractSignature(node, sourceFile),
             exported: isExported(node),
             dependencies: [],
+            ...(doc && { docComment: doc }),
           });
           return;
         }
@@ -104,6 +119,7 @@ function createPlugin(): LanguagePlugin {
           const name = node.name.getText(sourceFile);
           const prevClass = currentClass;
           currentClass = name;
+          const doc = extractJSDoc(node, sourceFile);
           symbols.push({
             name,
             qualifiedName: name,
@@ -114,6 +130,7 @@ function createPlugin(): LanguagePlugin {
             signature: extractSignature(node, sourceFile),
             exported: isExported(node),
             dependencies: [],
+            ...(doc && { docComment: doc }),
           });
           ts.forEachChild(node, visit);
           currentClass = prevClass;
@@ -124,6 +141,7 @@ function createPlugin(): LanguagePlugin {
           const qualifiedName = currentClass
             ? `${currentClass}.constructor`
             : "constructor";
+          const doc = extractJSDoc(node, sourceFile);
           symbols.push({
             name: "constructor",
             qualifiedName,
@@ -134,6 +152,7 @@ function createPlugin(): LanguagePlugin {
             signature: extractSignature(node, sourceFile),
             exported: false,
             dependencies: [],
+            ...(doc && { docComment: doc }),
           });
           return;
         }
@@ -144,6 +163,7 @@ function createPlugin(): LanguagePlugin {
               ? "[computed]"
               : node.name.getText(sourceFile);
           const qualifiedName = currentClass ? `${currentClass}.${name}` : name;
+          const doc = extractJSDoc(node, sourceFile);
           symbols.push({
             name,
             qualifiedName,
@@ -154,12 +174,14 @@ function createPlugin(): LanguagePlugin {
             signature: extractSignature(node, sourceFile),
             exported: false,
             dependencies: [],
+            ...(doc && { docComment: doc }),
           });
           return;
         }
 
         if (ts.isInterfaceDeclaration(node) && node.name) {
           const name = node.name.getText(sourceFile);
+          const doc = extractJSDoc(node, sourceFile);
           symbols.push({
             name,
             qualifiedName: name,
@@ -170,12 +192,14 @@ function createPlugin(): LanguagePlugin {
             signature: node.getText(sourceFile).split("\n")[0] ?? `interface ${name}`,
             exported: isExported(node),
             dependencies: [],
+            ...(doc && { docComment: doc }),
           });
           return;
         }
 
         if (ts.isTypeAliasDeclaration(node) && node.name) {
           const name = node.name.getText(sourceFile);
+          const doc = extractJSDoc(node, sourceFile);
           symbols.push({
             name,
             qualifiedName: name,
@@ -186,6 +210,7 @@ function createPlugin(): LanguagePlugin {
             signature: node.getText(sourceFile).split("\n")[0] ?? `type ${name}`,
             exported: isExported(node),
             dependencies: [],
+            ...(doc && { docComment: doc }),
           });
           return;
         }
@@ -195,6 +220,7 @@ function createPlugin(): LanguagePlugin {
             node.modifiers?.some(
               (m) => m.kind === ts.SyntaxKind.ExportKeyword,
             ) ?? false;
+          const doc = extractJSDoc(node, sourceFile);
           for (const decl of node.declarationList.declarations) {
             const init = decl.initializer;
             if (
@@ -213,6 +239,7 @@ function createPlugin(): LanguagePlugin {
                 signature: extractSignature(decl, sourceFile),
                 exported,
                 dependencies: [],
+                ...(doc && { docComment: doc }),
               });
             }
           }
