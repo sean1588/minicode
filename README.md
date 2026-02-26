@@ -17,7 +17,7 @@ MVP autonomous coding agent CLI implemented from `plans/PRD.md` and
   - `list_files`
   - `run_command`
 - **Context optimization:** Code map in system prompt, `read_symbol`, `find_references`, `get_dependencies`
-- **Plugin system:** Extensible language support (TypeScript, Python built-in)
+- **Plugin system:** Extensible language support (TypeScript built-in)
 
 ## Context Optimization
 
@@ -47,14 +47,13 @@ MAX_STEPS=15              # Shorter turns
 | Language | Extensions | Plugin |
 |----------|------------|--------|
 | TypeScript/JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | Built-in |
-| Python | `.py` | Built-in |
 
 ### Installing Plugins
 
 **npm:** Add a package matching `mini-coder-plugin-*` to your dependencies:
 
 ```bash
-npm install mini-coder-plugin-python  # example
+npm install mini-coder-plugin-rust  # example
 ```
 
 **Local:** Place a `.js` file in `<workspace>/.mini-coder/plugins/`. It must export a `LanguagePlugin` (default or named `plugin`).

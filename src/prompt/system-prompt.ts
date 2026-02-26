@@ -55,7 +55,7 @@ export function buildSystemPrompt(
     renderToolList(tools),
     "",
     "[Tool Usage Guidelines]",
-    "- Use read_symbol for code files when you need a specific function or class — the code map lists symbols; use read_symbol(name) instead of read_file for .ts/.tsx/.js/.jsx/.py files, as it returns only the relevant code and avoids bloating context.",
+    "- Use read_symbol for code files when you need a specific function or class — the code map lists symbols; use read_symbol(name) instead of read_file for .ts/.tsx/.js/.jsx files, as it returns only the relevant code and avoids bloating context.",
     "- Avoid read_file on large code files — use read_symbol for targeted reads, or use read_file with offset and limit to read only the needed portion.",
     "- Use read_file for config files, small files, or non-code files. When using read_file on large files, pass offset and limit to read partial content.",
     "- Use find_references to see what uses a symbol; use get_dependencies to see what a symbol depends on.",

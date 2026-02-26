@@ -7,7 +7,6 @@ import { test } from "node:test";
 import { generateCodeMap } from "../src/indexer/code-map.js";
 import { getPluginForFile, loadPlugins } from "../src/indexer/plugin-loader.js";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
-import { pythonPlugin } from "../src/indexer/plugins/python.js";
 import { typescriptPlugin } from "../src/indexer/plugins/typescript.js";
 
 const SAMPLE_TS = `
@@ -69,58 +68,6 @@ test("getPluginForFile routes .ts files to TypeScript plugin", async () => {
   const plugin = getPluginForFile("src/agent/agent.ts", plugins);
   assert.ok(plugin);
   assert.equal(plugin!.name, "typescript");
-});
-
-test("getPluginForFile routes .py files to Python plugin", async () => {
-  const plugins = await loadPlugins("/tmp");
-  const plugin = getPluginForFile("src/main.py", plugins);
-  assert.ok(plugin);
-  assert.equal(plugin!.name, "python");
-});
-
-const SAMPLE_PY = `
-def greet(name: str) -> str:
-    return f"Hello, {name}"
-
-class DataProcessor:
-    def process(self, data: list) -> dict:
-        return {"count": len(data)}
-
-async def fetch_data(url: str) -> bytes:
-    return b""
-`;
-
-test("Python plugin extracts functions, classes, methods", () => {
-  const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
-
-  const names = symbols.map((s) => s.qualifiedName);
-  assert.ok(names.includes("greet"), "should extract function greet");
-  assert.ok(names.includes("DataProcessor"), "should extract class DataProcessor");
-  assert.ok(
-    names.includes("DataProcessor.process"),
-    "should extract method process",
-  );
-  assert.ok(names.includes("fetch_data"), "should extract async function");
-});
-
-test("Code map includes Python symbols in mixed project", async () => {
-  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "mini-coder-mixed-"));
-  const pyPath = path.join(workspaceRoot, "src", "util.py");
-  const { mkdir } = await import("node:fs/promises");
-  await mkdir(path.dirname(pyPath), { recursive: true });
-  await writeFile(
-    pyPath,
-    "def helper(x: int) -> int:\n    return x + 1\n",
-    "utf8",
-  );
-
-  const index = await buildProjectIndex(workspaceRoot);
-  const symbols = index.getSymbolsInFile("src/util.py");
-  assert.ok(symbols.length >= 1, "should index Python file");
-  assert.ok(symbols.some((s) => s.qualifiedName === "helper"));
-
-  const codeMap = index.getCodeMap();
-  assert.ok(codeMap.includes("helper"), "code map should include Python symbol");
 });
 
 test("verify-index fixture exercises full indexing pipeline", async () => {

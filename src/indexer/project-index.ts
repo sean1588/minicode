@@ -31,7 +31,7 @@ async function collectSourceFiles(
 
     if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      if ([".ts", ".tsx", ".js", ".jsx", ".py"].includes(ext)) {
+      if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
         files.push(path.relative(root, fullPath));
       }
     }

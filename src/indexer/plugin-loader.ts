@@ -1,10 +1,9 @@
 import type { LanguagePlugin } from "./types.js";
-import { pythonPlugin } from "./plugins/python.js";
 import { typescriptPlugin } from "./plugins/typescript.js";
 
 /**
  * Load all available language plugins.
- * Built-in: TypeScript, Python.
+ * Built-in: TypeScript.
  * Also loads: npm packages (mini-coder-plugin-*), local plugins (.mini-coder/plugins/).
  */
 export async function loadPlugins(
@@ -13,7 +12,6 @@ export async function loadPlugins(
   const plugins: LanguagePlugin[] = [];
 
   plugins.push(typescriptPlugin);
-  plugins.push(pythonPlugin);
 
   await loadNpmPlugins(workspaceRoot, plugins);
   await loadLocalPlugins(workspaceRoot, plugins);

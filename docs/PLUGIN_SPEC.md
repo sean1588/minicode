@@ -21,7 +21,7 @@ Plugins implement the `LanguagePlugin` interface and are discovered at startup.
 
 ```typescript
 interface LanguagePlugin {
-  /** Unique identifier for the plugin (e.g. "typescript", "python") */
+  /** Unique identifier for the plugin (e.g. "typescript", "rust") */
   name: string;
 
   /** File extensions this plugin handles (e.g. [".ts", ".tsx"]) */
@@ -247,10 +247,10 @@ The code map should include symbols from your language.
 
 ### npm package
 
-1. Name the package `mini-coder-plugin-<language>` (e.g. `mini-coder-plugin-python`).
+1. Name the package `mini-coder-plugin-<language>` (e.g. `mini-coder-plugin-rust`).
 2. Add `mini-coder` as a peer dependency.
 3. Export the plugin as the main entry.
-4. Publish to npm. Users install with `npm install mini-coder-plugin-python` and mini-coder discovers it via `package.json` dependencies.
+4. Publish to npm. Users install with `npm install mini-coder-plugin-rust` and mini-coder discovers it via `package.json` dependencies.
 
 ---
 
@@ -275,6 +275,6 @@ It implements `resolveDependencies` using heuristic AST analysis (heritage claus
 
 mini-coder loads plugins in this order (first match for a file wins):
 
-1. Built-in plugins (TypeScript, Python)
+1. Built-in plugins (TypeScript)
 2. npm packages matching `mini-coder-plugin-*` in workspace `package.json` dependencies
 3. Local plugins in `<workspace>/.mini-coder/plugins/*.js`
