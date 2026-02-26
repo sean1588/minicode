@@ -7,6 +7,30 @@ import dotenv from "dotenv";
 
 import type { AgentConfig } from "./types.js";
 
+/**
+ * Format the current agent configuration for display (e.g. /config slash command).
+ */
+export function formatConfigForDisplay(config: AgentConfig): string {
+  const lines: string[] = [
+    "workspaceRoot: " + config.workspaceRoot,
+    "modelProvider: " + config.modelProvider,
+    "model: " + config.model,
+    "maxSteps: " + config.maxSteps,
+    "maxTokens: " + config.maxTokens,
+    "maxContextTokens: " + config.maxContextTokens,
+    "commandTimeoutMs: " + config.commandTimeoutMs,
+    "maxFileSizeBytes: " + config.maxFileSizeBytes,
+    "maxToolOutputChars: " + config.maxToolOutputChars,
+    "keepRecentMessages: " + config.keepRecentMessages,
+    "loopDetectionWindow: " + config.loopDetectionWindow,
+    "confirmDestructive: " + config.confirmDestructive,
+    "commandDenylist: " + config.commandDenylist.length + " patterns",
+    "openAiBaseUrl: " + config.openAiBaseUrl,
+    "openAiApiKey: " + (config.openAiApiKey ? "***" : "(unset)"),
+  ];
+  return lines.join("\n");
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = __dirname.includes(`${path.sep}dist${path.sep}`)
   ? path.resolve(__dirname, "../../../.env")

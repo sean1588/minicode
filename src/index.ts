@@ -4,7 +4,7 @@ import process from "node:process";
 import { createInterface } from "node:readline/promises";
 
 import { CodingAgent } from "./agent/agent.js";
-import { loadAgentConfig } from "./agent/config.js";
+import { formatConfigForDisplay, loadAgentConfig } from "./agent/config.js";
 import {
   computeFileHashes,
   loadIndex,
@@ -104,8 +104,13 @@ async function runInteractive(
     }
 
     if (trimmed === "/help") {
-      console.log('Commands: "/help", "/exit"');
+      console.log('Commands: "/help", "/config", "/exit"');
       console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
+      continue;
+    }
+
+    if (trimmed === "/config") {
+      console.log("\n" + formatConfigForDisplay(config) + "\n");
       continue;
     }
 

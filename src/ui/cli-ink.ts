@@ -2,7 +2,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { CodingAgent } from "../agent/agent.js";
-import { loadAgentConfig } from "../agent/config.js";
+import { formatConfigForDisplay, loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
   loadIndex,
@@ -111,7 +111,15 @@ export async function runInkCli(
     if (trimmed === "/help") {
       store.addItem({
         type: "system",
-        content: 'Commands: "/help", "/exit". Start with --verbose or -v for detailed logs.',
+        content: 'Commands: "/help", "/config", "/exit". Start with --verbose or -v for detailed logs.',
+      });
+      return;
+    }
+
+    if (trimmed === "/config") {
+      store.addItem({
+        type: "system",
+        content: formatConfigForDisplay(config),
       });
       return;
     }
