@@ -50,9 +50,9 @@ export class ToolRegistry {
       createRunCommandTool(config),
     ];
     if (projectIndex) {
-      tools.push(createReadSymbolTool(config, projectIndex));
-      tools.push(createFindReferencesTool(projectIndex));
-      tools.push(createGetDependenciesTool(projectIndex));
+      tools.splice(1, 0, createReadSymbolTool(config, projectIndex));
+      tools.splice(2, 0, createFindReferencesTool(projectIndex));
+      tools.splice(3, 0, createGetDependenciesTool(projectIndex));
     }
     return new ToolRegistry(tools);
   }

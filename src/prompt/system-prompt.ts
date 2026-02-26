@@ -28,6 +28,10 @@ function renderToolList(tools: ToolSchema[]): string {
     .join("\n");
 }
 
+function hasTool(tools: ToolSchema[], name: string): boolean {
+  return tools.some((t) => t.name === name);
+}
+
 export function buildSystemPrompt(
   config: AgentConfig,
   tools: ToolSchema[],
@@ -49,25 +53,64 @@ export function buildSystemPrompt(
     sections.push("[Project Code Map]", codeMap, "");
   }
 
+  const hasReadSymbol = hasTool(tools, "read_symbol");
+  const hasFindRefs = hasTool(tools, "find_references");
+  const hasGetDeps = hasTool(tools, "get_dependencies");
+  const hasSpecializedTools = hasReadSymbol || hasFindRefs || hasGetDeps;
+
+  const toolGuidelines: string[] = [
+    "[Tool Usage Guidelines]",
+    "- Always read a file before editing it.",
+    "- Prefer edit_file over write_file for existing files.",
+    "- Run tests or lint after code changes when applicable.",
+  ];
+
+  if (hasSpecializedTools) {
+    toolGuidelines.push(
+      "",
+      "[Code exploration — prefer these over read_file and search]",
+      ...(hasReadSymbol
+        ? [
+            "- PREFER read_symbol over read_file for .ts/.tsx/.js/.jsx when you need a function or class. The code map lists all symbols; use read_symbol(name) for targeted reads — it returns only the relevant code and avoids bloating context.",
+            "- Use read_file only for config files, small files, non-code files, or when the symbol name is unknown.",
+          ]
+        : []),
+      ...(hasFindRefs
+        ? [
+            "- Use find_references to see what calls or uses a symbol — essential for understanding impact before changes.",
+          ]
+        : []),
+      ...(hasGetDeps
+        ? [
+            "- Use get_dependencies to see what a symbol depends on — essential for understanding implementation and data flow.",
+          ]
+        : []),
+      "- Use search only when you don't know the symbol name; once you find a symbol in the code map or search results, use read_symbol (not read_file) to read it.",
+      "- When tracing code: use get_dependencies to go inward (what does X call?), find_references to go outward (what calls X?).",
+    );
+  } else {
+    toolGuidelines.push(
+      "",
+      "- Use read_file with offset and limit for large files to read only needed portions.",
+      "- Use search to find relevant code before making changes.",
+    );
+  }
+
   sections.push(
     "[Tool Descriptions]",
     "You have the following tools available:",
     renderToolList(tools),
     "",
-    "[Tool Usage Guidelines]",
-    "- Use read_symbol for code files when you need a specific function or class — the code map lists symbols; use read_symbol(name) instead of read_file for .ts/.tsx/.js/.jsx files, as it returns only the relevant code and avoids bloating context.",
-    "- Avoid read_file on large code files — use read_symbol for targeted reads, or use read_file with offset and limit to read only the needed portion.",
-    "- Use read_file for config files, small files, or non-code files. When using read_file on large files, pass offset and limit to read partial content.",
-    "- Use find_references to see what uses a symbol; use get_dependencies to see what a symbol depends on.",
-    "- Always read a file before editing it.",
-    "- Use search to find relevant code before making changes.",
-    "- Prefer edit_file over write_file for existing files.",
-    "- Run tests or lint after code changes when applicable.",
+    ...toolGuidelines,
     "",
     "[Code Reading Strategy]",
     "- Start with entry points (e.g. index.ts, main) and follow the flow.",
-    "- Use find_references to see who uses a symbol; use get_dependencies to see what it calls.",
-    "- Trace usage outward (find_references) or implementation inward (get_dependencies) as needed.",
+    ...(hasSpecializedTools
+      ? [
+          "- Use find_references to see who uses a symbol; use get_dependencies to see what it calls.",
+          "- Trace usage outward (find_references) or implementation inward (get_dependencies) as needed.",
+        ]
+      : ["- Use search to locate relevant code, then read_file to inspect it."]),
     "",
     "[Termination Policy]",
     "- When the user asks you to do something (edit code, search, run commands, etc.), you MUST use the appropriate tools first. Do not conclude until you have actually performed the work.",

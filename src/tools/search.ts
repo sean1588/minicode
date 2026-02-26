@@ -77,7 +77,7 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
   return {
     name: "search",
     description:
-      "Search file contents using ripgrep and return matching lines.",
+      "Search file contents using ripgrep. Use when you don't know the symbol name. When results show a function/class name, use read_symbol next (not read_file).",
     inputSchema: {
       type: "object",
       properties: {
