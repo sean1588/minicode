@@ -63,7 +63,7 @@ export async function runInkCli(
     ...(verbose
       ? {
           onProgress: (msg: string) =>
-            store.addActivityItem({ type: "system", content: msg }),
+            store.addItem({ type: "system", content: msg }),
         }
       : {}),
     onUiUpdate: (event) => {
@@ -72,10 +72,10 @@ export async function runInkCli(
           store.setStep(event.step);
           break;
         case "thinking":
-          store.addActivityItem({ type: "thinking", content: event.content });
+          store.addItem({ type: "thinking", content: event.content });
           break;
         case "tool_call_start":
-          store.addActivityItem({
+          store.addItem({
             type: "tool_call",
             name: event.name,
             input: event.input,
@@ -88,7 +88,7 @@ export async function runInkCli(
             state: "success",
             elapsedMs: event.elapsedMs,
           });
-          store.addActivityItem({
+          store.addItem({
             type: "tool_result",
             name: event.name,
             content: event.result,
@@ -109,23 +109,23 @@ export async function runInkCli(
     }
 
     if (trimmed === "/help") {
-      store.addActivityItem({
+      store.addItem({
         type: "system",
         content: 'Commands: "/help", "/exit". Start with --verbose or -v for detailed logs.',
       });
       return;
     }
 
-    store.addActivityItem({ type: "user", content: trimmed });
+    store.addItem({ type: "user", content: trimmed });
     store.setPhase("sending");
     store.setStep(0);
 
     try {
       const { text, usage } = await agent.runTurn(trimmed);
-      store.addActivityItem({ type: "assistant", content: text });
+      store.addItem({ type: "assistant", content: text });
       if (usage) {
         store.setTokenUsage(usage.inputTokens, usage.outputTokens);
-        store.addActivityItem({
+        store.addItem({
           type: "token_usage",
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,

@@ -1,14 +1,10 @@
 import React from "react";
-import { Box, Text, useStdout } from "ink";
+import { Box, Text, Static } from "ink";
 import { c } from "../theme.js";
 import { ToolTimelineItem } from "./tool-timeline-item.js";
 import type { ActivityItem } from "../events.js";
 
 const MAX_TOOL_OUTPUT_PREVIEW = 200;
-
-interface ActivityPaneProps {
-  items: ActivityItem[];
-}
 
 function ActivityItemRow({ item }: { item: ActivityItem }): React.ReactElement {
   switch (item.type) {
@@ -35,7 +31,7 @@ function ActivityItemRow({ item }: { item: ActivityItem }): React.ReactElement {
       );
     case "tool_call":
       return <ToolTimelineItem item={item} />;
-    case "tool_result":
+    case "tool_result": {
       const preview =
         item.content.length > MAX_TOOL_OUTPUT_PREVIEW
           ? item.content.slice(0, MAX_TOOL_OUTPUT_PREVIEW) +
@@ -46,6 +42,7 @@ function ActivityItemRow({ item }: { item: ActivityItem }): React.ReactElement {
           <Text dimColor>{preview}</Text>
         </Box>
       );
+    }
     case "token_usage":
       return (
         <Box>
@@ -65,28 +62,18 @@ function ActivityItemRow({ item }: { item: ActivityItem }): React.ReactElement {
   }
 }
 
-export function ActivityPane({ items }: ActivityPaneProps): React.ReactElement {
-  const { stdout } = useStdout();
-  const terminalHeight = stdout?.rows ?? 24;
-  const paneHeight = Math.max(8, terminalHeight - 10);
+interface ActivityPaneProps {
+  items: ActivityItem[];
+}
 
+export function ActivityPane({ items }: ActivityPaneProps): React.ReactElement {
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="single"
-      paddingX={1}
-      minHeight={paneHeight}
-      flexGrow={1}
-    >
-      {items.length === 0 ? (
-        <Text dimColor>Conversation will appear here. Type your request below.</Text>
-      ) : (
-        items.map((item, i) => (
-          <Box key={`activity-${i}-${item.type}`} marginY={0}>
-            <ActivityItemRow item={item} />
-          </Box>
-        ))
+    <Static items={items}>
+      {(item, index) => (
+        <Box key={`item-${index}`}>
+          <ActivityItemRow item={item} />
+        </Box>
       )}
-    </Box>
+    </Static>
   );
 }

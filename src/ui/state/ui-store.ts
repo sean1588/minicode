@@ -15,7 +15,7 @@ export interface UiStoreState {
   model: string;
   workspaceRoot: string;
   indexStatus: string;
-  activityItems: ActivityItem[];
+  items: ActivityItem[];
   errorMessage: string | null;
 }
 
@@ -28,7 +28,7 @@ const DEFAULT_STATE: UiStoreState = {
   model: "",
   workspaceRoot: "",
   indexStatus: "",
-  activityItems: [],
+  items: [],
   errorMessage: null,
 };
 
@@ -79,29 +79,21 @@ export class UiStore {
     this.update({ inputTokens, outputTokens });
   }
 
-  addActivityItem(item: ActivityItem): void {
+  addItem(item: ActivityItem): void {
     this.update({
-      activityItems: [...this.state.activityItems, item],
+      items: [...this.state.items, item],
     });
   }
 
   updateLastToolCall(update: Partial<ActivityItemToolCall>): void {
-    const items = [...this.state.activityItems];
-    const lastIdx = items.length - 1;
-    const last = items[lastIdx];
-    if (last && last.type === "tool_call") {
-      items[lastIdx] = { ...last, ...update };
-      this.update({ activityItems: items });
-    }
-  }
-
-  replaceLastThinking(content: string): void {
-    const items = [...this.state.activityItems];
-    const lastIdx = items.length - 1;
-    const last = items[lastIdx];
-    if (last && last.type === "thinking") {
-      items[lastIdx] = { ...last, content };
-      this.update({ activityItems: items });
+    const items = [...this.state.items];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it && it.type === "tool_call") {
+        items[i] = { ...it, ...update };
+        this.update({ items });
+        return;
+      }
     }
   }
 
@@ -109,8 +101,8 @@ export class UiStore {
     this.update({ phase: "error", errorMessage: message });
   }
 
-  clearActivityPane(): void {
-    this.update({ activityItems: [] });
+  clearAll(): void {
+    this.update({ items: [] });
   }
 
   reset(): void {

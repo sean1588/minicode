@@ -30,7 +30,8 @@ function AppInner({ store, onRunTurn }: AppProps): React.ReactElement {
   const disabled = state.phase !== "idle" && state.phase !== "loading";
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column">
+      <ActivityPane items={state.items} />
       <HeaderBar
         model={state.model}
         step={state.step}
@@ -40,12 +41,9 @@ function AppInner({ store, onRunTurn }: AppProps): React.ReactElement {
         workspaceRoot={state.workspaceRoot}
         indexStatus={state.indexStatus}
       />
-      <Box marginY={1} />
-      <ActivityPane items={state.activityItems} />
-      <Box marginY={1} />
       <InputComposer onSubmit={handleSubmit} disabled={disabled} />
       {state.errorMessage && (
-        <Box marginY={1}>
+        <Box paddingX={1}>
           <Box borderStyle="single" borderColor="red" paddingX={1}>
             Error: {state.errorMessage}
           </Box>
@@ -59,6 +57,7 @@ export function runInkApp(
   store: UiStore,
   onRunTurn: (input: string) => Promise<void>,
 ): { waitUntilExit: () => Promise<void> } {
+  process.stdout.write("\x1b[2J\x1b[H");
   const instance = render(
     React.createElement(AppInner, {
       store,

@@ -39,7 +39,7 @@ export function InputComposer({
       handleSubmit();
       return;
     }
-    if (!disabled && key.backspace) {
+    if (!disabled && (key.backspace || key.delete || input === "\x7f")) {
       setValue((v) => v.slice(0, -1));
       return;
     }
@@ -57,7 +57,7 @@ export function InputComposer({
       </Box>
       <Box>
         <Text dimColor>
-          [Enter send] [Ctrl+C quit] [Ctrl+L clear] [Esc clear input]
+          [Enter send] [Ctrl+C quit] [Esc clear]
         </Text>
       </Box>
     </Box>
