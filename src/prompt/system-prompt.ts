@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentConfig, ToolSchema } from "../agent/types.js";
+import type { CodeMapResult } from "../indexer/code-map.js";
 
 function detectProjectType(workspaceRoot: string): string {
   const checks: Array<{ file: string; type: string }> = [
@@ -35,7 +36,7 @@ function hasTool(tools: ToolSchema[], name: string): boolean {
 export function buildSystemPrompt(
   config: AgentConfig,
   tools: ToolSchema[],
-  codeMap?: string,
+  codeMapResult?: CodeMapResult,
 ): string {
   const projectType = detectProjectType(config.workspaceRoot);
 
@@ -49,14 +50,29 @@ export function buildSystemPrompt(
     "",
   ];
 
-  if (codeMap && codeMap.length > 0) {
-    sections.push("[Project Code Map]", codeMap, "");
+  const hasSearchCodeMap = hasTool(tools, "search_code_map");
+
+  if (codeMapResult && codeMapResult.text.length > 0) {
+    sections.push("[Project Code Map]", codeMapResult.text, "");
+    const truncated =
+      codeMapResult.totalCount > 0 &&
+      codeMapResult.shownCount < codeMapResult.totalCount;
+    if (truncated) {
+      const hint = hasSearchCodeMap
+        ? " Use search_code_map to find symbols not listed above."
+        : "";
+      sections.push(
+        `Showing ${codeMapResult.shownCount} of ${codeMapResult.totalCount} symbols.${hint}`,
+        "",
+      );
+    }
   }
 
   const hasReadSymbol = hasTool(tools, "read_symbol");
   const hasFindRefs = hasTool(tools, "find_references");
   const hasGetDeps = hasTool(tools, "get_dependencies");
-  const hasSpecializedTools = hasReadSymbol || hasFindRefs || hasGetDeps;
+  const hasSpecializedTools =
+    hasReadSymbol || hasFindRefs || hasGetDeps || hasSearchCodeMap;
 
   const toolGuidelines: string[] = [
     "[Tool Usage Guidelines]",
@@ -87,6 +103,11 @@ export function buildSystemPrompt(
         : []),
       "- Use search only when you don't know the symbol name; once you find a symbol in the code map or search results, use read_symbol (not read_file) to read it.",
       "- When tracing code: use get_dependencies to go inward (what does X call?), find_references to go outward (what calls X?).",
+      ...(hasSearchCodeMap
+        ? [
+            "- When the code map is truncated, use search_code_map to find symbols by name or substring — then use read_symbol with the result.",
+          ]
+        : []),
     );
   } else {
     toolGuidelines.push(

@@ -7,6 +7,7 @@ import { createListFilesTool } from "./list-files.js";
 import { createReadFileTool } from "./read-file.js";
 import { createReadSymbolTool } from "./read-symbol.js";
 import { createRunCommandTool } from "./run-command.js";
+import { createSearchCodeMapTool } from "./search-code-map.js";
 import { createSearchTool } from "./search.js";
 import { createWriteFileTool } from "./write-file.js";
 
@@ -53,6 +54,7 @@ export class ToolRegistry {
       tools.splice(1, 0, createReadSymbolTool(config, projectIndex));
       tools.splice(2, 0, createFindReferencesTool(projectIndex));
       tools.splice(3, 0, createGetDependenciesTool(projectIndex));
+      tools.splice(4, 0, createSearchCodeMapTool(projectIndex));
     }
     return new ToolRegistry(tools);
   }

@@ -17,7 +17,7 @@ async function verify(): Promise<void> {
   const index = await buildProjectIndex(WORKSPACE);
 
   // 1. Code map
-  const codeMap = index.getCodeMap();
+  const codeMap = index.getCodeMap().text;
   const codeMapChecks = [
     ["# Project Code Map", "code map header"],
     ["src/index.ts", "entry file"],

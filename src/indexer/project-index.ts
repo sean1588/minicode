@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { generateCodeMap } from "./code-map.js";
+import { generateCodeMap, type CodeMapResult } from "./code-map.js";
 import { getPluginForFile, loadPlugins } from "./plugin-loader.js";
 import type {
   DependencyEdge,
@@ -98,7 +98,7 @@ export function createProjectIndex(
       return [...result.values()];
     },
 
-    getCodeMap(tokenBudget?: number): string {
+    getCodeMap(tokenBudget?: number): CodeMapResult {
       return generateCodeMap(files, tokenBudget, dependencyEdges);
     },
 

@@ -38,6 +38,12 @@ function createSymbolRanker(edges: DependencyEdge[]) {
   };
 }
 
+export interface CodeMapResult {
+  text: string;
+  shownCount: number;
+  totalCount: number;
+}
+
 /**
  * Generate a compact code map from symbols grouped by file.
  * Ranks symbols by: exported > high reference count > entry points.
@@ -47,7 +53,12 @@ export function generateCodeMap(
   symbolsByFile: Map<string, IndexedSymbol[]>,
   tokenBudget = DEFAULT_TOKEN_BUDGET,
   dependencyEdges?: DependencyEdge[],
-): string {
+): CodeMapResult {
+  const totalCount = [...symbolsByFile.values()].reduce(
+    (sum, syms) => sum + syms.length,
+    0,
+  );
+
   const lines: string[] = ["# Project Code Map", ""];
   const rank = dependencyEdges
     ? createSymbolRanker(dependencyEdges)
@@ -56,6 +67,7 @@ export function generateCodeMap(
 
   let totalTokens = estimateTokens(lines.join("\n"));
   let truncatedSymbols = 0;
+  let shownCount = 0;
   const filesWithTruncation = new Set<string>();
 
   const sortedFiles = [...symbolsByFile.keys()].sort();
@@ -89,6 +101,7 @@ export function generateCodeMap(
 
       fileLines.push(block);
       totalTokens += blockTokens;
+      shownCount += 1;
     }
 
     if (fileLines.length > 1) {
@@ -106,5 +119,9 @@ export function generateCodeMap(
     );
   }
 
-  return lines.join("\n").trim();
+  return {
+    text: lines.join("\n").trim(),
+    shownCount,
+    totalCount,
+  };
 }
