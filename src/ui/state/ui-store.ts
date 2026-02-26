@@ -97,6 +97,20 @@ export class UiStore {
     }
   }
 
+  appendToStreamingContent(chunk: string): void {
+    const items = [...this.state.items];
+    const last = items[items.length - 1];
+    if (last?.type === "assistant") {
+      items[items.length - 1] = {
+        ...last,
+        content: last.content + chunk,
+      };
+    } else {
+      items.push({ type: "assistant", content: chunk });
+    }
+    this.update({ items });
+  }
+
   setError(message: string): void {
     this.update({ phase: "error", errorMessage: message });
   }

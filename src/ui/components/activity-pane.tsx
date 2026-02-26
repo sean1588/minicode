@@ -67,13 +67,23 @@ interface ActivityPaneProps {
 }
 
 export function ActivityPane({ items }: ActivityPaneProps): React.ReactElement {
+  const completedItems = items.length > 0 ? items.slice(0, -1) : [];
+  const lastItem = items.length > 0 ? items[items.length - 1] : undefined;
+
   return (
-    <Static items={items}>
-      {(item, index) => (
-        <Box key={`item-${index}`}>
-          <ActivityItemRow item={item} />
+    <Box flexDirection="column">
+      <Static items={completedItems}>
+        {(item, index) => (
+          <Box key={`item-${index}`}>
+            <ActivityItemRow item={item} />
+          </Box>
+        )}
+      </Static>
+      {lastItem && (
+        <Box key="last-item">
+          <ActivityItemRow item={lastItem} />
         </Box>
       )}
-    </Static>
+    </Box>
   );
 }

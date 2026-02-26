@@ -66,6 +66,9 @@ export async function runInkCli(
       : {}),
     onUiUpdate: (event) => {
       switch (event.type) {
+        case "streaming_chunk":
+          store.appendToStreamingContent(event.content);
+          break;
         case "step":
           store.setStep(event.step);
           break;
@@ -127,8 +130,10 @@ export async function runInkCli(
     store.setStep(0);
 
     try {
-      const { text, usage } = await agent.runTurn(trimmed);
-      store.addItem({ type: "assistant", content: text });
+      const { text, usage, streamed } = await agent.runTurn(trimmed);
+      if (!streamed) {
+        store.addItem({ type: "assistant", content: text });
+      }
       if (usage) {
         store.setTokenUsage(usage.inputTokens, usage.outputTokens);
         store.addItem({

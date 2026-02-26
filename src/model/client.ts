@@ -308,6 +308,7 @@ export class AnthropicModelClient implements ModelClient {
     messages: SessionMessage[];
     tools: ToolSchema[];
     maxTokens: number;
+    onStream?: (chunk: string) => void;
   }): Promise<ModelResponse> {
     const response = await withRetry<Anthropic.Messages.Message>(() =>
       this.client.messages.create({
@@ -322,6 +323,112 @@ export class AnthropicModelClient implements ModelClient {
 
     return parseResponse(response);
   }
+}
+
+interface OpenAIStreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason?: string;
+  }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
+async function parseOpenAIStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onStream?: (chunk: string) => void,
+): Promise<ModelResponse> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  const toolCallsAcc: Array<{ id: string; name: string; arguments: string }> = [];
+  let usage = { prompt_tokens: 0, completion_tokens: 0 };
+  let finishReason: string | null = null;
+
+  const processLines = (lines: string[]) => {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      const data = trimmed.slice(6).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const chunk = JSON.parse(data) as OpenAIStreamChunk;
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+
+        const delta = choice.delta;
+        if (delta?.content) {
+          content += delta.content;
+          onStream?.(delta.content);
+        }
+
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolCallsAcc[idx]) {
+              toolCallsAcc[idx] = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: tc.function?.arguments ?? "" };
+            } else {
+              if (tc.id) toolCallsAcc[idx].id = tc.id;
+              if (tc.function?.name) toolCallsAcc[idx].name = tc.function.name;
+              if (tc.function?.arguments) toolCallsAcc[idx].arguments += tc.function.arguments;
+            }
+          }
+        }
+
+        if (choice.finish_reason) finishReason = choice.finish_reason;
+        if (chunk.usage) {
+          usage.prompt_tokens = chunk.usage.prompt_tokens ?? 0;
+          usage.completion_tokens = chunk.usage.completion_tokens ?? 0;
+        }
+      } catch {
+        // skip malformed chunks
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: true });
+    }
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    processLines(lines);
+    if (done) {
+      if (buffer.trim()) processLines([buffer]);
+      break;
+    }
+  }
+
+  const toolCalls: ToolCall[] = toolCallsAcc
+    .filter((tc) => tc.id || tc.name)
+    .map((tc, i) => ({
+      id: tc.id || `tool-call-${i + 1}`,
+      name: tc.name,
+      input: parseOpenAICompatibleToolArguments(tc.arguments),
+    }));
+
+  const stopReason: ModelResponse["stopReason"] =
+    finishReason === "tool_calls" || finishReason === "function_call"
+      ? "tool_use"
+      : finishReason === "length"
+        ? "max_tokens"
+        : toolCalls.length > 0
+          ? "tool_use"
+          : "end_turn";
+
+  return {
+    text: content.trim(),
+    toolCalls,
+    stopReason,
+    usage: { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens },
+  };
 }
 
 export class OpenAICompatibleModelClient implements ModelClient {
@@ -352,6 +459,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     messages: SessionMessage[];
     tools: ToolSchema[];
     maxTokens: number;
+    onStream?: (chunk: string) => void;
   }): Promise<ModelResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -373,6 +481,8 @@ export class OpenAICompatibleModelClient implements ModelClient {
       );
     }
 
+    const useStream = params.onStream !== undefined;
+
     const response = await withRetry(async () => {
       const httpResponse = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
         method: "POST",
@@ -383,7 +493,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
           tools: toOpenAICompatibleTools(params.tools),
           tool_choice: "auto",
           max_tokens: params.maxTokens,
-          stream: false,
+          stream: useStream,
         }),
       });
 
@@ -391,6 +501,13 @@ export class OpenAICompatibleModelClient implements ModelClient {
         const bodyText = await httpResponse.text();
         throw new Error(
           `OpenAI-compatible request failed (${httpResponse.status}): ${bodyText}`,
+        );
+      }
+
+      if (useStream && httpResponse.body) {
+        return parseOpenAIStream(
+          httpResponse.body.getReader(),
+          params.onStream,
         );
       }
 

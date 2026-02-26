@@ -72,6 +72,7 @@ export interface ModelClient {
     messages: SessionMessage[];
     tools: ToolSchema[];
     maxTokens: number;
+    onStream?: (chunk: string) => void;
   }): Promise<ModelResponse>;
 }
 

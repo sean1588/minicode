@@ -35,6 +35,7 @@ const VERBOSE_SEP = "─".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
 
 export type UiUpdateThinking = { type: "thinking"; content: string };
+export type UiUpdateStreamingChunk = { type: "streaming_chunk"; content: string };
 export type UiUpdateStep = { type: "step"; step: number };
 export type UiUpdateToolCallStart = {
   type: "tool_call_start";
@@ -50,6 +51,7 @@ export type UiUpdateToolCallEnd = {
 };
 export type UiUpdate =
   | UiUpdateThinking
+  | UiUpdateStreamingChunk
   | UiUpdateStep
   | UiUpdateToolCallStart
   | UiUpdateToolCallEnd;
@@ -91,6 +93,7 @@ export class CodingAgent {
   async runTurn(userMessage: string): Promise<{
     text: string;
     usage?: { inputTokens: number; outputTokens: number };
+    streamed?: boolean;
   }> {
     this.session.addMessage({
       role: "user",
@@ -134,6 +137,13 @@ export class CodingAgent {
         messages,
         tools: toolSchemas,
         maxTokens: this.config.maxTokens,
+        ...(this.onUiUpdate
+          ? {
+              onStream: (chunk: string) => {
+                this.onUiUpdate!({ type: "streaming_chunk", content: chunk });
+              },
+            }
+          : {}),
       });
 
       totalInputTokens += response.usage.inputTokens;
@@ -164,9 +174,12 @@ export class CodingAgent {
           role: "assistant",
           content: finalText,
         });
+        const streamed =
+          this.config.modelProvider === "openai-compatible" && !!this.onUiUpdate;
         return {
           text: finalText,
           usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+          streamed,
         };
       }
 
@@ -212,6 +225,7 @@ export class CodingAgent {
           return {
             text: loopMessage,
             usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+            streamed: false,
           };
         }
 
@@ -270,6 +284,7 @@ export class CodingAgent {
     return {
       text: stepLimitMessage,
       usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+      streamed: false,
     };
   }
 }
