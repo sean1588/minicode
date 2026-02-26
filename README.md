@@ -185,6 +185,17 @@ npm run dev -- --verbose "Fix the bug"
 npm run dev -- -v
 ```
 
+### UI modes
+
+- **Ink** (default): Rich terminal UI with header, activity stream, and structured tool timeline. Used when running in an interactive terminal (TTY).
+- **Legacy**: Simple readline-based CLI. Used automatically when stdin is not a TTY (e.g. piping, CI), or when explicitly requested.
+
+Force legacy mode:
+
+```bash
+CLI_UI_MODE=legacy npm run dev
+```
+
 Build and run compiled output:
 
 ```bash
@@ -195,6 +206,7 @@ npm start
 ## Scripts
 
 - `npm run dev` - start the CLI in TypeScript mode
+- `npm run dev:ink` - start with Ink UI (same as `dev` when in a TTY; use to override `CLI_UI_MODE=legacy`)
 - `npm run build` - compile TypeScript to `dist/`
 - `npm start` - run compiled CLI
 - `npm run lint` - run ESLint on TypeScript source and tests
