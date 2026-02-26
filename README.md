@@ -1,11 +1,13 @@
 # minicode
 
-A lightweight CLI coding agent built for **local LLMs** running on consumer hardware by providing AST-based intelligent context for small local models. Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
+A lightweight CLI coding agent optimized for **local models** by providing AST-based intelligent context for smaller models running on consumer hardware.
+
+Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
 
 ## Quick Start (LM Studio)
 
 ```bash
-# 1. Start LM Studio, load a model (e.g. Qwen2.5-Coder, CodeLlama), and start the local server
+# 1. Start LM Studio, load a model (e.g. [GLM 4.7 Flash](https://lmstudio.ai/models/zai-org/glm-4.7-flash)), and start the local server
 
 # 2. Clone and install
 git clone https://github.com/sean1588/minicode.git
@@ -32,13 +34,18 @@ EOF
 
 # 4. Install globally (build + npm link)
 npm run install:global
+```
 
-# 5. Run from your project directory
+### How to run
+
+`cd` to your working directory and run `minicode`.
+
+```
 cd /path/to/your/project
 minicode
 ```
 
-With an initial task:
+or you can also pass it an intial prompt from the start:
 
 ```bash
 minicode "Add error handling to src/api.ts"
@@ -67,9 +74,9 @@ minicode "Add error handling to src/api.ts"
 minicode reduces token usage by indexing your project and providing targeted tools:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
-- **`read_symbol`** — Read a specific function or class by name, with referenced types.
-- **`find_references`** — Find all symbols that reference a given symbol.
-- **`get_dependencies`** — Get the dependency cone of a symbol.
+- `**read_symbol`** — Read a specific function or class by name, with referenced types.
+- `**find_references**` — Find all symbols that reference a given symbol.
+- `**get_dependencies**` — Get the dependency cone of a symbol.
 
 The index is cached in `~/.minicode/cache/<workspace-hash>/` for faster startup on subsequent runs. Caches are global and keyed by workspace path, so nothing is stored inside your project directories.
 
@@ -77,13 +84,15 @@ The index is cached in `~/.minicode/cache/<workspace-hash>/` for faster startup 
 
 ### Supported Languages
 
-| Language | Extensions | Plugin |
-|----------|------------|--------|
+
+| Language              | Extensions                   | Plugin   |
+| --------------------- | ---------------------------- | -------- |
 | TypeScript/JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | Built-in |
+
 
 ### Installing Plugins
 
-**npm:** Add a package matching `minicode-plugin-*` to your dependencies:
+**npm:** Add a package matching `minicode-plugin-`* to your dependencies:
 
 ```bash
 npm install minicode-plugin-go  # example
@@ -99,51 +108,34 @@ See [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) for the full specification. Quick
 
 Configuration can come from (later sources override earlier):
 
-1. **`~/.minicode/.env`** — User-level defaults (API keys, model, etc.)
-2. **`~/.minicode/agent.config.json`** — User-level JSON config
-3. **Project `.env`** and **`agent.config.json`** in workspace root
+1. `**~/.minicode/.env`** — User-level defaults (API keys, model, etc.)
+2. `**~/.minicode/agent.config.json**` — User-level JSON config
+3. **Project `.env`** and `**agent.config.json**` in workspace root
 4. Environment variables (highest precedence)
 
 Nothing is written inside your workspace; config and cache live under `~/.minicode/`.
 
-### Provider quick start
-
-Anthropic:
-
-```bash
-MODEL_PROVIDER=anthropic
-MODEL=claude-sonnet-4-20250514
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-OpenAI-compatible (LM Studio/local servers):
-
-```bash
-MODEL_PROVIDER=openai-compatible
-MODEL=qwen2.5-coder-7b-instruct
-OPENAI_BASE_URL=http://localhost:1234/v1
-OPENAI_API_KEY=
-```
-
 ### Environment variables
 
-| Variable | Required | Default | Notes |
-|---|---|---|---|
-| `MODEL_PROVIDER` | No | `anthropic` | `anthropic` or `openai-compatible` (aliases: `openai`, `lmstudio`, `lm-studio`) |
-| `MODEL` | No | `claude-sonnet-4-20250514` | Model name for selected provider |
-| `ANTHROPIC_API_KEY` | Yes (Anthropic) | none | Required when `MODEL_PROVIDER=anthropic` |
-| `OPENAI_BASE_URL` | No | `http://localhost:1234/v1` | Base URL for OpenAI-compatible API (LM Studio, etc.) |
-| `OPENAI_API_KEY` | No | none | Optional for local servers; required if your endpoint enforces auth |
-| `MAX_STEPS` | No | `25` | Max agent loop iterations per user turn |
-| `MAX_TOKENS` | No | `4096` | Max model output tokens per model call |
-| `MAX_CONTEXT_TOKENS` | No | `120000` | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
-| `MAX_TOOL_OUTPUT_CHARS` | No | `15000` | Max chars per tool result before truncation. Set to `0` to disable. |
-| `WORKSPACE_ROOT` | No | current working directory | Root directory tools are allowed to access |
-| `COMMAND_TIMEOUT_MS` | No | `30000` | Timeout for shell/search commands |
-| `MAX_FILE_SIZE_BYTES` | No | `1000000` | Read limit for `read_file` |
-| `CONFIRM_DESTRUCTIVE` | No | `false` | If `true`, blocks destructive shell commands unless confirmed |
-| `KEEP_RECENT_MESSAGES` | No | `12` | Minimum number of latest messages kept during trimming |
-| `LOOP_DETECTION_WINDOW` | No | `6` | Window for repeated tool-call loop detection |
+
+| Variable                | Required        | Default                    | Notes                                                                                                                                 |
+| ----------------------- | --------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `MODEL_PROVIDER`        | No              | `openai-compatible`        | `anthropic` or `openai-compatible` (aliases: `openai`, `lmstudio`, `lm-studio`)                                                       |
+| `MODEL`                 | No              | `zai-org/glm-4.7-flash`    | Model name for selected provider                                                                                                      |
+| `ANTHROPIC_API_KEY`     | Yes (Anthropic) | none                       | Required when `MODEL_PROVIDER=anthropic`                                                                                              |
+| `OPENAI_BASE_URL`       | No              | `http://localhost:1234/v1` | Base URL for OpenAI-compatible API (LM Studio, etc.)                                                                                  |
+| `OPENAI_API_KEY`        | No              | none                       | Optional for local servers; required if your endpoint enforces auth                                                                   |
+| `MAX_STEPS`             | No              | `50`                       | Max agent loop iterations per user turn                                                                                               |
+| `MAX_TOKENS`            | No              | `4096`                     | Max model output tokens per model call                                                                                                |
+| `MAX_CONTEXT_TOKENS`    | No              | `120000`                   | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
+| `MAX_TOOL_OUTPUT_CHARS` | No              | `15000`                    | Max chars per tool result before truncation. Set to `0` to disable.                                                                   |
+| `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access                                                                                            |
+| `COMMAND_TIMEOUT_MS`    | No              | `30000`                    | Timeout for shell/search commands                                                                                                     |
+| `MAX_FILE_SIZE_BYTES`   | No              | `1000000`                  | Read limit for `read_file`                                                                                                            |
+| `CONFIRM_DESTRUCTIVE`   | No              | `false`                    | If `true`, blocks destructive shell commands unless confirmed                                                                         |
+| `KEEP_RECENT_MESSAGES`  | No              | `12`                       | Minimum number of latest messages kept during trimming                                                                                |
+| `LOOP_DETECTION_WINDOW` | No              | `6`                        | Window for repeated tool-call loop detection                                                                                          |
+
 
 ### `agent.config.json`
 
@@ -153,7 +145,7 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
 {
   "modelProvider": "anthropic",
   "model": "claude-sonnet-4-20250514",
-  "maxSteps": 25,
+  "maxSteps": 50,
   "maxTokens": 4096,
   "maxContextTokens": 120000,
   "commandTimeout": 30000,
@@ -204,7 +196,6 @@ npm run dev -- --verbose "Fix the bug"
 npm run dev -- -v
 ```
 
-
 ## Scripts
 
 - `npm run dev` - start the CLI in TypeScript mode
@@ -214,11 +205,5 @@ npm run dev -- -v
 - `npm run lint` - run ESLint on TypeScript source and tests
 - `npm test` - run Node test suite
 
-## Continuous Integration
 
-GitHub Actions workflow: `.github/workflows/ci.yml`
 
-- Runs on every push and pull request
-- Executes:
-  - `npm run lint`
-  - `npm test`

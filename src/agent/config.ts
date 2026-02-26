@@ -179,15 +179,15 @@ export async function loadAgentConfig(
 
   return {
     modelProvider: parseModelProvider(
-      process.env.MODEL_PROVIDER ?? fileConfig.modelProvider,
+      process.env.MODEL_PROVIDER ?? fileConfig.modelProvider ?? "openai-compatible",
     ),
     model:
       process.env.MODEL ??
       fileConfig.model ??
-      "claude-sonnet-4-20250514",
+      "zai-org/glm-4.7-flash",
     maxSteps: parseNumber(
       process.env.MAX_STEPS,
-      fileConfig.maxSteps ?? 25,
+      fileConfig.maxSteps ?? 50,
     ),
     maxTokens: parseNumber(
       process.env.MAX_TOKENS,

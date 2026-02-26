@@ -22,7 +22,7 @@ export interface UiStoreState {
 const DEFAULT_STATE: UiStoreState = {
   phase: "idle",
   step: 0,
-  maxSteps: 25,
+  maxSteps: 50,
   inputTokens: 0,
   outputTokens: 0,
   model: "",
