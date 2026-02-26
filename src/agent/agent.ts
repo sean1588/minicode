@@ -34,6 +34,26 @@ function formatToolCallForProgress(toolCall: ToolCall, maxArgsLen = 100): string
 const VERBOSE_SEP = "─".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
 
+export type UiUpdateThinking = { type: "thinking"; content: string };
+export type UiUpdateStep = { type: "step"; step: number };
+export type UiUpdateToolCallStart = {
+  type: "tool_call_start";
+  name: string;
+  input: Record<string, unknown>;
+};
+export type UiUpdateToolCallEnd = {
+  type: "tool_call_end";
+  name: string;
+  input: Record<string, unknown>;
+  result: string;
+  elapsedMs: number;
+};
+export type UiUpdate =
+  | UiUpdateThinking
+  | UiUpdateStep
+  | UiUpdateToolCallStart
+  | UiUpdateToolCallEnd;
+
 export class CodingAgent {
   private readonly session: Session;
   private readonly config: AgentConfig;
@@ -42,6 +62,7 @@ export class CodingAgent {
   private readonly projectIndex: ProjectIndex | undefined;
   private readonly verbose: boolean;
   private readonly onProgress: ((message: string) => void) | undefined;
+  private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
 
   constructor(params: {
     config: AgentConfig;
@@ -51,6 +72,7 @@ export class CodingAgent {
     projectIndex?: ProjectIndex;
     verbose?: boolean;
     onProgress?: (message: string) => void;
+    onUiUpdate?: (event: UiUpdate) => void;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
@@ -59,6 +81,7 @@ export class CodingAgent {
     this.projectIndex = params.projectIndex;
     this.verbose = params.verbose ?? false;
     this.onProgress = params.onProgress;
+    this.onUiUpdate = params.onUiUpdate;
   }
 
   getSession(): Session {
@@ -87,6 +110,9 @@ export class CodingAgent {
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {
       ensureStepWithinLimit(step, this.config.maxSteps);
+      if (this.onUiUpdate) {
+        this.onUiUpdate({ type: "step", step });
+      }
       this.session.trim(
         this.config.maxContextTokens,
         this.config.keepRecentMessages,
@@ -144,12 +170,17 @@ export class CodingAgent {
         };
       }
 
-      if (this.onProgress && response.text.length > 0) {
+      if (response.text.length > 0) {
         const truncated =
           response.text.length > PROGRESS_THINKING_MAX
             ? response.text.slice(0, PROGRESS_THINKING_MAX) + "..."
             : response.text;
-        this.onProgress(`thinking: ${truncated}`);
+        if (this.onProgress) {
+          this.onProgress(`thinking: ${truncated}`);
+        }
+        if (this.onUiUpdate) {
+          this.onUiUpdate({ type: "thinking", content: truncated });
+        }
       }
 
       this.session.addMessage({
@@ -187,11 +218,19 @@ export class CodingAgent {
         if (this.onProgress) {
           this.onProgress(`tool_call: ${formatToolCallForProgress(toolCall)}`);
         }
+        if (this.onUiUpdate) {
+          this.onUiUpdate({
+            type: "tool_call_start",
+            name: toolCall.name,
+            input: toolCall.input,
+          });
+        }
         if (this.verbose) {
           console.error(`\n${VERBOSE_SEP}`);
           console.error(`[verbose] Tool: ${toolCall.name}`);
           console.error("Arguments:", JSON.stringify(toolCall.input, null, 2));
         }
+        const toolStartMs = Date.now();
         let toolResult = await this.toolRegistry.execute(
           toolCall.name,
           toolCall.input,
@@ -199,6 +238,15 @@ export class CodingAgent {
         const maxChars = this.config.maxToolOutputChars;
         if (maxChars > 0 && toolResult.length > maxChars) {
           toolResult = `${toolResult.slice(0, maxChars)}\n\n[... truncated, ${toolResult.length - maxChars} more chars ...]`;
+        }
+        if (this.onUiUpdate) {
+          this.onUiUpdate({
+            type: "tool_call_end",
+            name: toolCall.name,
+            input: toolCall.input,
+            result: toolResult,
+            elapsedMs: Date.now() - toolStartMs,
+          });
         }
         if (this.verbose) {
           console.error("Output:", toolResult);

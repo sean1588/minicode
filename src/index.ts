@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { createInterface } from "node:readline/promises";
 import process from "node:process";
+import { createInterface } from "node:readline/promises";
 
 import { CodingAgent } from "./agent/agent.js";
 import { loadAgentConfig } from "./agent/config.js";
@@ -127,6 +127,14 @@ async function runInteractive(
 
 async function main(): Promise<void> {
   const { verbose, task } = parseArgs(process.argv);
+  const uiMode = process.env.CLI_UI_MODE ?? "ink";
+
+  if (uiMode !== "legacy" && process.stdin.isTTY) {
+    const { runInkCli } = await import("./ui/cli-ink.js");
+    await runInkCli(verbose, task.length > 0 ? task : undefined);
+    return;
+  }
+
   await runInteractive(verbose, task.length > 0 ? task : undefined);
 }
 
