@@ -348,7 +348,7 @@ async function parseOpenAIStream(
   let buffer = "";
   let content = "";
   const toolCallsAcc: Array<{ id: string; name: string; arguments: string }> = [];
-  let usage = { prompt_tokens: 0, completion_tokens: 0 };
+  const usage = { prompt_tokens: 0, completion_tokens: 0 };
   let finishReason: string | null = null;
 
   const processLines = (lines: string[]) => {
