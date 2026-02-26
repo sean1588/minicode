@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -7,11 +8,15 @@ import dotenv from "dotenv";
 
 import type { AgentConfig } from "./types.js";
 
+/** User-level config directory: ~/.minicoder */
+export const MINICODER_HOME = path.join(os.homedir(), ".minicoder");
+
 /**
  * Format the current agent configuration for display (e.g. /config slash command).
  */
 export function formatConfigForDisplay(config: AgentConfig): string {
   const lines: string[] = [
+    "configHome: " + MINICODER_HOME + " (.env, agent.config.json)",
     "workspaceRoot: " + config.workspaceRoot,
     "modelProvider: " + config.modelProvider,
     "model: " + config.model,
@@ -35,7 +40,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = __dirname.includes(`${path.sep}dist${path.sep}`)
   ? path.resolve(__dirname, "../../../.env")
   : path.resolve(__dirname, "../../.env");
-dotenv.config({ path: envPath });
+
+// Load order: user home (~/.minicoder/.env) < project .env < cwd .env
+dotenv.config({ path: path.join(MINICODER_HOME, ".env") });
+dotenv.config({ path: envPath, override: true });
 dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
@@ -143,8 +151,11 @@ function parseModelProvider(
 export async function loadAgentConfig(
   cwd = process.cwd(),
 ): Promise<AgentConfig> {
-  const configPath = path.resolve(cwd, "agent.config.json");
-  const fileConfig = await loadConfigFile(configPath);
+  const homeConfigPath = path.join(MINICODER_HOME, "agent.config.json");
+  const workspaceConfigPath = path.resolve(cwd, "agent.config.json");
+  const homeConfig = await loadConfigFile(homeConfigPath);
+  const workspaceConfig = await loadConfigFile(workspaceConfigPath);
+  const fileConfig: AgentConfigFile = { ...homeConfig, ...workspaceConfig };
 
   const rawWorkspaceRoot =
     process.env.WORKSPACE_ROOT ?? fileConfig.workspaceRoot ?? cwd;

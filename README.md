@@ -1,7 +1,41 @@
 # mini-coder
 
-MVP autonomous coding agent CLI implemented from `plans/PRD.md` and
-`plans/TECHNICAL_DESIGN.md`.
+A CLI coding agent optimized for **local LLMs** — uses smaller models on consumer hardware with context-efficient symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) to fit within limited context windows.
+
+## Quick Start (LM Studio)
+
+```bash
+# 1. Start LM Studio, load a model (e.g. Qwen2.5-Coder, CodeLlama), and start the local server
+
+# 2. Clone and install
+git clone https://github.com/sean1588/mini-coder.git
+cd mini-coder
+npm install
+
+# 3. Configure for local (no API key needed)
+mkdir -p ~/.minicoder
+cat >> ~/.minicoder/.env << 'EOF'
+MODEL_PROVIDER=openai-compatible
+MODEL=qwen2.5-coder-7b-instruct
+OPENAI_BASE_URL=http://localhost:1234/v1
+OPENAI_API_KEY=
+EOF
+
+# 4. Install globally (build + npm link)
+npm run install:global
+
+# 5. Run from your project directory
+cd /path/to/your/project
+mini-coder
+```
+
+With an initial task:
+
+```bash
+mini-coder "Add error handling to src/api.ts"
+```
+
+**Requirements:** Node.js 22+, LM Studio (or any OpenAI-compatible local server), `rg` in PATH (recommended). Set `MODEL` to match the model name in LM Studio.
 
 ## Features
 
@@ -28,7 +62,7 @@ mini-coder reduces token usage by indexing your project and providing targeted t
 - **`find_references`** — Find all symbols that reference a given symbol.
 - **`get_dependencies`** — Get the dependency cone of a symbol.
 
-The index is cached in `.mini-coder/cache/` for faster startup on subsequent runs.
+The index is cached in `~/.minicoder/cache/<workspace-hash>/` for faster startup on subsequent runs. Caches are global and keyed by workspace path, so nothing is stored inside your project directories.
 
 ### Small models (8k–32k context)
 
@@ -62,29 +96,16 @@ npm install mini-coder-plugin-rust  # example
 
 See [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) for the full specification. Quick start: copy `templates/plugin-template/` and implement `indexFile()`.
 
-## Requirements
-
-- Node.js 22+
-- Anthropic API key (for Anthropic provider)
-- OpenAI-compatible endpoint (for local/remote OpenAI-style providers, e.g. LM Studio)
-- `rg` available in PATH (recommended for fast search)
-
-## Setup
-
-```bash
-npm install
-cp .env.example .env
-```
-
 ## Configuration
 
-Configuration can come from:
+Configuration can come from (later sources override earlier):
 
-1. Environment variables (`.env`)
-2. `agent.config.json` in repository root
-3. Built-in defaults
+1. **`~/.minicoder/.env`** — User-level defaults (API keys, model, etc.)
+2. **`~/.minicoder/agent.config.json`** — User-level JSON config
+3. **Project `.env`** and **`agent.config.json`** in workspace root
+4. Environment variables (highest precedence)
 
-Precedence is: **env vars override `agent.config.json`**, and both override defaults.
+Nothing is written inside your workspace; config and cache live under `~/.minicoder/`.
 
 ### Provider quick start
 
@@ -127,7 +148,7 @@ OPENAI_API_KEY=
 
 ### `agent.config.json`
 
-Create `agent.config.json` in the project root to override defaults:
+Create `agent.config.json` in `~/.minicoder/` for user-level defaults, or in the project root for workspace-specific overrides:
 
 ```json
 {

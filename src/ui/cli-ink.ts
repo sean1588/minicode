@@ -1,10 +1,10 @@
-import path from "node:path";
 import process from "node:process";
 
 import { CodingAgent } from "../agent/agent.js";
 import { formatConfigForDisplay, loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
+  getWorkspaceCacheDir,
   loadIndex,
   saveIndex,
 } from "../indexer/cache.js";
@@ -13,8 +13,6 @@ import { createModelClient } from "../model/client.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { UiStore } from "./state/ui-store.js";
 import { runInkApp } from "./app.js";
-
-const CACHE_DIR = ".mini-coder/cache";
 
 export async function runInkCli(
   verbose: boolean,
@@ -29,7 +27,7 @@ export async function runInkCli(
   let indexStatus = "building...";
 
   try {
-    const cacheDir = path.join(config.workspaceRoot, CACHE_DIR);
+    const cacheDir = getWorkspaceCacheDir(config.workspaceRoot);
     const fileHashes = await computeFileHashes(config.workspaceRoot);
     const cached = await loadIndex(cacheDir, fileHashes);
     if (cached) {
