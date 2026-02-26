@@ -10,7 +10,7 @@ import { createReadFileTool } from "../src/tools/read-file.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 async function createTempWorkspace(): Promise<string> {
-  return mkdtemp(path.join(tmpdir(), "mini-coder-tests-"));
+  return mkdtemp(path.join(tmpdir(), "minicode-tests-"));
 }
 
 test("edit_file replaces exactly one match", async () => {

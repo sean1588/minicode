@@ -4,7 +4,7 @@ import { typescriptPlugin } from "./plugins/typescript.js";
 /**
  * Load all available language plugins.
  * Built-in: TypeScript.
- * Also loads: npm packages (mini-coder-plugin-*), local plugins (.mini-coder/plugins/).
+ * Also loads: npm packages (minicode-plugin-*), local plugins (.minicode/plugins/).
  */
 export async function loadPlugins(
   workspaceRoot: string,
@@ -38,7 +38,7 @@ async function loadNpmPlugins(
     ...(pkg.devDependencies ?? {}),
   };
   const pluginPkgs = Object.keys(deps).filter((k) =>
-    k.startsWith("mini-coder-plugin-"),
+    k.startsWith("minicode-plugin-"),
   );
   for (const pkgName of pluginPkgs) {
     try {
@@ -60,7 +60,7 @@ async function loadLocalPlugins(
   const path = await import("node:path");
   const { pathToFileURL } = await import("node:url");
   const { readdir } = await import("node:fs/promises");
-  const pluginDir = path.join(workspaceRoot, ".mini-coder", "plugins");
+  const pluginDir = path.join(workspaceRoot, ".minicode", "plugins");
   let entries: { name: string; isFile: () => boolean }[];
   try {
     entries = await readdir(pluginDir, { withFileTypes: true });

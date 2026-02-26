@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { MINICODER_HOME } from "../agent/config.js";
+import { MINICODE_HOME } from "../agent/config.js";
 import { createProjectIndex } from "./project-index.js";
 import { loadPlugins } from "./plugin-loader.js";
 import type {
@@ -21,11 +21,11 @@ function hashWorkspacePath(workspaceRoot: string): string {
 }
 
 /**
- * Return the cache directory for a workspace. Index files live under ~/.minicoder/cache/<hash>/
+ * Return the cache directory for a workspace. Index files live under ~/.minicode/cache/<hash>/
  * so caches are global and keyed by workspace path.
  */
 export function getWorkspaceCacheDir(workspaceRoot: string): string {
-  return path.join(MINICODER_HOME, "cache", hashWorkspacePath(workspaceRoot));
+  return path.join(MINICODE_HOME, "cache", hashWorkspacePath(workspaceRoot));
 }
 
 interface CachePayload {

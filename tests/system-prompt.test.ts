@@ -88,6 +88,6 @@ test("buildSystemPrompt detects project type from workspace", () => {
   );
   assert.ok(
     prompt.includes("Node.js") || prompt.includes("TypeScript"),
-    "mini-coder has package.json",
+    "minicode has package.json",
   );
 });

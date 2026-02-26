@@ -5,7 +5,7 @@ import type { AgentConfig, ToolDefinition } from "../agent/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectOptionalNumber } from "./helpers.js";
 
-const EXCLUDED_DIRS = new Set(["node_modules", ".git", ".mini-coder"]);
+const EXCLUDED_DIRS = new Set(["node_modules", ".git", ".minicode"]);
 const DEFAULT_LIMIT = 200;
 
 function parsePath(input: Record<string, unknown>): string {

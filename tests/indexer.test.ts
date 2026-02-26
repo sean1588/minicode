@@ -116,7 +116,7 @@ test("Code map respects token budget", () => {
   );
 });
 
-test("buildProjectIndex works on mini-coder src/", async () => {
+test("buildProjectIndex works on minicode src/", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const index = await buildProjectIndex(root);
 
@@ -230,7 +230,7 @@ test("Code map nests methods under class", () => {
 });
 
 test("reindexFile updates symbols and code map after file change", async () => {
-  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "mini-coder-reindex-"));
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-reindex-"));
   const samplePath = path.join(workspaceRoot, "sample.ts");
   const initialContent = `export function greet(name: string): string {
   return \`Hello, \${name}\`;

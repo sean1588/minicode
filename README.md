@@ -1,6 +1,6 @@
-# mini-coder
+# minicode
 
-A CLI coding agent optimized for **local LLMs** — uses smaller models on consumer hardware with context-efficient symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) to fit within limited context windows.
+A lightweight CLI coding agent built for **local LLMs** running on consumer hardware by providing AST-based intelligent context for small local models. Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
 
 ## Quick Start (LM Studio)
 
@@ -8,17 +8,26 @@ A CLI coding agent optimized for **local LLMs** — uses smaller models on consu
 # 1. Start LM Studio, load a model (e.g. Qwen2.5-Coder, CodeLlama), and start the local server
 
 # 2. Clone and install
-git clone https://github.com/sean1588/mini-coder.git
-cd mini-coder
+git clone https://github.com/sean1588/minicode.git
+cd minicode
 npm install
 
 # 3. Configure for local (no API key needed)
-mkdir -p ~/.minicoder
-cat >> ~/.minicoder/.env << 'EOF'
+mkdir -p ~/.minicode
+cat > ~/.minicode/.env << 'EOF'
 MODEL_PROVIDER=openai-compatible
-MODEL=qwen2.5-coder-7b-instruct
+MODEL=zai-org/glm-4.7-flash
 OPENAI_BASE_URL=http://localhost:1234/v1
 OPENAI_API_KEY=
+MAX_STEPS=50
+MAX_TOKENS=4096
+MAX_CONTEXT_TOKENS=120000
+WORKSPACE_ROOT=.
+COMMAND_TIMEOUT_MS=30000
+MAX_FILE_SIZE_BYTES=1000000
+CONFIRM_DESTRUCTIVE=false
+KEEP_RECENT_MESSAGES=12
+LOOP_DETECTION_WINDOW=6
 EOF
 
 # 4. Install globally (build + npm link)
@@ -26,13 +35,13 @@ npm run install:global
 
 # 5. Run from your project directory
 cd /path/to/your/project
-mini-coder
+minicode
 ```
 
 With an initial task:
 
 ```bash
-mini-coder "Add error handling to src/api.ts"
+minicode "Add error handling to src/api.ts"
 ```
 
 **Requirements:** Node.js 22+, LM Studio (or any OpenAI-compatible local server), `rg` in PATH (recommended). Set `MODEL` to match the model name in LM Studio.
@@ -55,24 +64,14 @@ mini-coder "Add error handling to src/api.ts"
 
 ## Context Optimization
 
-mini-coder reduces token usage by indexing your project and providing targeted tools:
+minicode reduces token usage by indexing your project and providing targeted tools:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
 - **`read_symbol`** — Read a specific function or class by name, with referenced types.
 - **`find_references`** — Find all symbols that reference a given symbol.
 - **`get_dependencies`** — Get the dependency cone of a symbol.
 
-The index is cached in `~/.minicoder/cache/<workspace-hash>/` for faster startup on subsequent runs. Caches are global and keyed by workspace path, so nothing is stored inside your project directories.
-
-### Small models (8k–32k context)
-
-For small models like gpt-oss-20b, reduce context usage:
-
-```bash
-MAX_CONTEXT_TOKENS=6000   # Leave room for response
-KEEP_RECENT_MESSAGES=8    # Fewer messages to fit
-MAX_STEPS=15              # Shorter turns
-```
+The index is cached in `~/.minicode/cache/<workspace-hash>/` for faster startup on subsequent runs. Caches are global and keyed by workspace path, so nothing is stored inside your project directories.
 
 ## Plugin System
 
@@ -84,13 +83,13 @@ MAX_STEPS=15              # Shorter turns
 
 ### Installing Plugins
 
-**npm:** Add a package matching `mini-coder-plugin-*` to your dependencies:
+**npm:** Add a package matching `minicode-plugin-*` to your dependencies:
 
 ```bash
-npm install mini-coder-plugin-rust  # example
+npm install minicode-plugin-go  # example
 ```
 
-**Local:** Place a `.js` file in `<workspace>/.mini-coder/plugins/`. It must export a `LanguagePlugin` (default or named `plugin`).
+**Local:** Place a `.js` file in `<workspace>/.minicode/plugins/`. It must export a `LanguagePlugin` (default or named `plugin`).
 
 ### Creating Plugins
 
@@ -100,12 +99,12 @@ See [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) for the full specification. Quick
 
 Configuration can come from (later sources override earlier):
 
-1. **`~/.minicoder/.env`** — User-level defaults (API keys, model, etc.)
-2. **`~/.minicoder/agent.config.json`** — User-level JSON config
+1. **`~/.minicode/.env`** — User-level defaults (API keys, model, etc.)
+2. **`~/.minicode/agent.config.json`** — User-level JSON config
 3. **Project `.env`** and **`agent.config.json`** in workspace root
 4. Environment variables (highest precedence)
 
-Nothing is written inside your workspace; config and cache live under `~/.minicoder/`.
+Nothing is written inside your workspace; config and cache live under `~/.minicode/`.
 
 ### Provider quick start
 
@@ -148,7 +147,7 @@ OPENAI_API_KEY=
 
 ### `agent.config.json`
 
-Create `agent.config.json` in `~/.minicoder/` for user-level defaults, or in the project root for workspace-specific overrides:
+Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the project root for workspace-specific overrides:
 
 ```json
 {
@@ -205,23 +204,6 @@ npm run dev -- --verbose "Fix the bug"
 npm run dev -- -v
 ```
 
-### UI modes
-
-- **Ink** (default): Rich terminal UI with header, activity stream, and structured tool timeline. Used when running in an interactive terminal (TTY).
-- **Legacy**: Simple readline-based CLI. Used automatically when stdin is not a TTY (e.g. piping, CI), or when explicitly requested.
-
-Force legacy mode:
-
-```bash
-CLI_UI_MODE=legacy npm run dev
-```
-
-Build and run compiled output:
-
-```bash
-npm run build
-npm start
-```
 
 ## Scripts
 

@@ -1,12 +1,12 @@
-# mini-coder Plugin Specification
+# minicode Plugin Specification
 
-This document describes how to create language plugins for mini-coder. Plugins enable the agent to index and navigate source code in languages beyond the built-in TypeScript/JavaScript support.
+This document describes how to create language plugins for minicode. Plugins enable the agent to index and navigate source code in languages beyond the built-in TypeScript/JavaScript support.
 
 ---
 
 ## Overview
 
-mini-coder uses a **plugin-based indexer** to extract symbols (functions, classes, interfaces, etc.) from source files. The index powers:
+minicode uses a **plugin-based indexer** to extract symbols (functions, classes, interfaces, etc.) from source files. The index powers:
 
 - **Code map** — A compact project skeleton injected into the system prompt
 - **`read_symbol`** — Read a specific function or class by name
@@ -156,10 +156,10 @@ interface DependencyEdge {
 ### 1. Set up the project
 
 ```bash
-mkdir my-mini-coder-plugin
-cd my-mini-coder-plugin
+mkdir my-minicode-plugin
+cd my-minicode-plugin
 npm init -y
-npm install mini-coder  # or add as peer dependency
+npm install minicode  # or add as peer dependency
 ```
 
 ### 2. Implement the plugin
@@ -167,7 +167,7 @@ npm install mini-coder  # or add as peer dependency
 Create `src/index.ts` (or `index.js`):
 
 ```typescript
-import type { IndexedSymbol, LanguagePlugin } from "mini-coder";
+import type { IndexedSymbol, LanguagePlugin } from "minicode";
 
 const plugin: LanguagePlugin = {
   name: "my-language",
@@ -196,27 +196,27 @@ Your package must export the plugin. In `package.json`:
 
 ```json
 {
-  "name": "mini-coder-plugin-mylang",
+  "name": "minicode-plugin-mylang",
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js"
   },
   "peerDependencies": {
-    "mini-coder": "*"
+    "minicode": "*"
   }
 }
 ```
 
-For local plugins (`.mini-coder/plugins/`), export a default or named `LanguagePlugin`:
+For local plugins (`.minicode/plugins/`), export a default or named `LanguagePlugin`:
 
 ```javascript
-// .mini-coder/plugins/mylang.js
+// .minicode/plugins/mylang.js
 module.exports = { default: myPlugin };
 ```
 
 ### 4. Test the plugin
 
-Use mini-coder's indexer test harness or run mini-coder against a sample project:
+Use minicode's indexer test harness or run minicode against a sample project:
 
 ```bash
 # In a project with .mylang files
@@ -233,7 +233,7 @@ The code map should include symbols from your language.
 
 2. **Integration test** — Create a temp workspace with a `.mylang` file, run `buildProjectIndex(workspaceRoot)`, and verify `index.getSymbolsInFile("sample.mylang")` returns your symbols.
 
-3. **Manual test** — Place a plugin file in `<workspace>/.mini-coder/plugins/`, run mini-coder, and check that the code map includes symbols from your language.
+3. **Manual test** — Place a plugin file in `<workspace>/.minicode/plugins/`, run minicode, and check that the code map includes symbols from your language.
 
 ---
 
@@ -242,15 +242,15 @@ The code map should include symbols from your language.
 ### Local plugin (no publish)
 
 1. Create a `.js` file that exports a `LanguagePlugin`.
-2. Place it in `<workspace>/.mini-coder/plugins/`.
-3. mini-coder will load it at startup.
+2. Place it in `<workspace>/.minicode/plugins/`.
+3. minicode will load it at startup.
 
 ### npm package
 
-1. Name the package `mini-coder-plugin-<language>` (e.g. `mini-coder-plugin-rust`).
-2. Add `mini-coder` as a peer dependency.
+1. Name the package `minicode-plugin-<language>` (e.g. `minicode-plugin-rust`).
+2. Add `minicode` as a peer dependency.
 3. Export the plugin as the main entry.
-4. Publish to npm. Users install with `npm install mini-coder-plugin-rust` and mini-coder discovers it via `package.json` dependencies.
+4. Publish to npm. Users install with `npm install minicode-plugin-rust` and minicode discovers it via `package.json` dependencies.
 
 ---
 
@@ -273,8 +273,8 @@ It implements `resolveDependencies` using heuristic AST analysis (heritage claus
 
 ## Plugin Discovery Order
 
-mini-coder loads plugins in this order (first match for a file wins):
+minicode loads plugins in this order (first match for a file wins):
 
 1. Built-in plugins (TypeScript)
-2. npm packages matching `mini-coder-plugin-*` in workspace `package.json` dependencies
-3. Local plugins in `<workspace>/.mini-coder/plugins/*.js`
+2. npm packages matching `minicode-plugin-*` in workspace `package.json` dependencies
+3. Local plugins in `<workspace>/.minicode/plugins/*.js`

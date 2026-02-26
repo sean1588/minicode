@@ -24,7 +24,7 @@ export function HeaderBar({
   return (
     <Box flexDirection="column" borderStyle="single" paddingX={1}>
       <Box>
-        <Text bold>{c.cyan("mini-coder")}</Text>
+        <Text bold>{c.cyan("minicode")}</Text>
         <Text>  </Text>
         <Text>{c.dim("model:")} </Text>
         <Text>{model || "—"}</Text>

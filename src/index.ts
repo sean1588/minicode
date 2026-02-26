@@ -24,7 +24,8 @@ function parseArgs(argv: string[]): { verbose: boolean; task: string } {
 }
 
 function printBanner(): void {
-  console.log("mini-coder MVP");
+  console.log("minicode");
+
   console.log('Type your request, or "/exit" to quit.');
 }
 

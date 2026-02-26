@@ -1,6 +1,6 @@
 # Verify Index Test Program
 
-A minimal TypeScript project designed to verify mini-coder's indexing features:
+A minimal TypeScript project designed to verify minicode's indexing features:
 
 - **Code map** — Multiple files, classes, functions, interfaces
 - **read_symbol** — Functions, classes, methods, interfaces
@@ -20,7 +20,7 @@ src/
 
 ## How to verify
 
-1. **Automated verification** (from mini-coder root):
+1. **Automated verification** (from minicode root):
 
    ```bash
    npm run verify-index
@@ -28,7 +28,7 @@ src/
 
    Asserts: code map contents, symbol lookup, find_references, get_dependencies, implements edges.
 
-2. **Interactive** — Run mini-coder with this directory as workspace:
+2. **Interactive** — Run minicode with this directory as workspace:
 
    ```bash
    WORKSPACE_ROOT=./test-programs/verify-index npm run dev

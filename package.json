@@ -1,14 +1,14 @@
 {
-  "name": "mini-coder",
+  "name": "minicode",
   "version": "0.1.0",
   "private": true,
-  "description": "MVP autonomous coding agent CLI",
+  "description": "A coding agent for mini models",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
   },
   "bin": {
-    "mini-coder": "dist/src/index.js"
+    "minicode": "dist/src/index.js"
   },
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",

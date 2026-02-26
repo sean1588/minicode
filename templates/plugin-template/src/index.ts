@@ -1,8 +1,8 @@
 /**
- * mini-coder plugin template.
+ * minicode plugin template.
  * Replace with your language-specific implementation.
  *
- * @see https://github.com/your-org/mini-coder/blob/main/docs/PLUGIN_SPEC.md
+ * @see https://github.com/your-org/minicode/blob/main/docs/PLUGIN_SPEC.md
  */
 import type { IndexedSymbol, LanguagePlugin } from "./types.js";
 

@@ -117,7 +117,7 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
         "--binary-files",
         "without-match",
         "--glob",
-        "!.mini-coder/**",
+        "!.minicode/**",
         "--glob",
         "!node_modules/**",
         "--glob",
@@ -165,7 +165,7 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
       // Minimal fallback for systems without rg installed.
       const grepArgs = [
         "-RIn",
-        "--exclude-dir=.mini-coder",
+        "--exclude-dir=.minicode",
         "--exclude-dir=node_modules",
         "--exclude-dir=.git",
         "--exclude=package-lock.json",

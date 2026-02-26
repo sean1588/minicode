@@ -1,6 +1,6 @@
 /**
- * Minimal type definitions for mini-coder plugins.
- * Must match mini-coder's IndexedSymbol and LanguagePlugin interfaces.
+ * Minimal type definitions for minicode plugins.
+ * Must match minicode's IndexedSymbol and LanguagePlugin interfaces.
  */
 export type SymbolKind =
   | "function"

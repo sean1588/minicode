@@ -1,7 +1,7 @@
 {
-  "name": "mini-coder-plugin-template",
+  "name": "minicode-plugin-template",
   "version": "0.1.0",
-  "description": "Template for mini-coder language plugins",
+  "description": "Template for minicode language plugins",
   "type": "module",
   "main": "dist/index.js",
   "exports": {

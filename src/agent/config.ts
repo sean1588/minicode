@@ -8,15 +8,15 @@ import dotenv from "dotenv";
 
 import type { AgentConfig } from "./types.js";
 
-/** User-level config directory: ~/.minicoder */
-export const MINICODER_HOME = path.join(os.homedir(), ".minicoder");
+/** User-level config directory: ~/.minicode */
+export const MINICODE_HOME = path.join(os.homedir(), ".minicode");
 
 /**
  * Format the current agent configuration for display (e.g. /config slash command).
  */
 export function formatConfigForDisplay(config: AgentConfig): string {
   const lines: string[] = [
-    "configHome: " + MINICODER_HOME + " (.env, agent.config.json)",
+    "configHome: " + MINICODE_HOME + " (.env, agent.config.json)",
     "workspaceRoot: " + config.workspaceRoot,
     "modelProvider: " + config.modelProvider,
     "model: " + config.model,
@@ -41,8 +41,8 @@ const envPath = __dirname.includes(`${path.sep}dist${path.sep}`)
   ? path.resolve(__dirname, "../../../.env")
   : path.resolve(__dirname, "../../.env");
 
-// Load order: user home (~/.minicoder/.env) < project .env < cwd .env
-dotenv.config({ path: path.join(MINICODER_HOME, ".env") });
+// Load order: user home (~/.minicode/.env) < project .env < cwd .env
+dotenv.config({ path: path.join(MINICODE_HOME, ".env") });
 dotenv.config({ path: envPath, override: true });
 dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
@@ -151,7 +151,7 @@ function parseModelProvider(
 export async function loadAgentConfig(
   cwd = process.cwd(),
 ): Promise<AgentConfig> {
-  const homeConfigPath = path.join(MINICODER_HOME, "agent.config.json");
+  const homeConfigPath = path.join(MINICODE_HOME, "agent.config.json");
   const workspaceConfigPath = path.resolve(cwd, "agent.config.json");
   const homeConfig = await loadConfigFile(homeConfigPath);
   const workspaceConfig = await loadConfigFile(workspaceConfigPath);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Verification script for mini-coder indexing.
- * Run from mini-coder root: node --import tsx test-programs/verify-index/verify.ts
+ * Verification script for minicode indexing.
+ * Run from minicode root: node --import tsx test-programs/verify-index/verify.ts
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";

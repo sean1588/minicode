@@ -6,13 +6,14 @@ import { test } from "node:test";
 
 import {
   computeFileHashes,
+  getWorkspaceCacheDir,
   loadIndex,
   saveIndex,
 } from "../src/indexer/cache.js";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 
 test("saveIndex and loadIndex round-trip", async () => {
-  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "mini-coder-cache-"));
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-cache-"));
   const samplePath = path.join(workspaceRoot, "sample.ts");
   const content = `export function greet(name: string): string {
   return \`Hello, \${name}\`;
@@ -22,7 +23,7 @@ test("saveIndex and loadIndex round-trip", async () => {
 
   const index = await buildProjectIndex(workspaceRoot);
   const fileHashes = await computeFileHashes(workspaceRoot);
-  const cacheDir = path.join(workspaceRoot, ".mini-coder", "cache");
+  const cacheDir = getWorkspaceCacheDir(workspaceRoot);
 
   await saveIndex(index, cacheDir, fileHashes);
   const loaded = await loadIndex(cacheDir, fileHashes);
@@ -33,7 +34,7 @@ test("saveIndex and loadIndex round-trip", async () => {
 });
 
 test("loadIndex returns null when file hashes differ", async () => {
-  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "mini-coder-cache2-"));
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-cache2-"));
   const samplePath = path.join(workspaceRoot, "sample.ts");
   await writeFile(
     samplePath,
@@ -43,7 +44,7 @@ test("loadIndex returns null when file hashes differ", async () => {
 
   const index = await buildProjectIndex(workspaceRoot);
   const fileHashes = await computeFileHashes(workspaceRoot);
-  const cacheDir = path.join(workspaceRoot, ".mini-coder", "cache");
+  const cacheDir = getWorkspaceCacheDir(workspaceRoot);
   await saveIndex(index, cacheDir, fileHashes);
 
   await writeFile(
