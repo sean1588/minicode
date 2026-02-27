@@ -143,11 +143,12 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
 
 ```json
 {
-  "modelProvider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
+  "modelProvider": "openai-compatible",
+  "model": "zai-org/glm-4.7-flash",
   "maxSteps": 50,
   "maxTokens": 4096,
   "maxContextTokens": 120000,
+  "workspaceRoot": ".",
   "commandTimeout": 30000,
   "commandDenylist": [],
   "confirmDestructive": false,
@@ -164,6 +165,7 @@ Field mapping:
 - `modelProvider` ↔ `MODEL_PROVIDER`
 - `model` ↔ `MODEL`
 - `maxSteps` ↔ `MAX_STEPS`
+- `workspaceRoot` ↔ `WORKSPACE_ROOT`
 - `maxTokens` ↔ `MAX_TOKENS`
 - `maxContextTokens` ↔ `MAX_CONTEXT_TOKENS`
 - `commandTimeout` ↔ `COMMAND_TIMEOUT_MS`
