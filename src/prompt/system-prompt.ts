@@ -79,12 +79,13 @@ export function buildSystemPrompt(
     "- Always read a file before editing it.",
     "- Prefer edit_file over write_file for existing files.",
     "- Run tests or lint after code changes when applicable.",
+    "- Default to using preferred tools when doing planning, code exploration, or investigation."
   ];
 
   if (hasSpecializedTools) {
     toolGuidelines.push(
       "",
-      "[Code exploration — prefer these over read_file and search]",
+      "[Code exploration PREFERRED TOOLS — prefer these over read_file and search]",
       ...(hasReadSymbol
         ? [
             "- PREFER read_symbol over read_file for .ts/.tsx/.js/.jsx when you need a function or class. The code map lists all symbols; use read_symbol(name) for targeted reads — it returns only the relevant code and avoids bloating context.",
@@ -105,7 +106,7 @@ export function buildSystemPrompt(
       "- When tracing code: use get_dependencies to go inward (what does X call?), find_references to go outward (what calls X?).",
       ...(hasSearchCodeMap
         ? [
-            "- When the code map is truncated, use search_code_map to find symbols by name or substring — then use read_symbol with the result.",
+            "- PREFER search_code_map over search. When the code map is truncated, use search_code_map to find symbols by name or substring — then use read_symbol with the result.",
           ]
         : []),
     );
@@ -144,6 +145,7 @@ export function buildSystemPrompt(
     "- Never modify files outside the workspace directory.",
     "- Never run destructive commands without explicit user confirmation.",
     "- Ask for clarification if user intent is ambiguous.",
+    "- When asked to perform a task, communicate your execution plan to the user and ask for their confirmation before proceeding with any modifications."
   );
 
   return sections.join("\n");
