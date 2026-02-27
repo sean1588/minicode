@@ -8,7 +8,7 @@ export function createGetDependenciesTool(
   return {
     name: "get_dependencies",
     description:
-      "Get the dependency cone of a symbol — everything it depends on.",
+      "Get the dependency cone of a symbol — everything it calls or depends on. Use to understand implementation and data flow. Prefer over reading full files.",
     inputSchema: {
       type: "object",
       properties: {

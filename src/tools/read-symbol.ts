@@ -18,8 +18,8 @@ export function createReadSymbolTool(
     name: "read_symbol",
     description:
       "Read a specific function, class, or type definition by name. " +
-      "Returns the symbol's source code and referenced type definitions. " +
-      "Prefer this over read_file for code files.",
+      "Returns the symbol's source code, referenced types, callers, and callees. " +
+      "PREFER this over read_file for .ts/.tsx/.js/.jsx — use the code map to find symbol names.",
     inputSchema: {
       type: "object",
       properties: {

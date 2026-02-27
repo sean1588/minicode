@@ -32,6 +32,15 @@ const MINIMAL_TOOLS: ToolSchema[] = [
   },
 ];
 
+const TOOLS_WITH_SEARCH_CODE_MAP: ToolSchema[] = [
+  ...MINIMAL_TOOLS,
+  {
+    name: "search_code_map",
+    description: "Search the code map",
+    input_schema: { type: "object", properties: { pattern: { type: "string" } } },
+  },
+];
+
 test("buildSystemPrompt omits code map when undefined", () => {
   const prompt = buildSystemPrompt(
     createMinimalConfig("/tmp"),
@@ -42,21 +51,25 @@ test("buildSystemPrompt omits code map when undefined", () => {
   assert.ok(prompt.includes("[Tool Descriptions]"));
 });
 
-test("buildSystemPrompt omits code map when empty string", () => {
+test("buildSystemPrompt omits code map when empty", () => {
   const prompt = buildSystemPrompt(
     createMinimalConfig("/tmp"),
     MINIMAL_TOOLS,
-    "",
+    { text: "", shownCount: 0, totalCount: 0 },
   );
   assert.ok(!prompt.includes("[Project Code Map]"));
 });
 
 test("buildSystemPrompt includes code map when provided", () => {
-  const codeMap = "# Project Code Map\n\n  src/foo.ts\n    function bar()";
+  const codeMapResult = {
+    text: "# Project Code Map\n\n  src/foo.ts\n    function bar()",
+    shownCount: 1,
+    totalCount: 1,
+  };
   const prompt = buildSystemPrompt(
     createMinimalConfig("/tmp"),
     MINIMAL_TOOLS,
-    codeMap,
+    codeMapResult,
   );
   assert.ok(prompt.includes("[Project Code Map]"));
   assert.ok(prompt.includes("src/foo.ts"));
@@ -78,6 +91,21 @@ test("buildSystemPrompt includes tool list", () => {
   );
   assert.ok(prompt.includes("read_file"));
   assert.ok(prompt.includes("Read a file"));
+});
+
+test("buildSystemPrompt shows truncated stats and search_code_map hint when truncated", () => {
+  const codeMapResult = {
+    text: "# Project Code Map\n\n  src/foo.ts\n    function bar()",
+    shownCount: 5,
+    totalCount: 100,
+  };
+  const prompt = buildSystemPrompt(
+    createMinimalConfig("/tmp"),
+    TOOLS_WITH_SEARCH_CODE_MAP,
+    codeMapResult,
+  );
+  assert.ok(prompt.includes("Showing 5 of 100 symbols"));
+  assert.ok(prompt.includes("search_code_map to find symbols not listed above"));
 });
 
 test("buildSystemPrompt detects project type from workspace", () => {

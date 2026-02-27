@@ -89,29 +89,29 @@ test("verify-index fixture exercises full indexing pipeline", async () => {
   assert.ok(implementsEdges.length >= 1, "Processor should implement TaskRunner");
 
   const codeMap = index.getCodeMap();
-  assert.ok(codeMap.includes("Processor"));
-  assert.ok(codeMap.includes("parseAndProcess"));
+  assert.ok(codeMap.text.includes("Processor"));
+  assert.ok(codeMap.text.includes("parseAndProcess"));
 });
 
 test("Code map generator produces expected format", () => {
   const symbols = typescriptPlugin.indexFile("sample.ts", SAMPLE_TS);
   const byFile = new Map([["sample.ts", symbols]]);
-  const map = generateCodeMap(byFile);
+  const result = generateCodeMap(byFile);
 
-  assert.ok(map.includes("# Project Code Map"));
-  assert.ok(map.includes("sample.ts"));
-  assert.ok(map.includes("CodingAgent"));
-  assert.ok(map.includes("runTurn"));
+  assert.ok(result.text.includes("# Project Code Map"));
+  assert.ok(result.text.includes("sample.ts"));
+  assert.ok(result.text.includes("CodingAgent"));
+  assert.ok(result.text.includes("runTurn"));
 });
 
 test("Code map respects token budget", () => {
   const symbols = typescriptPlugin.indexFile("sample.ts", SAMPLE_TS);
   const byFile = new Map([["sample.ts", symbols]]);
-  const map = generateCodeMap(byFile, 50);
+  const result = generateCodeMap(byFile, 50);
 
-  assert.ok(map.length < 300);
+  assert.ok(result.text.length < 300);
   assert.ok(
-    map.includes("... and") || map.length > 0,
+    result.text.includes("... and") || result.text.length > 0,
     "should truncate or fit within budget",
   );
 });
@@ -128,8 +128,8 @@ test("buildProjectIndex works on minicode src/", async () => {
   assert.ok(agentSymbols.some((s) => s.name === "CodingAgent"));
 
   const codeMap = index.getCodeMap();
-  assert.ok(codeMap.includes("CodingAgent"));
-  assert.ok(codeMap.includes("runTurn"));
+  assert.ok(codeMap.text.includes("CodingAgent"));
+  assert.ok(codeMap.text.includes("runTurn"));
 });
 
 test("getPluginForFile routes .tsx, .js, .jsx to TypeScript plugin", async () => {
@@ -213,19 +213,19 @@ test("ProjectIndex getDependencyCone returns target and dependencies", async () 
 });
 
 test("Code map handles empty symbols map", () => {
-  const map = generateCodeMap(new Map());
-  assert.ok(map.includes("# Project Code Map"));
-  assert.ok(map.length < 100);
+  const result = generateCodeMap(new Map());
+  assert.ok(result.text.includes("# Project Code Map"));
+  assert.ok(result.text.length < 100);
 });
 
 test("Code map nests methods under class", () => {
   const symbols = typescriptPlugin.indexFile("sample.ts", SAMPLE_TS);
   const byFile = new Map([["sample.ts", symbols]]);
-  const map = generateCodeMap(byFile);
+  const result = generateCodeMap(byFile);
 
-  assert.ok(map.includes("class CodingAgent"));
-  assert.ok(map.includes("runTurn"));
-  const runTurnLine = map.split("\n").find((l) => l.includes("runTurn"));
+  assert.ok(result.text.includes("class CodingAgent"));
+  assert.ok(result.text.includes("runTurn"));
+  const runTurnLine = result.text.split("\n").find((l: string) => l.includes("runTurn"));
   assert.ok(runTurnLine?.startsWith("    "), "method should be indented under class");
 });
 
@@ -257,5 +257,5 @@ test("reindexFile updates symbols and code map after file change", async () => {
   );
 
   const codeMap = index.getCodeMap();
-  assert.ok(codeMap.includes("title?: string"), "code map should reflect new signature");
+  assert.ok(codeMap.text.includes("title?: string"), "code map should reflect new signature");
 });

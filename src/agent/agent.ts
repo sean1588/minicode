@@ -101,11 +101,11 @@ export class CodingAgent {
     });
 
     const toolSchemas = this.toolRegistry.getToolSchemas();
-    const codeMap = this.projectIndex?.getCodeMap();
+    const codeMapResult = this.projectIndex?.getCodeMap();
     const systemPrompt = buildSystemPrompt(
       this.config,
       toolSchemas,
-      codeMap,
+      codeMapResult,
     );
     const recentToolCallFingerprints: string[] = [];
     let totalInputTokens = 0;

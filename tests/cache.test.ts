@@ -30,7 +30,7 @@ test("saveIndex and loadIndex round-trip", async () => {
 
   assert.ok(loaded, "should load from cache");
   assert.equal(loaded!.getSymbol("greet")?.qualifiedName, "greet");
-  assert.ok(loaded!.getCodeMap().includes("greet"));
+  assert.ok(loaded!.getCodeMap().text.includes("greet"));
 });
 
 test("loadIndex returns null when file hashes differ", async () => {

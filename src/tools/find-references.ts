@@ -12,7 +12,8 @@ export function createFindReferencesTool(
 ): ToolDefinition {
   return {
     name: "find_references",
-    description: "Find all symbols that reference a given symbol.",
+    description:
+      "Find all symbols that reference or call a given symbol. Use to understand impact before changes. Prefer over search when you know the symbol name.",
     inputSchema: {
       type: "object",
       properties: {
