@@ -73,13 +73,18 @@ async function runInteractive(
   });
 
   let shuttingDown = false;
+  let turnAbortController: AbortController | null = null;
+
   process.on("SIGINT", () => {
-    if (shuttingDown) {
+    if (turnAbortController) {
+      turnAbortController.abort();
+    } else if (shuttingDown) {
       process.exit(1);
+    } else {
+      shuttingDown = true;
+      console.log("\nReceived interrupt. Exiting gracefully.");
+      rl.close();
     }
-    shuttingDown = true;
-    console.log("\nReceived interrupt. Exiting gracefully.");
-    rl.close();
   });
 
   let pendingInput: string | null = initialTask ?? null;
@@ -113,16 +118,25 @@ async function runInteractive(
       continue;
     }
 
+    turnAbortController = new AbortController();
     try {
-      const { text, usage } = await agent.runTurn(trimmed);
+      const { text, usage } = await agent.runTurn(trimmed, {
+        signal: turnAbortController.signal,
+      });
       console.log(`\nAgent> ${text}`);
       if (usage) {
         console.error(`  tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`);
       }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown runtime failure";
+        error instanceof Error && error.name === "AbortError"
+          ? "Cancelled"
+          : error instanceof Error
+            ? error.message
+            : "Unknown runtime failure";
       console.error(`\nAgent error: ${message}`);
+    } finally {
+      turnAbortController = null;
     }
   }
 

@@ -80,6 +80,26 @@ minicode reduces token usage by indexing your project and providing targeted too
 
 The index is cached in `~/.minicode/cache/<workspace-hash>/` for faster startup on subsequent runs. Caches are global and keyed by workspace path, so nothing is stored inside your project directories.
 
+### Indexing and dependency graph
+
+Indexing uses the **TypeScript compiler API** (`ts.createSourceFile`) to parse each file into an AST. It does not run `tsc` — no type-checking, no project config, just lightweight in-memory parsing.
+
+From the AST, minicode builds a **dependency graph** of symbol relationships:
+
+| Edge kind   | How it's inferred from the AST                          |
+| ----------- | ------------------------------------------------------- |
+| `calls`     | `foo()` or `new Bar()` → function/class being invoked    |
+| `references`| Type annotations like `: ModelResponse`                 |
+| `extends`   | `class X extends Y`                                     |
+| `implements`| `class X implements Y`                                 |
+
+The graph powers:
+
+- **Code map ranking** — When the map is truncated, symbols with higher reference counts and entry-point files appear first.
+- **`get_dependencies`** — Returns the transitive closure of what a symbol calls or references.
+- **`find_references`** — Returns symbols that call or reference a given symbol.
+- **`read_symbol`** — Shows "Used by", "Calls", and "Referenced Types" derived from the graph.
+
 ## Plugin System
 
 ### Supported Languages

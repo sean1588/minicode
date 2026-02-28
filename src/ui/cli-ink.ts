@@ -101,9 +101,27 @@ export async function runInkCli(
     },
   });
 
+  let turnAbortController: AbortController | null = null;
+
+  const handleCtrlC = (inkExit?: () => void): void => {
+    if (turnAbortController) {
+      turnAbortController.abort();
+    } else if (inkExit) {
+      inkExit();
+    } else {
+      process.exit(0);
+    }
+  };
+
+  process.on("SIGINT", () => handleCtrlC());
+
+  const onCtrlC = (exit: () => void): void => handleCtrlC(exit);
+
   const onRunTurn = async (input: string): Promise<void> => {
     const trimmed = input.trim();
     if (trimmed.length === 0) return;
+
+    store.setError(null);
 
     if (trimmed === "/exit" || trimmed === "exit" || trimmed === "quit") {
       process.exit(0);
@@ -129,8 +147,11 @@ export async function runInkCli(
     store.setPhase("sending");
     store.setStep(0);
 
+    turnAbortController = new AbortController();
     try {
-      const { text, usage, streamed } = await agent.runTurn(trimmed);
+      const { text, usage, streamed } = await agent.runTurn(trimmed, {
+        signal: turnAbortController.signal,
+      });
       if (!streamed) {
         store.addItem({ type: "assistant", content: text });
       }
@@ -145,13 +166,21 @@ export async function runInkCli(
       store.setPhase("idle");
       store.setStep(0);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown runtime failure";
-      store.setError(message);
+      if (error instanceof Error && error.name === "AbortError") {
+        store.addItem({ type: "system", content: "Cancelled" });
+      } else {
+        const message =
+          error instanceof Error ? error.message : "Unknown runtime failure";
+        store.setError(message);
+      }
+      store.setPhase("idle");
+      store.setStep(0);
+    } finally {
+      turnAbortController = null;
     }
   };
 
-  const { waitUntilExit } = runInkApp(store, onRunTurn);
+  const { waitUntilExit } = runInkApp(store, onRunTurn, onCtrlC);
 
   if (initialTask && initialTask.trim().length > 0) {
     await onRunTurn(initialTask);

@@ -111,8 +111,11 @@ export class UiStore {
     this.update({ items });
   }
 
-  setError(message: string): void {
-    this.update({ phase: "error", errorMessage: message });
+  setError(message: string | null): void {
+    this.update({
+      errorMessage: message,
+      ...(message !== null ? { phase: "error" as const } : { phase: "idle" as const }),
+    });
   }
 
   clearAll(): void {

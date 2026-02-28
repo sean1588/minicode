@@ -101,6 +101,10 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
   };
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
 
@@ -109,6 +113,9 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
       return await fn();
     } catch (error) {
       lastError = error;
+      if (isAbortError(error)) {
+        throw error;
+      }
       if (attempt === attempts) {
         break;
       }
@@ -309,6 +316,7 @@ export class AnthropicModelClient implements ModelClient {
     tools: ToolSchema[];
     maxTokens: number;
     onStream?: (chunk: string) => void;
+    signal?: AbortSignal;
   }): Promise<ModelResponse> {
     const response = await withRetry<Anthropic.Messages.Message>(() =>
       this.client.messages.create({
@@ -460,6 +468,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     tools: ToolSchema[];
     maxTokens: number;
     onStream?: (chunk: string) => void;
+    signal?: AbortSignal;
   }): Promise<ModelResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -495,6 +504,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
           max_tokens: params.maxTokens,
           stream: useStream,
         }),
+        ...(params.signal && { signal: params.signal }),
       });
 
       if (!httpResponse.ok) {

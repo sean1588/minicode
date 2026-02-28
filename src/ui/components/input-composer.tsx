@@ -5,11 +5,13 @@ import { c } from "../theme.js";
 interface InputComposerProps {
   onSubmit: (input: string) => void;
   disabled?: boolean;
+  onCtrlC?: (exit: () => void) => void;
 }
 
 export function InputComposer({
   onSubmit,
   disabled = false,
+  onCtrlC,
 }: InputComposerProps): React.ReactElement {
   const [value, setValue] = useState("");
   const { exit } = useApp();
@@ -24,7 +26,11 @@ export function InputComposer({
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
-      exit();
+      if (onCtrlC) {
+        onCtrlC(exit);
+      } else {
+        exit();
+      }
       return;
     }
     if (key.ctrl && input === "l") {
@@ -57,7 +63,7 @@ export function InputComposer({
       </Box>
       <Box>
         <Text dimColor>
-          [Enter send] [Ctrl+C quit] [Esc clear]
+          [Enter send] [Ctrl+C cancel/quit] [Esc clear]
         </Text>
       </Box>
     </Box>

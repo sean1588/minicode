@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { render, Box } from "ink";
+import { render, Box, Text } from "ink";
 import { HeaderBar } from "./components/header-bar.js";
 import { ActivityPane } from "./components/activity-pane.js";
 import { InputComposer } from "./components/input-composer.js";
@@ -8,9 +8,10 @@ import { UiStore } from "./state/ui-store.js";
 interface AppProps {
   store: UiStore;
   onRunTurn: (input: string) => Promise<void>;
+  onCtrlC?: (exit: () => void) => void;
 }
 
-function AppInner({ store, onRunTurn }: AppProps): React.ReactElement {
+function AppInner({ store, onRunTurn, onCtrlC }: AppProps): React.ReactElement {
   const [state, setState] = useState(store.getState());
 
   useEffect(() => {
@@ -41,11 +42,15 @@ function AppInner({ store, onRunTurn }: AppProps): React.ReactElement {
         workspaceRoot={state.workspaceRoot}
         indexStatus={state.indexStatus}
       />
-      <InputComposer onSubmit={handleSubmit} disabled={disabled} />
+      <InputComposer
+        onSubmit={handleSubmit}
+        disabled={disabled}
+        {...(onCtrlC && { onCtrlC })}
+      />
       {state.errorMessage && (
         <Box paddingX={1}>
           <Box borderStyle="single" borderColor="red" paddingX={1}>
-            Error: {state.errorMessage}
+            <Text color="red">Error: {state.errorMessage}</Text>
           </Box>
         </Box>
       )}
@@ -56,13 +61,16 @@ function AppInner({ store, onRunTurn }: AppProps): React.ReactElement {
 export function runInkApp(
   store: UiStore,
   onRunTurn: (input: string) => Promise<void>,
+  onCtrlC?: (exit: () => void) => void,
 ): { waitUntilExit: () => Promise<void> } {
   process.stdout.write("\x1b[2J\x1b[H");
   const instance = render(
     React.createElement(AppInner, {
       store,
       onRunTurn,
+      ...(onCtrlC && { onCtrlC }),
     }),
+    { exitOnCtrlC: false },
   );
 
   return {

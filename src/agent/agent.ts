@@ -90,7 +90,10 @@ export class CodingAgent {
     return this.session;
   }
 
-  async runTurn(userMessage: string): Promise<{
+  async runTurn(
+    userMessage: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<{
     text: string;
     usage?: { inputTokens: number; outputTokens: number };
     streamed?: boolean;
@@ -144,6 +147,7 @@ export class CodingAgent {
               },
             }
           : {}),
+        ...(options?.signal && { signal: options.signal }),
       });
 
       totalInputTokens += response.usage.inputTokens;
