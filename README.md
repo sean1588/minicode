@@ -71,6 +71,8 @@ minicode "Add error handling to src/api.ts"
 
 ## Context Optimization
 
+For a deep technical walkthrough of AST parsing, dependency graph construction, code-map ranking, and tool-call orchestration, see [docs/AST_DEP_GRAPH_TOOLING.md](docs/AST_DEP_GRAPH_TOOLING.md).
+
 minicode reduces token usage by indexing your project and providing targeted tools:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
