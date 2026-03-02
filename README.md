@@ -73,6 +73,8 @@ minicode "Add error handling to src/api.ts"
 
 For a deep technical walkthrough of AST parsing, dependency graph construction, code-map ranking, and tool-call orchestration, see [docs/AST_DEP_GRAPH_TOOLING.md](docs/AST_DEP_GRAPH_TOOLING.md).
 
+For agent-loop internals (session lifecycle, tool execution, streaming, loop detection, and model client behavior), see [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
+
 minicode reduces token usage by indexing your project and providing targeted tools:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
