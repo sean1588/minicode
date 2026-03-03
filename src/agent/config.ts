@@ -209,7 +209,7 @@ export async function loadAgentConfig(
     commandDenylist,
     confirmDestructive: parseBoolean(
       process.env.CONFIRM_DESTRUCTIVE,
-      fileConfig.confirmDestructive ?? false,
+      fileConfig.confirmDestructive ?? true,
     ),
     keepRecentMessages: parseNumber(
       process.env.KEEP_RECENT_MESSAGES,

@@ -7,7 +7,7 @@
   "workspaceRoot": ".",
   "commandTimeout": 30000,
   "commandDenylist": [],
-  "confirmDestructive": false,
+  "confirmDestructive": true,
   "maxFileSizeBytes": 1000000,
   "keepRecentMessages": 12,
   "loopDetectionWindow": 6,

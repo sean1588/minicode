@@ -25,7 +25,7 @@ MAX_CONTEXT_TOKENS=120000
 WORKSPACE_ROOT=.
 COMMAND_TIMEOUT_MS=30000
 MAX_FILE_SIZE_BYTES=1000000
-CONFIRM_DESTRUCTIVE=false
+CONFIRM_DESTRUCTIVE=true
 KEEP_RECENT_MESSAGES=12
 LOOP_DETECTION_WINDOW=6
 EOF
@@ -162,7 +162,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access                                                                                            |
 | `COMMAND_TIMEOUT_MS`    | No              | `30000`                    | Timeout for shell/search commands                                                                                                     |
 | `MAX_FILE_SIZE_BYTES`   | No              | `1000000`                  | Read limit for `read_file`                                                                                                            |
-| `CONFIRM_DESTRUCTIVE`   | No              | `false`                    | If `true`, blocks destructive shell commands unless confirmed                                                                         |
+| `CONFIRM_DESTRUCTIVE`   | No              | `true`                     | If `true`, blocks destructive shell commands unless confirmed                                                                         |
 | `KEEP_RECENT_MESSAGES`  | No              | `12`                       | Minimum number of latest messages kept during trimming                                                                                |
 | `LOOP_DETECTION_WINDOW` | No              | `6`                        | Window for repeated tool-call loop detection                                                                                          |
 
@@ -181,7 +181,7 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
   "workspaceRoot": ".",
   "commandTimeout": 30000,
   "commandDenylist": [],
-  "confirmDestructive": false,
+  "confirmDestructive": true,
   "maxFileSizeBytes": 1000000,
   "keepRecentMessages": 12,
   "loopDetectionWindow": 6,
