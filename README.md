@@ -10,7 +10,7 @@ Read operations dominate token usage in typical agent sessions; minicode address
 # 1. Start LM Studio, load a model (e.g. [GLM 4.7 Flash](https://lmstudio.ai/models/zai-org/glm-4.7-flash)), and start the local server. May need to increase context length settings for the model loaded.
 
 # 2. Install
-npm install -g minicode
+npm install -g @sean.holung/minicode
 
 # 3. Configure for local (no API key needed)
 mkdir -p ~/.minicode

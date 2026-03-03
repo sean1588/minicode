@@ -1,5 +1,5 @@
 # Manual publish: Actions → Publish to npm → Run workflow
-# Requires: NPM_TOKEN secret (npm access token with publish permission)
+# Requires: NPM_TOKEN secret — use an npm Automation token (bypasses 2FA for CI)
 name: Publish to npm
 
 on:
