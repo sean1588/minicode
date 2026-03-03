@@ -10,6 +10,7 @@
   "bin": {
     "minicode": "dist/src/index.js"
   },
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "dev:ink": "CLI_UI_MODE=ink node --env-file=.env --import tsx src/index.ts",

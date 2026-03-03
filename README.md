@@ -7,12 +7,10 @@ Read operations dominate token usage in typical agent sessions; minicode address
 ## Quick Start (LM Studio)
 
 ```bash
-# 1. Start LM Studio, load a model (e.g. [GLM 4.7 Flash](https://lmstudio.ai/models/zai-org/glm-4.7-flash)), and start the local server
+# 1. Start LM Studio, load a model (e.g. [GLM 4.7 Flash](https://lmstudio.ai/models/zai-org/glm-4.7-flash)), and start the local server. May need to increase context length settings for the model loaded.
 
-# 2. Clone and install
-git clone https://github.com/sean1588/minicode.git
-cd minicode
-npm install
+# 2. Install
+npm install -g minicode
 
 # 3. Configure for local (no API key needed)
 mkdir -p ~/.minicode
@@ -31,9 +29,6 @@ CONFIRM_DESTRUCTIVE=false
 KEEP_RECENT_MESSAGES=12
 LOOP_DETECTION_WINDOW=6
 EOF
-
-# 4. Install globally (build + npm link)
-npm run install:global
 ```
 
 ### How to run
@@ -52,6 +47,17 @@ minicode "Add error handling to src/api.ts"
 ```
 
 **Requirements:** Node.js 22+, LM Studio (or any OpenAI-compatible local server), `rg` in PATH (recommended). Set `MODEL` to match the model name in LM Studio.
+
+### Install from source
+
+To build and install from the repository:
+
+```bash
+git clone https://github.com/sean1588/minicode.git
+cd minicode
+npm install
+npm run install:global
+```
 
 ## Features
 
