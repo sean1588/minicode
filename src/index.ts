@@ -14,13 +14,24 @@ import { buildProjectIndex } from "./indexer/project-index.js";
 import { createModelClient } from "./model/client.js";
 import { ToolRegistry } from "./tools/registry.js";
 
-function parseArgs(argv: string[]): { verbose: boolean; task: string } {
+function parseArgs(argv: string[]): {
+  verbose: boolean;
+  oneshot: boolean;
+  task: string;
+} {
   const args = argv.slice(2);
   const verbose =
     args.includes("--verbose") || args.includes("-v");
-  const filtered = args.filter((a) => a !== "--verbose" && a !== "-v");
+  const oneshot = args.includes("--oneshot") || args.includes("-1");
+  const filtered = args.filter(
+    (a) =>
+      a !== "--verbose" &&
+      a !== "-v" &&
+      a !== "--oneshot" &&
+      a !== "-1",
+  );
   const task = filtered.join(" ").trim();
-  return { verbose, task };
+  return { verbose, oneshot, task };
 }
 
 function printBanner(): void {
@@ -32,6 +43,7 @@ function printBanner(): void {
 async function runInteractive(
   verbose: boolean,
   initialTask?: string,
+  oneshot = false,
 ): Promise<void> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
@@ -127,6 +139,9 @@ async function runInteractive(
       if (usage) {
         console.error(`  tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`);
       }
+      if (oneshot) {
+        break;
+      }
     } catch (error) {
       const message =
         error instanceof Error && error.name === "AbortError"
@@ -144,16 +159,20 @@ async function runInteractive(
 }
 
 async function main(): Promise<void> {
-  const { verbose, task } = parseArgs(process.argv);
+  const { verbose, oneshot, task } = parseArgs(process.argv);
   const uiMode = process.env.CLI_UI_MODE ?? "ink";
 
-  if (uiMode !== "legacy" && process.stdin.isTTY) {
+  if (oneshot && task.length === 0) {
+    throw new Error("--oneshot requires a task prompt. Example: minicode --oneshot \"Fix lint errors\"");
+  }
+
+  if (!oneshot && uiMode !== "legacy" && process.stdin.isTTY) {
     const { runInkCli } = await import("./ui/cli-ink.js");
     await runInkCli(verbose, task.length > 0 ? task : undefined);
     return;
   }
 
-  await runInteractive(verbose, task.length > 0 ? task : undefined);
+  await runInteractive(verbose, task.length > 0 ? task : undefined, oneshot);
 }
 
 main().catch((error: unknown) => {

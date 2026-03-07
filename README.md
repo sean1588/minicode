@@ -2,6 +2,8 @@
 
 A lightweight CLI coding agent optimized for **local models** by providing AST-based intelligent context for smaller models running on consumer hardware.
 
+> minicode gives local models a dependency-aware map of your codebase, so agents read less, reason better, and ship changes faster.
+
 Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
 
 ## Quick Start (LM Studio)
@@ -46,6 +48,14 @@ or you can also pass it an intial prompt from the start:
 minicode "Add error handling to src/api.ts"
 ```
 
+Run a single task and exit (useful for scripts/CI/orchestration):
+
+```bash
+minicode --oneshot "Find TODOs and summarize action items"
+# short flag
+minicode -1 "Refactor parseArgs and run tests"
+```
+
 **Requirements:** Node.js 22+, LM Studio (or any OpenAI-compatible local server), `rg` in PATH (recommended). Set `MODEL` to match the model name in LM Studio.
 
 ### Install from source
@@ -81,6 +91,8 @@ For a deep technical walkthrough of AST parsing, dependency graph construction, 
 
 For agent-loop internals (session lifecycle, tool execution, streaming, loop detection, and model client behavior), see [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
 
+For the proposed reusable package architecture and public interfaces for a standalone runtime SDK, see [docs/SDK_SPEC.md](docs/SDK_SPEC.md).
+
 minicode reduces token usage by indexing your project and providing targeted tools:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
@@ -109,6 +121,17 @@ The graph powers:
 - **`get_dependencies`** — Returns the transitive closure of what a symbol calls or references.
 - **`find_references`** — Returns symbols that call or reference a given symbol.
 - **`read_symbol`** — Shows "Used by", "Calls", and "Referenced Types" derived from the graph.
+
+### Why this differs from a tree-sitter-first approach
+
+Tree-sitter-focused agents are excellent for fast, generic syntax parsing across many languages. minicode takes a different path for TypeScript/JavaScript by using the TypeScript compiler AST to build a project symbol graph and drive graph-aware tools.
+
+Advantages of this approach in minicode:
+
+- **Dependency-aware navigation** — tools can follow call/type/inheritance edges (`calls`, `references`, `extends`, `implements`) instead of relying on text-only search.
+- **Higher-signal context under tight budgets** — code-map ranking prioritizes exported and highly referenced symbols so key APIs survive truncation.
+- **Targeted reads for local models** — symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) reduce unnecessary file reads and improve attention on relevant code.
+- **Fast iterative indexing** — syntax-only AST parsing (without full type-checking) keeps startup and reindexing lightweight while preserving structural code intelligence.
 
 ## Plugin System
 
@@ -228,6 +251,12 @@ npm run dev -- --verbose "Fix the bug"
 npm run dev -- -v
 ```
 
+One-shot mode in development:
+
+```bash
+npm run dev -- --oneshot "Fix lint errors and explain changes"
+```
+
 ## Scripts
 
 - `npm run dev` - start the CLI in TypeScript mode
@@ -236,6 +265,3 @@ npm run dev -- -v
 - `npm start` - run compiled CLI
 - `npm run lint` - run ESLint on TypeScript source and tests
 - `npm test` - run Node test suite
-
-
-
