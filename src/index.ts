@@ -13,26 +13,7 @@ import {
 import { buildProjectIndex } from "./indexer/project-index.js";
 import { createModelClient } from "./model/client.js";
 import { ToolRegistry } from "./tools/registry.js";
-
-function parseArgs(argv: string[]): {
-  verbose: boolean;
-  oneshot: boolean;
-  task: string;
-} {
-  const args = argv.slice(2);
-  const verbose =
-    args.includes("--verbose") || args.includes("-v");
-  const oneshot = args.includes("--oneshot") || args.includes("-1");
-  const filtered = args.filter(
-    (a) =>
-      a !== "--verbose" &&
-      a !== "-v" &&
-      a !== "--oneshot" &&
-      a !== "-1",
-  );
-  const task = filtered.join(" ").trim();
-  return { verbose, oneshot, task };
-}
+import { parseCliArgs, validateCliArgs } from "./cli/args.js";
 
 function printBanner(): void {
   console.log("minicode");
@@ -159,12 +140,10 @@ async function runInteractive(
 }
 
 async function main(): Promise<void> {
-  const { verbose, oneshot, task } = parseArgs(process.argv);
+  const { verbose, oneshot, task } = parseCliArgs(process.argv);
   const uiMode = process.env.CLI_UI_MODE ?? "ink";
 
-  if (oneshot && task.length === 0) {
-    throw new Error("--oneshot requires a task prompt. Example: minicode --oneshot \"Fix lint errors\"");
-  }
+  validateCliArgs({ verbose, oneshot, task });
 
   if (!oneshot && uiMode !== "legacy" && process.stdin.isTTY) {
     const { runInkCli } = await import("./ui/cli-ink.js");
