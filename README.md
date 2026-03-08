@@ -48,6 +48,20 @@ or you can also pass it an intial prompt from the start:
 minicode "Add error handling to src/api.ts"
 ```
 
+Run a single task and exit (useful for scripts/CI/orchestration):
+
+```bash
+minicode --oneshot "Find TODOs and summarize action items"
+# short flag
+minicode -1 "Refactor parseArgs and run tests"
+
+# JSON output (for pipeline parsing)
+minicode --oneshot --json "Summarize recent changes"
+
+# Write final output to a file (suppresses terminal response output)
+minicode --oneshot --out result.txt "Generate release notes"
+```
+
 **Requirements:** Node.js 22+, LM Studio (or any OpenAI-compatible local server), `rg` in PATH (recommended). Set `MODEL` to match the model name in LM Studio.
 
 ### Install from source
@@ -242,6 +256,20 @@ Verbose mode (log prompts, model responses, and tool invocations to stderr):
 npm run dev -- --verbose "Fix the bug"
 npm run dev -- -v
 ```
+
+One-shot mode in development:
+
+```bash
+npm run dev -- --oneshot "Fix lint errors and explain changes"
+npm run dev -- --oneshot --json "Summarize TODOs"
+npm run dev -- --oneshot --out result.txt "Draft changelog"
+```
+
+### Exit codes
+
+- `0`: Success
+- `1`: Runtime failure
+- `2`: CLI usage/validation error (for example, `--oneshot` without a prompt)
 
 ## Scripts
 

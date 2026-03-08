@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
+import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
 import { CodingAgent } from "./agent/agent.js";
@@ -13,26 +14,25 @@ import {
 import { buildProjectIndex } from "./indexer/project-index.js";
 import { createModelClient } from "./model/client.js";
 import { ToolRegistry } from "./tools/registry.js";
+import {
+  CliUsageError,
+  parseCliArgs,
+  validateCliArgs,
+} from "./cli/args.js";
 
-function parseArgs(argv: string[]): { verbose: boolean; task: string } {
-  const args = argv.slice(2);
-  const verbose =
-    args.includes("--verbose") || args.includes("-v");
-  const filtered = args.filter((a) => a !== "--verbose" && a !== "-v");
-  const task = filtered.join(" ").trim();
-  return { verbose, task };
-}
+const EXIT_CODE_SUCCESS = 0;
+const EXIT_CODE_RUNTIME_ERROR = 1;
+const EXIT_CODE_USAGE_ERROR = 2;
 
 function printBanner(): void {
   console.log("minicode");
-
   console.log('Type your request, or "/exit" to quit.');
 }
 
-async function runInteractive(
+async function createAgentRuntime(
   verbose: boolean,
-  initialTask?: string,
-): Promise<void> {
+  onProgress?: (message: string) => void,
+): Promise<{ agent: CodingAgent; config: Awaited<ReturnType<typeof loadAgentConfig>> }> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
@@ -56,8 +56,20 @@ async function runInteractive(
     toolRegistry,
     verbose,
     ...(projectIndex !== undefined ? { projectIndex } : {}),
-    onProgress: (msg) => console.error(`  ${msg}`),
+    ...(onProgress ? { onProgress } : {}),
   });
+
+  return { agent, config };
+}
+
+async function runInteractive(
+  verbose: boolean,
+  initialTask?: string,
+): Promise<void> {
+  const { agent, config } = await createAgentRuntime(
+    verbose,
+    (msg) => console.error(`  ${msg}`),
+  );
 
   printBanner();
   console.log(`Workspace: ${config.workspaceRoot}`);
@@ -79,7 +91,7 @@ async function runInteractive(
     if (turnAbortController) {
       turnAbortController.abort();
     } else if (shuttingDown) {
-      process.exit(1);
+      process.exit(EXIT_CODE_RUNTIME_ERROR);
     } else {
       shuttingDown = true;
       console.log("\nReceived interrupt. Exiting gracefully.");
@@ -143,22 +155,54 @@ async function runInteractive(
   rl.close();
 }
 
-async function main(): Promise<void> {
-  const { verbose, task } = parseArgs(process.argv);
-  const uiMode = process.env.CLI_UI_MODE ?? "ink";
+async function runOneshot(params: {
+  verbose: boolean;
+  task: string;
+  json: boolean;
+  outFile?: string;
+}): Promise<void> {
+  const { agent } = await createAgentRuntime(params.verbose);
 
-  if (uiMode !== "legacy" && process.stdin.isTTY) {
-    const { runInkCli } = await import("./ui/cli-ink.js");
-    await runInkCli(verbose, task.length > 0 ? task : undefined);
+  const { text, usage } = await agent.runTurn(params.task);
+  const payload = params.json
+    ? JSON.stringify({ text, usage: usage ?? null }, null, 2)
+    : text;
+
+  if (params.outFile) {
+    await writeFile(params.outFile, payload + "\n", "utf8");
     return;
   }
 
-  await runInteractive(verbose, task.length > 0 ? task : undefined);
+  console.log(payload);
+}
+
+async function main(): Promise<void> {
+  const cliArgs = parseCliArgs(process.argv);
+  validateCliArgs(cliArgs);
+
+  if (cliArgs.oneshot) {
+    await runOneshot(cliArgs);
+    process.exitCode = EXIT_CODE_SUCCESS;
+    return;
+  }
+
+  const uiMode = process.env.CLI_UI_MODE ?? "ink";
+  if (uiMode !== "legacy" && process.stdin.isTTY) {
+    const { runInkCli } = await import("./ui/cli-ink.js");
+    await runInkCli(cliArgs.verbose, cliArgs.task.length > 0 ? cliArgs.task : undefined);
+    process.exitCode = EXIT_CODE_SUCCESS;
+    return;
+  }
+
+  await runInteractive(cliArgs.verbose, cliArgs.task.length > 0 ? cliArgs.task : undefined);
+  process.exitCode = EXIT_CODE_SUCCESS;
 }
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Fatal error: ${message}`);
-  process.exit(1);
+  if (error instanceof CliUsageError) {
+    process.exit(EXIT_CODE_USAGE_ERROR);
+  }
+  process.exit(EXIT_CODE_RUNTIME_ERROR);
 });
-
