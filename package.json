@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "dev:ink": "CLI_UI_MODE=ink node --env-file=.env --import tsx src/index.ts",
-    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json",
+    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && chmod +x dist/src/index.js",
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",
     "lint": "eslint \"src/**/*.ts\" \"src/**/*.tsx\" \"tests/**/*.ts\" --max-warnings=0",
