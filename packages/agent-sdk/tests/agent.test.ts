@@ -1,19 +1,15 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import { test } from "node:test";
 
-import {
-  CodingAgent,
-  ToolRegistry,
-} from "@minicode/agent-sdk";
+import { CodingAgent } from "../src/agent/agent.js";
 import type {
   ModelClient,
   ModelResponse,
   SessionMessage,
   ToolDefinition,
   ToolSchema,
-} from "@minicode/agent-sdk";
-import { buildProjectIndex } from "../src/indexer/project-index.js";
+} from "../src/agent/types.js";
+import { ToolRegistry } from "../src/tools/registry.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 class SequenceModelClient implements ModelClient {
@@ -116,7 +112,144 @@ test("agent stops on repeated identical tool calls", async () => {
   assert.match(text, /repeated identical tool calls/);
 });
 
-test("agent omits code map when projectIndex is not provided", async () => {
+test("agent returns usage totals across steps", async () => {
+  const responses: ModelResponse[] = [
+    {
+      text: "Step 1",
+      toolCalls: [{ id: "tool-1", name: "echo_tool", input: { value: "a" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 100, outputTokens: 50 },
+    },
+    {
+      text: "Final answer.",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 200, outputTokens: 75 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const result = await agent.runTurn("Count tokens");
+  assert.equal(result.usage?.inputTokens, 300);
+  assert.equal(result.usage?.outputTokens, 125);
+});
+
+test("agent emits UiUpdate events", async () => {
+  const responses: ModelResponse[] = [
+    {
+      text: "thinking about it",
+      toolCalls: [{ id: "tool-1", name: "echo_tool", input: { value: "hi" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "Done.",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+  ];
+
+  const events: Array<{ type: string }> = [];
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    onUiUpdate: (event) => events.push(event),
+  });
+
+  await agent.runTurn("Test events");
+  const types = events.map((e) => e.type);
+  assert.ok(types.includes("step"));
+  assert.ok(types.includes("thinking"));
+  assert.ok(types.includes("tool_call_start"));
+  assert.ok(types.includes("tool_call_end"));
+});
+
+test("agent returns fallback text when model returns empty response", async () => {
+  const responses: ModelResponse[] = [
+    {
+      text: "",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 0 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Hello");
+  assert.match(text, /no response or tool calls/);
+});
+
+test("agent respects maxSteps limit", async () => {
+  const config = createTestAgentConfig("/tmp");
+  config.maxSteps = 2;
+
+  let callCount = 0;
+  const infiniteClient: ModelClient = {
+    async chat() {
+      callCount += 1;
+      return {
+        text: `step ${callCount}`,
+        toolCalls: [{ id: `tool-${callCount}`, name: "echo_tool", input: { value: String(callCount) } }],
+        stopReason: "tool_use" as const,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config,
+    modelClient: infiniteClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Go forever");
+  assert.match(text, /maximum number of steps/);
+  assert.equal(callCount, 2);
+});
+
+test("agent accepts getCodeMap callback", async () => {
+  let capturedSystem = "";
+  const spyClient: ModelClient = {
+    async chat(params) {
+      capturedSystem = params.system;
+      return {
+        text: "Done.",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    getCodeMap: () => ({
+      text: "# Code Map\n- MyClass",
+      shownCount: 1,
+      totalCount: 1,
+    }),
+  });
+
+  await agent.runTurn("Show code map");
+  assert.ok(capturedSystem.includes("[Project Code Map]"));
+  assert.ok(capturedSystem.includes("MyClass"));
+});
+
+test("agent omits code map when getCodeMap not provided", async () => {
   let capturedSystem = "";
   const spyClient: ModelClient = {
     async chat(params) {
@@ -138,33 +271,4 @@ test("agent omits code map when projectIndex is not provided", async () => {
 
   await agent.runTurn("Hello");
   assert.ok(!capturedSystem.includes("[Project Code Map]"));
-});
-
-test("agent includes code map in system prompt when projectIndex is provided", async () => {
-  const root = path.resolve(import.meta.dirname, "..");
-  const projectIndex = await buildProjectIndex(root);
-
-  let capturedSystem = "";
-  const spyClient: ModelClient = {
-    async chat(params) {
-      capturedSystem = params.system;
-      return {
-        text: "Task complete.",
-        toolCalls: [],
-        stopReason: "end_turn",
-        usage: { inputTokens: 1, outputTokens: 1 },
-      };
-    },
-  };
-
-  const agent = new CodingAgent({
-    config: createTestAgentConfig(root),
-    modelClient: spyClient,
-    toolRegistry: new ToolRegistry([createEchoTool()]),
-    getCodeMap: () => projectIndex.getCodeMap(),
-  });
-
-  await agent.runTurn("List the project structure");
-  assert.ok(capturedSystem.includes("[Project Code Map]"));
-  assert.ok(capturedSystem.includes("CodingAgent"));
 });

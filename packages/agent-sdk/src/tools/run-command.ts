@@ -129,4 +129,3 @@ export function createRunCommandTool(config: AgentConfig): ToolDefinition {
     },
   };
 }
-

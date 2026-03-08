@@ -4,8 +4,7 @@ import { test } from "node:test";
 import {
   OpenAICompatibleModelClient,
   createModelClient,
-} from "@minicode/agent-sdk";
-import type { AgentConfig } from "@minicode/agent-sdk";
+} from "../src/model/client.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 test("openai-compatible client sends tool schemas and parses tool calls", async () => {
@@ -89,10 +88,94 @@ test("openai-compatible client sends tool schemas and parses tool calls", async 
   assert.equal(tools[0]?.type, "function");
 });
 
+test("openai-compatible client parses end_turn response", async () => {
+  const fetchImpl: typeof fetch = async () => {
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: "Hello, world!",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 3,
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 256,
+  });
+
+  assert.equal(response.text, "Hello, world!");
+  assert.equal(response.stopReason, "end_turn");
+  assert.equal(response.toolCalls.length, 0);
+});
+
+test("openai-compatible client handles malformed tool arguments gracefully", async () => {
+  const fetchImpl: typeof fetch = async () => {
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              content: "",
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: {
+                    name: "some_tool",
+                    arguments: "not valid json{{{",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 256,
+  });
+
+  assert.equal(response.toolCalls[0]?.name, "some_tool");
+  assert.deepEqual(response.toolCalls[0]?.input, {});
+});
+
 test("createModelClient returns openai-compatible client", () => {
-  const config: AgentConfig = {
+  const config = {
     ...createTestAgentConfig("/tmp"),
-    modelProvider: "openai-compatible",
+    modelProvider: "openai-compatible" as const,
     openAiBaseUrl: "http://localhost:1234/v1",
   };
 

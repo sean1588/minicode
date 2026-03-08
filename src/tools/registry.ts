@@ -1,82 +1,53 @@
-import type { AgentConfig, ToolDefinition, ToolSchema } from "../agent/types.js";
+import {
+  ToolRegistry,
+  createReadFileTool,
+  createWriteFileTool,
+  createEditFileTool,
+  createSearchTool,
+  createListFilesTool,
+  createRunCommandTool,
+} from "@minicode/agent-sdk";
+import type { AgentConfig, ToolDefinition } from "@minicode/agent-sdk";
 import type { ProjectIndex } from "../indexer/types.js";
-import { createEditFileTool } from "./edit-file.js";
 import { createFindReferencesTool } from "./find-references.js";
 import { createGetDependenciesTool } from "./get-dependencies.js";
-import { createListFilesTool } from "./list-files.js";
-import { createReadFileTool } from "./read-file.js";
 import { createReadSymbolTool } from "./read-symbol.js";
-import { createRunCommandTool } from "./run-command.js";
 import { createSearchCodeMapTool } from "./search-code-map.js";
-import { createSearchTool } from "./search.js";
-import { createWriteFileTool } from "./write-file.js";
 
-function ensureInputObject(input: unknown): Record<string, unknown> {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    throw new Error("Tool input must be a JSON object.");
-  }
-  return input as Record<string, unknown>;
-}
+export { ToolRegistry };
 
-function toToolSchema(tool: ToolDefinition): ToolSchema {
-  return {
-    name: tool.name,
-    description: tool.description,
-    input_schema: tool.inputSchema,
-  };
-}
-
-export class ToolRegistry {
-  private readonly toolsByName = new Map<string, ToolDefinition>();
-
-  constructor(tools: ToolDefinition[]) {
-    for (const tool of tools) {
-      if (this.toolsByName.has(tool.name)) {
-        throw new Error(`Duplicate tool registration for "${tool.name}".`);
+/**
+ * Create a ToolRegistry with the SDK's core tools plus indexer-specific tools
+ * when a ProjectIndex is available.
+ */
+export function createToolRegistry(
+  config: AgentConfig,
+  projectIndex?: ProjectIndex,
+): ToolRegistry {
+  const hooks = projectIndex
+    ? {
+        afterWrite: (relPath: string, content: string) =>
+          projectIndex.reindexFile(relPath, content),
+        afterEdit: (relPath: string, content: string) =>
+          projectIndex.reindexFile(relPath, content),
       }
-      this.toolsByName.set(tool.name, tool);
-    }
+    : undefined;
+
+  const tools: ToolDefinition[] = [
+    createReadFileTool(config),
+    createWriteFileTool(config, hooks ? { afterWrite: hooks.afterWrite } : undefined),
+    createEditFileTool(config, hooks ? { afterEdit: hooks.afterEdit } : undefined),
+    createSearchTool(config),
+    createListFilesTool(config),
+    createRunCommandTool(config),
+  ];
+
+  if (projectIndex) {
+    tools.splice(1, 0, createReadSymbolTool(config, projectIndex));
+    tools.splice(2, 0, createFindReferencesTool(projectIndex));
+    tools.splice(3, 0, createGetDependenciesTool(projectIndex));
+    tools.splice(4, 0, createSearchCodeMapTool(projectIndex));
   }
 
-  static createDefault(
-    config: AgentConfig,
-    projectIndex?: ProjectIndex,
-  ): ToolRegistry {
-    const tools: ToolDefinition[] = [
-      createReadFileTool(config),
-      createWriteFileTool(config, projectIndex),
-      createEditFileTool(config, projectIndex),
-      createSearchTool(config),
-      createListFilesTool(config),
-      createRunCommandTool(config),
-    ];
-    if (projectIndex) {
-      tools.splice(1, 0, createReadSymbolTool(config, projectIndex));
-      tools.splice(2, 0, createFindReferencesTool(projectIndex));
-      tools.splice(3, 0, createGetDependenciesTool(projectIndex));
-      tools.splice(4, 0, createSearchCodeMapTool(projectIndex));
-    }
-    return new ToolRegistry(tools);
-  }
-
-  getToolSchemas(): ToolSchema[] {
-    return [...this.toolsByName.values()].map(toToolSchema);
-  }
-
-  async execute(name: string, input: unknown): Promise<string> {
-    const tool = this.toolsByName.get(name);
-    if (!tool) {
-      return `Tool error: Unknown tool "${name}".`;
-    }
-
-    try {
-      const inputObject = ensureInputObject(input);
-      return await tool.execute(inputObject);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown tool failure";
-      return `Tool error (${name}): ${message}`;
-    }
-  }
+  return new ToolRegistry(tools);
 }
-

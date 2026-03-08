@@ -48,7 +48,7 @@ export function createReadFileTool(config: AgentConfig): ToolDefinition {
   return {
     name: "read_file",
     description:
-      "Read file contents with line numbers. Use for config files, non-code files, or when symbol name is unknown. For code files (.ts/.tsx/.js/.jsx), prefer read_symbol when the symbol is in the code map. For large files, use offset and limit.",
+      "Read file contents with line numbers. Use for config files, non-code files, or when symbol name is unknown. For large files, use offset and limit.",
     inputSchema: {
       type: "object",
       properties: {
@@ -106,4 +106,3 @@ export function createReadFileTool(config: AgentConfig): ToolDefinition {
     },
   };
 }
-

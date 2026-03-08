@@ -4,9 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
+import { createEditFileTool, createReadFileTool } from "@minicode/agent-sdk";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
-import { createEditFileTool } from "../src/tools/edit-file.js";
-import { createReadFileTool } from "../src/tools/read-file.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 async function createTempWorkspace(): Promise<string> {
@@ -67,7 +66,7 @@ test("edit_file triggers reindex when projectIndex provided", async () => {
 
   const editTool = createEditFileTool(
     createTestAgentConfig(workspaceRoot),
-    index,
+    { afterEdit: (relPath, content) => index.reindexFile(relPath, content) },
   );
   await editTool.execute({
     path: "src/util.ts",

@@ -59,4 +59,3 @@ export function formatWithLineNumbers(
 export function toJson(input: unknown): string {
   return JSON.stringify(input);
 }
-

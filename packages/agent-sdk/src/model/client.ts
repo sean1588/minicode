@@ -302,7 +302,7 @@ export class AnthropicModelClient implements ModelClient {
   constructor(apiKey = process.env.ANTHROPIC_API_KEY) {
     if (!apiKey) {
       throw new Error(
-        "Missing ANTHROPIC_API_KEY. Copy .env.example to .env and set a key.",
+        "Missing ANTHROPIC_API_KEY. Set the environment variable or pass it to the constructor.",
       );
     }
 
@@ -541,4 +541,3 @@ export function createModelClient(config: AgentConfig): ModelClient {
   }
   return new AnthropicModelClient();
 }
-

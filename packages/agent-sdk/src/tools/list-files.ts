@@ -82,4 +82,3 @@ export function createListFilesTool(config: AgentConfig): ToolDefinition {
     },
   };
 }
-

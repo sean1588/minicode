@@ -2,6 +2,7 @@
   "name": "@sean.holung/minicode",
   "version": "0.2.0",
   "private": true,
+  "workspaces": ["packages/*"],
   "description": "A coding agent for mini models",
   "type": "module",
   "engines": {
@@ -14,14 +15,16 @@
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "dev:ink": "CLI_UI_MODE=ink node --env-file=.env --import tsx src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && chmod +x dist/src/index.js",
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",
     "lint": "eslint \"src/**/*.ts\" \"src/**/*.tsx\" \"tests/**/*.ts\" --max-warnings=0",
+    "pretest": "npm run build --workspace=packages/agent-sdk",
     "test": "node --test --import tsx \"tests/**/*.test.ts\"",
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts"
   },
   "dependencies": {
+    "@minicode/agent-sdk": "*",
     "@anthropic-ai/sdk": "^0.76.0",
     "typescript": "^5.9.3",
     "@inkjs/ui": "^2.0.0",

@@ -5,15 +5,15 @@ import { test } from "node:test";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createFindReferencesTool } from "../src/tools/find-references.js";
 
-test("find_references returns symbols that reference ModelResponse", async () => {
+test("find_references returns symbols that reference ProjectIndex", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const projectIndex = await buildProjectIndex(root);
   const tool = createFindReferencesTool(projectIndex);
 
-  const result = await tool.execute({ name: "ModelResponse" });
+  const result = await tool.execute({ name: "ProjectIndex" });
 
-  assert.ok(result.includes("# References to ModelResponse"));
-  assert.ok(result.includes("parseResponse"));
+  assert.ok(result.includes("# References to ProjectIndex"));
+  assert.ok(result.includes("createToolRegistry") || result.includes("createReadSymbolTool"));
 });
 
 test("find_references returns error for unknown symbol", async () => {
@@ -29,9 +29,9 @@ test("find_references returns error for unknown symbol", async () => {
 test("find_references appears in tool registry when projectIndex provided", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const projectIndex = await buildProjectIndex(root);
-  const { ToolRegistry } = await import("../src/tools/registry.js");
+  const { createToolRegistry } = await import("../src/tools/registry.js");
   const { createTestAgentConfig } = await import("./test-utils.js");
-  const registry = ToolRegistry.createDefault(
+  const registry = createToolRegistry(
     createTestAgentConfig(root),
     projectIndex,
   );

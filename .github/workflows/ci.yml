@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build SDK
+        run: npm run build --workspace=packages/agent-sdk
+
       - name: Run lint
         run: npm run lint
 

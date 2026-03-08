@@ -130,4 +130,3 @@ export class Session {
     return true;
   }
 }
-

@@ -3,7 +3,7 @@ import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
-import { CodingAgent } from "./agent/agent.js";
+import { CodingAgent, createModelClient } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "./agent/config.js";
 import {
   computeFileHashes,
@@ -12,8 +12,7 @@ import {
   saveIndex,
 } from "./indexer/cache.js";
 import { buildProjectIndex } from "./indexer/project-index.js";
-import { createModelClient } from "./model/client.js";
-import { ToolRegistry } from "./tools/registry.js";
+import { createToolRegistry } from "./tools/registry.js";
 import {
   CliUsageError,
   parseCliArgs,
@@ -49,13 +48,15 @@ async function createAgentRuntime(
   } catch {
     projectIndex = undefined;
   }
-  const toolRegistry = ToolRegistry.createDefault(config, projectIndex);
+  const toolRegistry = createToolRegistry(config, projectIndex);
   const agent = new CodingAgent({
     config,
     modelClient,
     toolRegistry,
     verbose,
-    ...(projectIndex !== undefined ? { projectIndex } : {}),
+    ...(projectIndex !== undefined
+      ? { getCodeMap: () => projectIndex.getCodeMap() }
+      : {}),
     ...(onProgress ? { onProgress } : {}),
   });
 

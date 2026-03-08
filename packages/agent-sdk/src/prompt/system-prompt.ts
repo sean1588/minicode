@@ -2,7 +2,12 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentConfig, ToolSchema } from "../agent/types.js";
-import type { CodeMapResult } from "../indexer/code-map.js";
+
+export interface CodeMapResult {
+  text: string;
+  shownCount: number;
+  totalCount: number;
+}
 
 function detectProjectType(workspaceRoot: string): string {
   const checks: Array<{ file: string; type: string }> = [
@@ -150,4 +155,3 @@ export function buildSystemPrompt(
 
   return sections.join("\n");
 }
-

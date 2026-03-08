@@ -10,10 +10,13 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
+    "declaration": true,
+    "declarationMap": true,
+    "composite": true,
+    "sourceMap": true,
     "resolveJsonModule": true,
-    "types": ["node"],
-    "jsx": "react-jsx"
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts"],
-  "exclude": ["dist", "node_modules", "packages"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
 }

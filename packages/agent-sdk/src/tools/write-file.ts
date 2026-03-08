@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AgentConfig, ToolDefinition } from "../agent/types.js";
-import type { ProjectIndex } from "../indexer/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectNonEmptyString } from "./helpers.js";
 
@@ -14,9 +13,13 @@ function expectString(input: Record<string, unknown>, key: string): string {
   return value;
 }
 
+export interface WriteFileHooks {
+  afterWrite?: ((filePath: string, content: string) => void) | undefined;
+}
+
 export function createWriteFileTool(
   config: AgentConfig,
-  projectIndex?: ProjectIndex,
+  hooks?: WriteFileHooks,
 ): ToolDefinition {
   return {
     name: "write_file",
@@ -45,13 +48,11 @@ export function createWriteFileTool(
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeFile(filePath, content, "utf8");
 
-      if (projectIndex) {
-        const relPath = path.relative(config.workspaceRoot, filePath);
-        projectIndex.reindexFile(relPath, content);
+      if (hooks?.afterWrite) {
+        hooks.afterWrite(filePath, content);
       }
 
       return `Wrote ${content.length} characters to "${requestedPath}".`;
     },
   };
 }
-

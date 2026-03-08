@@ -1,8 +1,8 @@
 import { buildSystemPrompt } from "../prompt/system-prompt.js";
+import type { CodeMapResult } from "../prompt/system-prompt.js";
 import { ensureStepWithinLimit } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
-import type { ProjectIndex } from "../indexer/types.js";
 import type { AgentConfig, ModelClient, ToolCall } from "./types.js";
 
 function stableSerialize(value: unknown): string {
@@ -31,7 +31,7 @@ function formatToolCallForProgress(toolCall: ToolCall, maxArgsLen = 100): string
   return `${toolCall.name}(${truncated})`;
 }
 
-const VERBOSE_SEP = "─".repeat(60);
+const VERBOSE_SEP = "\u2500".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
 
 export type UiUpdateThinking = { type: "thinking"; content: string };
@@ -61,7 +61,7 @@ export class CodingAgent {
   private readonly config: AgentConfig;
   private readonly modelClient: ModelClient;
   private readonly toolRegistry: ToolRegistry;
-  private readonly projectIndex: ProjectIndex | undefined;
+  private readonly getCodeMap: (() => CodeMapResult | undefined) | undefined;
   private readonly verbose: boolean;
   private readonly onProgress: ((message: string) => void) | undefined;
   private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
@@ -71,7 +71,7 @@ export class CodingAgent {
     modelClient: ModelClient;
     toolRegistry: ToolRegistry;
     session?: Session;
-    projectIndex?: ProjectIndex;
+    getCodeMap?: () => CodeMapResult | undefined;
     verbose?: boolean;
     onProgress?: (message: string) => void;
     onUiUpdate?: (event: UiUpdate) => void;
@@ -80,7 +80,7 @@ export class CodingAgent {
     this.modelClient = params.modelClient;
     this.toolRegistry = params.toolRegistry;
     this.session = params.session ?? new Session();
-    this.projectIndex = params.projectIndex;
+    this.getCodeMap = params.getCodeMap;
     this.verbose = params.verbose ?? false;
     this.onProgress = params.onProgress;
     this.onUiUpdate = params.onUiUpdate;
@@ -104,7 +104,7 @@ export class CodingAgent {
     });
 
     const toolSchemas = this.toolRegistry.getToolSchemas();
-    const codeMapResult = this.projectIndex?.getCodeMap();
+    const codeMapResult = this.getCodeMap?.();
     const systemPrompt = buildSystemPrompt(
       this.config,
       toolSchemas,
@@ -292,4 +292,3 @@ export class CodingAgent {
     };
   }
 }
-

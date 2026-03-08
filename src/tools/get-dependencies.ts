@@ -1,6 +1,6 @@
-import type { ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "@minicode/agent-sdk";
+import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
 import type { ProjectIndex } from "../indexer/types.js";
-import { expectNonEmptyString, expectOptionalNumber } from "./helpers.js";
 
 export function createGetDependenciesTool(
   projectIndex: ProjectIndex,

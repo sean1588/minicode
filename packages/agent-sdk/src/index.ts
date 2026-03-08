@@ -1,0 +1,72 @@
+// Core types
+export type {
+  AgentConfig,
+  AssistantMessage,
+  ModelClient,
+  ModelResponse,
+  SessionMessage,
+  ToolCall,
+  ToolDefinition,
+  ToolResultMessage,
+  ToolSchema,
+  UserMessage,
+} from "./agent/types.js";
+
+// Agent runtime
+export {
+  CodingAgent,
+  type UiUpdate,
+  type UiUpdateThinking,
+  type UiUpdateStreamingChunk,
+  type UiUpdateStep,
+  type UiUpdateToolCallStart,
+  type UiUpdateToolCallEnd,
+} from "./agent/agent.js";
+
+// Session
+export { Session } from "./session/session.js";
+
+// Model clients
+export {
+  AnthropicModelClient,
+  OpenAICompatibleModelClient,
+  createModelClient,
+} from "./model/client.js";
+
+// Tool registry
+export { ToolRegistry, type CoreToolHooks } from "./tools/registry.js";
+
+// Individual tool factories
+export { createReadFileTool } from "./tools/read-file.js";
+export { createWriteFileTool, type WriteFileHooks } from "./tools/write-file.js";
+export { createEditFileTool, type EditFileHooks } from "./tools/edit-file.js";
+export { createSearchTool } from "./tools/search.js";
+export { createListFilesTool } from "./tools/list-files.js";
+export { createRunCommandTool } from "./tools/run-command.js";
+
+// Tool helpers
+export {
+  expectNonEmptyString,
+  expectOptionalBoolean,
+  expectOptionalNumber,
+  formatWithLineNumbers,
+  toJson,
+} from "./tools/helpers.js";
+
+// Safety / guardrails
+export {
+  ensureStepWithinLimit,
+  isDestructiveCommand,
+  isWithinWorkspacePath,
+  normalizeWorkspaceRoot,
+  resolveWorkspacePath,
+  validateCommand,
+  validateFileReadSize,
+  validatePath,
+} from "./safety/guardrails.js";
+
+// System prompt
+export {
+  buildSystemPrompt,
+  type CodeMapResult,
+} from "./prompt/system-prompt.js";
