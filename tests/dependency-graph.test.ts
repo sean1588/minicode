@@ -10,46 +10,50 @@ test("buildProjectIndex produces dependency edges", async () => {
 
   assert.ok(index.dependencyEdges.length > 0, "should have dependency edges");
 
-  const parseResponseRefs = index.dependencyEdges.filter(
-    (e) => e.from === "parseResponse",
+  const createToolRegistryRefs = index.dependencyEdges.filter(
+    (e) => e.from === "createToolRegistry",
   );
   assert.ok(
-    parseResponseRefs.some((e) => e.to === "ModelResponse"),
-    "parseResponse should reference ModelResponse",
+    createToolRegistryRefs.some((e) => e.to === "ProjectIndex"),
+    "createToolRegistry should reference ProjectIndex",
   );
   assert.ok(
-    parseResponseRefs.some((e) => e.to === "ToolCall"),
-    "parseResponse should reference ToolCall",
+    createToolRegistryRefs.some((e) => e.to === "AgentConfig"),
+    "createToolRegistry should reference AgentConfig",
   );
 });
 
-test("createModelClient has expected dependencies", async () => {
+test("loadAgentConfig has expected dependencies", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const index = await buildProjectIndex(root);
 
   const edges = index.dependencyEdges.filter(
-    (e) => e.from === "createModelClient",
+    (e) => e.from === "loadAgentConfig",
   );
 
   assert.ok(
     edges.some((e) => e.to === "AgentConfig"),
-    "createModelClient should reference AgentConfig",
+    "loadAgentConfig should reference AgentConfig",
   );
   assert.ok(
     edges.length >= 1,
-    "createModelClient should have at least one dependency",
+    "loadAgentConfig should have at least one dependency",
   );
 });
 
-test("AnthropicModelClient implements ModelClient", async () => {
+test("buildProjectIndex indexes config and tool files", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const index = await buildProjectIndex(root);
 
-  const implementsEdge = index.dependencyEdges.find(
-    (e) =>
-      e.from === "AnthropicModelClient" &&
-      e.to === "ModelClient" &&
-      e.kind === "implements",
+  const configSymbols = index.getSymbolsInFile("src/agent/config.ts");
+  assert.ok(
+    configSymbols.some((s) => s.name === "loadAgentConfig"),
+    "should index loadAgentConfig from config.ts",
   );
-  assert.ok(implementsEdge, "AnthropicModelClient should implement ModelClient");
+
+  const registrySymbols = index.getSymbolsInFile("src/tools/registry.ts");
+  assert.ok(
+    registrySymbols.some((s) => s.name === "createToolRegistry"),
+    "should index createToolRegistry from registry.ts",
+  );
 });

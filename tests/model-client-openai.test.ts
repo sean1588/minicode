@@ -4,8 +4,8 @@ import { test } from "node:test";
 import {
   OpenAICompatibleModelClient,
   createModelClient,
-} from "../src/model/client.js";
-import type { AgentConfig } from "../src/agent/types.js";
+} from "@minicode/agent-sdk";
+import type { AgentConfig } from "@minicode/agent-sdk";
 import { createTestAgentConfig } from "./test-utils.js";
 
 test("openai-compatible client sends tool schemas and parses tool calls", async () => {

@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 
-import { CodingAgent } from "../src/agent/agent.js";
-import { buildProjectIndex } from "../src/indexer/project-index.js";
+import {
+  CodingAgent,
+  ToolRegistry,
+} from "@minicode/agent-sdk";
 import type {
   ModelClient,
   ModelResponse,
   SessionMessage,
+  ToolDefinition,
   ToolSchema,
-} from "../src/agent/types.js";
-import type { ToolDefinition } from "../src/agent/types.js";
-import { ToolRegistry } from "../src/tools/registry.js";
+} from "@minicode/agent-sdk";
+import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 class SequenceModelClient implements ModelClient {
@@ -159,7 +161,7 @@ test("agent includes code map in system prompt when projectIndex is provided", a
     config: createTestAgentConfig(root),
     modelClient: spyClient,
     toolRegistry: new ToolRegistry([createEchoTool()]),
-    projectIndex,
+    getCodeMap: () => projectIndex.getCodeMap(),
   });
 
   await agent.runTurn("List the project structure");

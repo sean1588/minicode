@@ -123,13 +123,13 @@ test("buildProjectIndex works on minicode src/", async () => {
   assert.ok(index.symbols.size > 0);
   assert.ok(index.files.size > 0);
 
-  const agentSymbols = index.getSymbolsInFile("src/agent/agent.ts");
-  assert.ok(agentSymbols.length >= 1);
-  assert.ok(agentSymbols.some((s) => s.name === "CodingAgent"));
+  const configSymbols = index.getSymbolsInFile("src/agent/config.ts");
+  assert.ok(configSymbols.length >= 1);
+  assert.ok(configSymbols.some((s) => s.name === "loadAgentConfig"));
 
   const codeMap = index.getCodeMap();
   assert.ok(codeMap.text.includes("CodingAgent"));
-  assert.ok(codeMap.text.includes("runTurn"));
+  assert.ok(codeMap.totalCount > 0);
 });
 
 test("getPluginForFile routes .tsx, .js, .jsx to TypeScript plugin", async () => {
@@ -182,11 +182,11 @@ test("ProjectIndex getSymbol finds by qualifiedName and by name", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const index = await buildProjectIndex(root);
 
-  const byQualified = index.getSymbol("CodingAgent.runTurn");
+  const byQualified = index.getSymbol("loadAgentConfig");
   assert.ok(byQualified);
-  assert.equal(byQualified!.qualifiedName, "CodingAgent.runTurn");
+  assert.equal(byQualified!.qualifiedName, "loadAgentConfig");
 
-  const byName = index.getSymbol("runTurn");
+  const byName = index.getSymbol("formatConfigForDisplay");
   assert.ok(byName, "getSymbol should find by name when unique");
 });
 
@@ -203,12 +203,12 @@ test("ProjectIndex getDependencyCone returns target and dependencies", async () 
   const root = path.resolve(import.meta.dirname, "..");
   const index = await buildProjectIndex(root);
 
-  const cone = index.getDependencyCone("parseResponse", 1);
+  const cone = index.getDependencyCone("loadAgentConfig", 1);
   assert.ok(Array.isArray(cone));
   assert.ok(cone.length >= 1, "should include target symbol");
   assert.ok(
-    cone.some((s) => s.qualifiedName === "parseResponse"),
-    "should include parseResponse",
+    cone.some((s) => s.qualifiedName === "loadAgentConfig"),
+    "should include loadAgentConfig",
   );
 });
 

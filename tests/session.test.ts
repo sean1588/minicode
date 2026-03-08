@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { Session } from "../src/session/session.js";
+import { Session } from "@minicode/agent-sdk";
 
 test("session stores and returns messages", () => {
   const session = new Session("test");

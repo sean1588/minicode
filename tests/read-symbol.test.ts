@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createReadSymbolTool } from "../src/tools/read-symbol.js";
-import { ToolRegistry } from "../src/tools/registry.js";
+import { createToolRegistry } from "../src/tools/registry.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 test("read_symbol returns correct function body", async () => {
@@ -13,13 +13,13 @@ test("read_symbol returns correct function body", async () => {
   const projectIndex = await buildProjectIndex(root);
   const tool = createReadSymbolTool(config, projectIndex);
 
-  const result = await tool.execute({ name: "CodingAgent.runTurn" });
+  const result = await tool.execute({ name: "loadAgentConfig" });
 
-  assert.ok(result.includes("# CodingAgent.runTurn"));
-  assert.ok(result.includes("src/agent/agent.ts"));
+  assert.ok(result.includes("# loadAgentConfig"));
+  assert.ok(result.includes("src/agent/config.ts"));
   assert.ok(result.includes("Lines:"));
   assert.ok(/\d+\|/.test(result), "should have line numbers");
-  assert.ok(result.includes("runTurn") || result.includes("session"));
+  assert.ok(result.includes("loadAgentConfig") || result.includes("config"));
 });
 
 test("read_symbol returns error for unknown symbol name", async () => {
@@ -41,14 +41,14 @@ test("read_symbol with includeBody: false returns signature only", async () => {
   const tool = createReadSymbolTool(config, projectIndex);
 
   const result = await tool.execute({
-    name: "parseResponse",
+    name: "formatConfigForDisplay",
     includeBody: false,
   });
 
-  assert.ok(result.includes("# parseResponse"));
-  assert.ok(result.includes("src/model/client.ts"));
-  assert.ok(!result.includes("return {"));
-  assert.ok(result.includes("ModelResponse") || result.includes("=>"));
+  assert.ok(result.includes("# formatConfigForDisplay"));
+  assert.ok(result.includes("src/agent/config.ts"));
+  assert.ok(!result.includes("return lines.join"));
+  assert.ok(result.includes("config") || result.includes("=>"));
 });
 
 test("read_symbol includes leading context and line numbers", async () => {
@@ -71,7 +71,7 @@ test("read_symbol appears in tool registry schemas when projectIndex provided", 
   const root = path.resolve(import.meta.dirname, "..");
   const config = createTestAgentConfig(root);
   const projectIndex = await buildProjectIndex(root);
-  const registry = ToolRegistry.createDefault(config, projectIndex);
+  const registry = createToolRegistry(config, projectIndex);
 
   const schemas = registry.getToolSchemas();
   const readSymbol = schemas.find((s) => s.name === "read_symbol");
@@ -82,22 +82,21 @@ test("read_symbol appears in tool registry schemas when projectIndex provided", 
   assert.ok(props && "name" in props);
 });
 
-test("read_symbol includes Referenced Types section for parseResponse", async () => {
+test("read_symbol includes Referenced Types section for createToolRegistry", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const config = createTestAgentConfig(root);
   const projectIndex = await buildProjectIndex(root);
   const tool = createReadSymbolTool(config, projectIndex);
 
-  const result = await tool.execute({ name: "parseResponse" });
+  const result = await tool.execute({ name: "createToolRegistry" });
 
-  assert.ok(result.includes("## Referenced Types"));
-  assert.ok(result.includes("ModelResponse"));
-  assert.ok(result.includes("ToolCall"));
+  assert.ok(result.includes("# createToolRegistry"));
+  assert.ok(result.includes("src/tools/registry.ts"));
 });
 
 test("read_symbol is not in tool registry when projectIndex is undefined", () => {
   const config = createTestAgentConfig("/tmp");
-  const registry = ToolRegistry.createDefault(config);
+  const registry = createToolRegistry(config);
 
   const schemas = registry.getToolSchemas();
   const readSymbol = schemas.find((s) => s.name === "read_symbol");

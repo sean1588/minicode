@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../src/agent/types.js";
+import type { AgentConfig } from "@minicode/agent-sdk";
 
 export function createTestAgentConfig(workspaceRoot: string): AgentConfig {
   return {

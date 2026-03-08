@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { ToolDefinition } from "../src/agent/types.js";
-import { ToolRegistry } from "../src/tools/registry.js";
+import { ToolRegistry } from "@minicode/agent-sdk";
+import type { ToolDefinition } from "@minicode/agent-sdk";
 
 const echoTool: ToolDefinition = {
   name: "echo",

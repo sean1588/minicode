@@ -5,7 +5,7 @@ import {
   resolveWorkspacePath,
   validateCommand,
   validatePath,
-} from "../src/safety/guardrails.js";
+} from "@minicode/agent-sdk";
 
 test("validatePath allows files within workspace", () => {
   const workspaceRoot = "/tmp/workspace";

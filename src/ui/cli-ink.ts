@@ -1,6 +1,6 @@
 import process from "node:process";
 
-import { CodingAgent } from "../agent/agent.js";
+import { CodingAgent, createModelClient } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
@@ -9,8 +9,7 @@ import {
   saveIndex,
 } from "../indexer/cache.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
-import { createModelClient } from "../model/client.js";
-import { ToolRegistry } from "../tools/registry.js";
+import { createToolRegistry } from "../tools/registry.js";
 import { UiStore } from "./state/ui-store.js";
 import { runInkApp } from "./app.js";
 
@@ -51,13 +50,15 @@ export async function runInkCli(
   });
   store.setPhase("idle");
 
-  const toolRegistry = ToolRegistry.createDefault(config, projectIndex);
+  const toolRegistry = createToolRegistry(config, projectIndex);
   const agent = new CodingAgent({
     config,
     modelClient,
     toolRegistry,
     verbose,
-    ...(projectIndex !== undefined ? { projectIndex } : {}),
+    ...(projectIndex !== undefined
+      ? { getCodeMap: () => projectIndex.getCodeMap() }
+      : {}),
     ...(verbose
       ? {
           onProgress: (msg: string) =>

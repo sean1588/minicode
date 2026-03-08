@@ -2,6 +2,7 @@
   "name": "@sean.holung/minicode",
   "version": "0.2.0",
   "private": true,
+  "workspaces": ["packages/*"],
   "description": "A coding agent for mini models",
   "type": "module",
   "engines": {
@@ -22,6 +23,7 @@
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts"
   },
   "dependencies": {
+    "@minicode/agent-sdk": "*",
     "@anthropic-ai/sdk": "^0.76.0",
     "typescript": "^5.9.3",
     "@inkjs/ui": "^2.0.0",

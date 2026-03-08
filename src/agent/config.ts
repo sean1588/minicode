@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
 
-import type { AgentConfig } from "./types.js";
+import type { AgentConfig } from "@minicode/agent-sdk";
 
 /** User-level config directory: ~/.minicode */
 export const MINICODE_HOME = path.join(os.homedir(), ".minicode");

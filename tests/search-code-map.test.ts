@@ -29,9 +29,9 @@ test("search_code_map returns empty when no match", async () => {
 test("search_code_map appears in tool registry when projectIndex provided", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const projectIndex = await buildProjectIndex(root);
-  const { ToolRegistry } = await import("../src/tools/registry.js");
+  const { createToolRegistry } = await import("../src/tools/registry.js");
   const { createTestAgentConfig } = await import("./test-utils.js");
-  const registry = ToolRegistry.createDefault(
+  const registry = createToolRegistry(
     createTestAgentConfig(root),
     projectIndex,
   );
