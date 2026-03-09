@@ -1,0 +1,144 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+
+import { Session } from "@minicode/agent-sdk";
+
+import {
+  listSessions,
+  loadSession,
+  loadSessionByLabel,
+  saveSession,
+} from "../src/session/session-store.js";
+
+async function withTmpDir(
+  fn: (dir: string) => Promise<void>,
+): Promise<void> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "minicode-test-"));
+  try {
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("saveSession creates a JSON file in .minicode/sessions", async () => {
+  await withTmpDir(async (dir) => {
+    const session = new Session("test-id");
+    session.addMessage({ role: "user", content: "hello" });
+    session.addMessage({ role: "assistant", content: "hi there" });
+
+    const meta = await saveSession(session, dir, "my label");
+
+    assert.equal(meta.id, "test-id");
+    assert.equal(meta.label, "my label");
+    assert.equal(meta.messageCount, 2);
+
+    const files = await readdir(path.join(dir, ".minicode", "sessions"));
+    assert.equal(files.length, 1);
+    assert.equal(files[0], "test-id.json");
+  });
+});
+
+test("saveSession uses timestamp label when none provided", async () => {
+  await withTmpDir(async (dir) => {
+    const session = new Session("test-id");
+    const meta = await saveSession(session, dir);
+    assert.ok(meta.label.length > 0);
+  });
+});
+
+test("listSessions returns empty array when no sessions dir", async () => {
+  await withTmpDir(async (dir) => {
+    const sessions = await listSessions(dir);
+    assert.equal(sessions.length, 0);
+  });
+});
+
+test("listSessions returns saved sessions sorted by savedAt desc", async () => {
+  await withTmpDir(async (dir) => {
+    const s1 = new Session("s1");
+    s1.addMessage({ role: "user", content: "first" });
+    await saveSession(s1, dir, "first session");
+
+    // Small delay to ensure distinct timestamps for ordering
+    await new Promise((r) => setTimeout(r, 50));
+
+    const s2 = new Session("s2");
+    s2.addMessage({ role: "user", content: "second" });
+    s2.addMessage({ role: "assistant", content: "reply" });
+    await saveSession(s2, dir, "second session");
+
+    const sessions = await listSessions(dir);
+    assert.equal(sessions.length, 2);
+    assert.equal(sessions[0]?.label, "second session");
+    assert.equal(sessions[1]?.label, "first session");
+  });
+});
+
+test("loadSession restores a session by id", async () => {
+  await withTmpDir(async (dir) => {
+    const session = new Session("test-id");
+    session.addMessage({ role: "user", content: "hello" });
+    session.addMessage({ role: "assistant", content: "hi" });
+    await saveSession(session, dir, "test label");
+
+    const result = await loadSession(dir, "test-id");
+    assert.ok(result);
+    assert.equal(result.label, "test label");
+    assert.equal(result.session.id, "test-id");
+
+    const msgs = result.session.getMessages();
+    assert.equal(msgs.length, 2);
+    assert.equal(msgs[0]?.content, "hello");
+    assert.equal(msgs[1]?.content, "hi");
+  });
+});
+
+test("loadSession returns undefined for missing id", async () => {
+  await withTmpDir(async (dir) => {
+    const result = await loadSession(dir, "nonexistent");
+    assert.equal(result, undefined);
+  });
+});
+
+test("loadSessionByLabel finds session by label (case-insensitive)", async () => {
+  await withTmpDir(async (dir) => {
+    const session = new Session("test-id");
+    session.addMessage({ role: "user", content: "hello" });
+    await saveSession(session, dir, "My Label");
+
+    const result = await loadSessionByLabel(dir, "my label");
+    assert.ok(result);
+    assert.equal(result.label, "My Label");
+    assert.equal(result.session.id, "test-id");
+  });
+});
+
+test("loadSessionByLabel returns undefined for no match", async () => {
+  await withTmpDir(async (dir) => {
+    const result = await loadSessionByLabel(dir, "nope");
+    assert.equal(result, undefined);
+  });
+});
+
+test("saving same session twice overwrites the file", async () => {
+  await withTmpDir(async (dir) => {
+    const session = new Session("test-id");
+    session.addMessage({ role: "user", content: "hello" });
+    await saveSession(session, dir, "v1");
+
+    session.addMessage({ role: "assistant", content: "reply" });
+    await saveSession(session, dir, "v2");
+
+    const files = await readdir(path.join(dir, ".minicode", "sessions"));
+    assert.equal(files.length, 1);
+
+    const result = await loadSession(dir, "test-id");
+    assert.ok(result);
+    assert.equal(result.label, "v2");
+    assert.equal(result.session.getMessages().length, 2);
+  });
+});
