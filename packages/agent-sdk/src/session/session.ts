@@ -15,16 +15,38 @@ function estimateMessageTokens(message: SessionMessage): number {
   return Math.ceil(message.content.length / 4) + toolCallTokens;
 }
 
+export interface SessionSnapshot {
+  id: string;
+  createdAt: string;
+  messages: SessionMessage[];
+}
+
 export class Session {
   readonly id: string;
   readonly createdAt: Date;
 
   private readonly messages: SessionMessage[];
 
-  constructor(id: string = randomUUID()) {
+  constructor(id: string = randomUUID(), createdAt?: Date) {
     this.id = id;
-    this.createdAt = new Date();
+    this.createdAt = createdAt ?? new Date();
     this.messages = [];
+  }
+
+  toJSON(): SessionSnapshot {
+    return {
+      id: this.id,
+      createdAt: this.createdAt.toISOString(),
+      messages: this.getMessages(),
+    };
+  }
+
+  static fromJSON(snapshot: SessionSnapshot): Session {
+    const session = new Session(snapshot.id, new Date(snapshot.createdAt));
+    for (const message of snapshot.messages) {
+      session.addMessage(message);
+    }
+    return session;
   }
 
   addMessage(message: SessionMessage): void {

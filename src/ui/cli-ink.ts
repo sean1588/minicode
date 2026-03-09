@@ -1,6 +1,7 @@
 import process from "node:process";
 
-import { CodingAgent, createModelClient } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
+import type { UiUpdate } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
@@ -9,6 +10,12 @@ import {
   saveIndex,
 } from "../indexer/cache.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
+import {
+  listSessions,
+  loadSession,
+  loadSessionByLabel,
+  saveSession,
+} from "../session/session-store.js";
 import { createToolRegistry } from "../tools/registry.js";
 import { UiStore } from "./state/ui-store.js";
 import { runInkApp } from "./app.js";
@@ -51,21 +58,9 @@ export async function runInkCli(
   store.setPhase("idle");
 
   const toolRegistry = createToolRegistry(config, projectIndex);
-  const agent = new CodingAgent({
-    config,
-    modelClient,
-    toolRegistry,
-    verbose,
-    ...(projectIndex !== undefined
-      ? { getCodeMap: () => projectIndex.getCodeMap() }
-      : {}),
-    ...(verbose
-      ? {
-          onProgress: (msg: string) =>
-            store.addItem({ type: "system", content: msg }),
-        }
-      : {}),
-    onUiUpdate: (event) => {
+
+  function createUiUpdateHandler(): (event: UiUpdate) => void {
+    return (event) => {
       switch (event.type) {
         case "streaming_chunk":
           store.appendToStreamingContent(event.content);
@@ -99,9 +94,30 @@ export async function runInkCli(
           store.setPhase("model_wait");
           break;
       }
-    },
-  });
+    };
+  }
 
+  function buildAgent(session?: Session): CodingAgent {
+    return new CodingAgent({
+      config,
+      modelClient,
+      toolRegistry,
+      verbose,
+      ...(session ? { session } : {}),
+      ...(projectIndex !== undefined
+        ? { getCodeMap: () => projectIndex.getCodeMap() }
+        : {}),
+      ...(verbose
+        ? {
+            onProgress: (msg: string) =>
+              store.addItem({ type: "system", content: msg }),
+          }
+        : {}),
+      onUiUpdate: createUiUpdateHandler(),
+    });
+  }
+
+  let agent = buildAgent();
   let turnAbortController: AbortController | null = null;
 
   const handleCtrlC = (inkExit?: () => void): void => {
@@ -131,7 +147,8 @@ export async function runInkCli(
     if (trimmed === "/help") {
       store.addItem({
         type: "system",
-        content: 'Commands: "/help", "/config", "/exit". Start with --verbose or -v for detailed logs.',
+        content:
+          'Commands: "/help", "/config", "/save [label]", "/load [label]", "/sessions", "/exit".',
       });
       return;
     }
@@ -140,6 +157,80 @@ export async function runInkCli(
       store.addItem({
         type: "system",
         content: formatConfigForDisplay(config),
+      });
+      return;
+    }
+
+    if (trimmed === "/save" || trimmed.startsWith("/save ")) {
+      const label = trimmed.slice("/save".length).trim() || undefined;
+      try {
+        const meta = await saveSession(
+          agent.getSession(),
+          config.workspaceRoot,
+          label,
+        );
+        store.addItem({
+          type: "system",
+          content: `Session saved as "${meta.label}" (${meta.messageCount} messages)`,
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        store.addItem({ type: "system", content: `Failed to save session: ${msg}` });
+      }
+      return;
+    }
+
+    if (trimmed === "/sessions") {
+      const sessions = await listSessions(config.workspaceRoot);
+      if (sessions.length === 0) {
+        store.addItem({ type: "system", content: "No saved sessions found." });
+      } else {
+        const lines = sessions.map(
+          (s) => `  ${s.label} (${s.messageCount} msgs, saved ${s.savedAt})`,
+        );
+        store.addItem({
+          type: "system",
+          content: "Saved sessions:\n" + lines.join("\n"),
+        });
+      }
+      return;
+    }
+
+    if (trimmed === "/load" || trimmed.startsWith("/load ")) {
+      const arg = trimmed.slice("/load".length).trim();
+      if (arg.length === 0) {
+        const sessions = await listSessions(config.workspaceRoot);
+        if (sessions.length === 0) {
+          store.addItem({ type: "system", content: "No saved sessions found." });
+        } else {
+          const lines = sessions.map(
+            (s) => `  ${s.label} (${s.messageCount} msgs, saved ${s.savedAt})`,
+          );
+          store.addItem({
+            type: "system",
+            content:
+              "Saved sessions:\n" +
+              lines.join("\n") +
+              '\n\nUse "/load <label>" to restore a session.',
+          });
+        }
+        return;
+      }
+
+      const result =
+        (await loadSessionByLabel(config.workspaceRoot, arg)) ??
+        (await loadSession(config.workspaceRoot, arg));
+      if (!result) {
+        store.addItem({
+          type: "system",
+          content: `No session found matching "${arg}".`,
+        });
+        return;
+      }
+      agent = buildAgent(result.session);
+      store.addItem({
+        type: "system",
+        content: `Session "${result.label}" restored (${result.session.getMessages().length} messages).`,
       });
       return;
     }
