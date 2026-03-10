@@ -166,7 +166,6 @@ export async function runInkCli(
       try {
         const meta = await saveSession(
           agent.getSession(),
-          config.workspaceRoot,
           label,
         );
         store.addItem({
@@ -181,7 +180,7 @@ export async function runInkCli(
     }
 
     if (trimmed === "/sessions") {
-      const sessions = await listSessions(config.workspaceRoot);
+      const sessions = await listSessions();
       if (sessions.length === 0) {
         store.addItem({ type: "system", content: "No saved sessions found." });
       } else {
@@ -199,7 +198,7 @@ export async function runInkCli(
     if (trimmed === "/load" || trimmed.startsWith("/load ")) {
       const arg = trimmed.slice("/load".length).trim();
       if (arg.length === 0) {
-        const sessions = await listSessions(config.workspaceRoot);
+        const sessions = await listSessions();
         if (sessions.length === 0) {
           store.addItem({ type: "system", content: "No saved sessions found." });
         } else {
@@ -218,8 +217,8 @@ export async function runInkCli(
       }
 
       const result =
-        (await loadSessionByLabel(config.workspaceRoot, arg)) ??
-        (await loadSession(config.workspaceRoot, arg));
+        (await loadSessionByLabel(arg)) ??
+        (await loadSession(arg));
       if (!result) {
         store.addItem({
           type: "system",

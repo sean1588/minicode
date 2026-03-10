@@ -156,7 +156,6 @@ async function runInteractive(
       try {
         const meta = await saveSession(
           agent.getSession(),
-          config.workspaceRoot,
           label,
         );
         console.log(`Session saved as "${meta.label}" (${meta.messageCount} messages)`);
@@ -168,7 +167,7 @@ async function runInteractive(
     }
 
     if (trimmed === "/sessions") {
-      const sessions = await listSessions(config.workspaceRoot);
+      const sessions = await listSessions();
       if (sessions.length === 0) {
         console.log("No saved sessions found.");
       } else {
@@ -183,7 +182,7 @@ async function runInteractive(
     if (trimmed === "/load" || trimmed.startsWith("/load ")) {
       const arg = trimmed.slice("/load".length).trim();
       if (arg.length === 0) {
-        const sessions = await listSessions(config.workspaceRoot);
+        const sessions = await listSessions();
         if (sessions.length === 0) {
           console.log("No saved sessions found.");
         } else {
@@ -197,8 +196,8 @@ async function runInteractive(
       }
 
       const result =
-        (await loadSessionByLabel(config.workspaceRoot, arg)) ??
-        (await loadSession(config.workspaceRoot, arg));
+        (await loadSessionByLabel(arg)) ??
+        (await loadSession(arg));
       if (!result) {
         console.log(`No session found matching "${arg}".`);
         continue;

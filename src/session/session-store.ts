@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { Session, type SessionSnapshot } from "@minicode/agent-sdk";
@@ -17,17 +18,18 @@ interface SavedSessionFile {
   session: SessionSnapshot;
 }
 
-function getSessionsDir(workspaceRoot: string): string {
-  return path.join(workspaceRoot, ".minicode", "sessions");
+let sessionsDir = path.join(os.homedir(), ".minicode", "sessions");
+
+/** Override sessions directory (for testing). */
+export function setSessionsDir(dir: string): void {
+  sessionsDir = dir;
 }
 
 export async function saveSession(
   session: Session,
-  workspaceRoot: string,
   label?: string,
 ): Promise<SavedSessionMeta> {
-  const dir = getSessionsDir(workspaceRoot);
-  await mkdir(dir, { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
 
   const savedAt = new Date().toISOString();
   const snapshot = session.toJSON();
@@ -42,7 +44,7 @@ export async function saveSession(
     session: snapshot,
   };
 
-  const filePath = path.join(dir, `${snapshot.id}.json`);
+  const filePath = path.join(sessionsDir, `${snapshot.id}.json`);
   await writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
 
   return {
@@ -54,13 +56,10 @@ export async function saveSession(
   };
 }
 
-export async function listSessions(
-  workspaceRoot: string,
-): Promise<SavedSessionMeta[]> {
-  const dir = getSessionsDir(workspaceRoot);
+export async function listSessions(): Promise<SavedSessionMeta[]> {
   let files: string[];
   try {
-    files = await readdir(dir);
+    files = await readdir(sessionsDir);
   } catch {
     return [];
   }
@@ -69,7 +68,7 @@ export async function listSessions(
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
     try {
-      const raw = await readFile(path.join(dir, file), "utf8");
+      const raw = await readFile(path.join(sessionsDir, file), "utf8");
       const data = JSON.parse(raw) as SavedSessionFile;
       results.push({
         id: data.session.id,
@@ -88,11 +87,9 @@ export async function listSessions(
 }
 
 export async function loadSession(
-  workspaceRoot: string,
   sessionId: string,
 ): Promise<{ session: Session; label: string } | undefined> {
-  const dir = getSessionsDir(workspaceRoot);
-  const filePath = path.join(dir, `${sessionId}.json`);
+  const filePath = path.join(sessionsDir, `${sessionId}.json`);
   try {
     const raw = await readFile(filePath, "utf8");
     const data = JSON.parse(raw) as SavedSessionFile;
@@ -106,13 +103,12 @@ export async function loadSession(
 }
 
 export async function loadSessionByLabel(
-  workspaceRoot: string,
   label: string,
 ): Promise<{ session: Session; label: string } | undefined> {
-  const sessions = await listSessions(workspaceRoot);
+  const sessions = await listSessions();
   const match = sessions.find(
     (s) => s.label.toLowerCase() === label.toLowerCase(),
   );
   if (!match) return undefined;
-  return loadSession(workspaceRoot, match.id);
+  return loadSession(match.id);
 }
