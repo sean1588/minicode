@@ -3,8 +3,14 @@ import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
-import { CodingAgent, createModelClient } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "./agent/config.js";
+import {
+  listSessions,
+  loadSession,
+  loadSessionByLabel,
+  saveSession,
+} from "./session/session-store.js";
 import {
   computeFileHashes,
   getWorkspaceCacheDir,
@@ -28,10 +34,18 @@ function printBanner(): void {
   console.log('Type your request, or "/exit" to quit.');
 }
 
+interface AgentRuntime {
+  agent: CodingAgent;
+  config: Awaited<ReturnType<typeof loadAgentConfig>>;
+  toolRegistry: ReturnType<typeof createToolRegistry>;
+  projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
+  buildAgent: (session?: Session) => CodingAgent;
+}
+
 async function createAgentRuntime(
   verbose: boolean,
   onProgress?: (message: string) => void,
-): Promise<{ agent: CodingAgent; config: Awaited<ReturnType<typeof loadAgentConfig>> }> {
+): Promise<AgentRuntime> {
   const config = await loadAgentConfig();
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
@@ -49,28 +63,34 @@ async function createAgentRuntime(
     projectIndex = undefined;
   }
   const toolRegistry = createToolRegistry(config, projectIndex);
-  const agent = new CodingAgent({
-    config,
-    modelClient,
-    toolRegistry,
-    verbose,
-    ...(projectIndex !== undefined
-      ? { getCodeMap: () => projectIndex.getCodeMap() }
-      : {}),
-    ...(onProgress ? { onProgress } : {}),
-  });
 
-  return { agent, config };
+  function buildAgent(session?: Session): CodingAgent {
+    return new CodingAgent({
+      config,
+      modelClient,
+      toolRegistry,
+      verbose,
+      ...(session ? { session } : {}),
+      ...(projectIndex !== undefined
+        ? { getCodeMap: () => projectIndex.getCodeMap() }
+        : {}),
+      ...(onProgress ? { onProgress } : {}),
+    });
+  }
+
+  return { agent: buildAgent(), config, toolRegistry, projectIndex, buildAgent };
 }
 
 async function runInteractive(
   verbose: boolean,
   initialTask?: string,
 ): Promise<void> {
-  const { agent, config } = await createAgentRuntime(
+  const runtime = await createAgentRuntime(
     verbose,
     (msg) => console.error(`  ${msg}`),
   );
+  let { agent } = runtime;
+  const { config, buildAgent } = runtime;
 
   printBanner();
   console.log(`Workspace: ${config.workspaceRoot}`);
@@ -121,13 +141,69 @@ async function runInteractive(
     }
 
     if (trimmed === "/help") {
-      console.log('Commands: "/help", "/config", "/exit"');
+      console.log('Commands: "/help", "/config", "/save [label]", "/load [label]", "/sessions", "/exit"');
       console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
       continue;
     }
 
     if (trimmed === "/config") {
       console.log("\n" + formatConfigForDisplay(config) + "\n");
+      continue;
+    }
+
+    if (trimmed === "/save" || trimmed.startsWith("/save ")) {
+      const label = trimmed.slice("/save".length).trim() || undefined;
+      try {
+        const meta = await saveSession(
+          agent.getSession(),
+          label,
+        );
+        console.log(`Session saved as "${meta.label}" (${meta.messageCount} messages)`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        console.error(`Failed to save session: ${msg}`);
+      }
+      continue;
+    }
+
+    if (trimmed === "/sessions") {
+      const sessions = await listSessions();
+      if (sessions.length === 0) {
+        console.log("No saved sessions found.");
+      } else {
+        console.log("Saved sessions:");
+        for (const s of sessions) {
+          console.log(`  ${s.label} (${s.messageCount} msgs, saved ${s.savedAt})`);
+        }
+      }
+      continue;
+    }
+
+    if (trimmed === "/load" || trimmed.startsWith("/load ")) {
+      const arg = trimmed.slice("/load".length).trim();
+      if (arg.length === 0) {
+        const sessions = await listSessions();
+        if (sessions.length === 0) {
+          console.log("No saved sessions found.");
+        } else {
+          console.log("Saved sessions:");
+          for (const s of sessions) {
+            console.log(`  ${s.label} (${s.messageCount} msgs, saved ${s.savedAt})`);
+          }
+          console.log('\nUse "/load <label>" to restore a session.');
+        }
+        continue;
+      }
+
+      const result =
+        (await loadSessionByLabel(arg)) ??
+        (await loadSession(arg));
+      if (!result) {
+        console.log(`No session found matching "${arg}".`);
+        continue;
+      }
+      agent = buildAgent(result.session);
+      console.log(`Session "${result.label}" restored (${result.session.getMessages().length} messages).`);
       continue;
     }
 

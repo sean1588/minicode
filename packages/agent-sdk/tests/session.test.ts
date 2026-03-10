@@ -89,3 +89,52 @@ test("trim does nothing when keepRecentMessages is negative", () => {
   session.trim(1, -1);
   assert.equal(session.getMessages().length, 2);
 });
+
+test("toJSON returns a serializable snapshot", () => {
+  const session = new Session("snap-id");
+  session.addMessage({ role: "user", content: "hello" });
+  session.addMessage({ role: "assistant", content: "world" });
+
+  const snapshot = session.toJSON();
+  assert.equal(snapshot.id, "snap-id");
+  assert.equal(typeof snapshot.createdAt, "string");
+  assert.equal(snapshot.messages.length, 2);
+  assert.equal(snapshot.messages[0]?.content, "hello");
+  const parsed = JSON.parse(JSON.stringify(snapshot));
+  assert.deepEqual(parsed, snapshot);
+});
+
+test("fromJSON restores a session from a snapshot", () => {
+  const original = new Session("restore-id");
+  original.addMessage({ role: "user", content: "question" });
+  original.addMessage({
+    role: "assistant",
+    content: "answer",
+    toolCalls: [{ id: "t1", name: "read_file", input: { path: "x.ts" } }],
+  });
+  original.addMessage({
+    role: "tool",
+    toolCallId: "t1",
+    toolName: "read_file",
+    content: "file contents",
+  });
+
+  const snapshot = original.toJSON();
+  const restored = Session.fromJSON(snapshot);
+
+  assert.equal(restored.id, "restore-id");
+  assert.equal(restored.createdAt.toISOString(), original.createdAt.toISOString());
+  assert.deepEqual(restored.getMessages(), original.getMessages());
+});
+
+test("fromJSON roundtrips through JSON.stringify/parse", () => {
+  const session = new Session("rt-id");
+  session.addMessage({ role: "user", content: "test" });
+
+  const json = JSON.stringify(session.toJSON());
+  const restored = Session.fromJSON(JSON.parse(json));
+
+  assert.equal(restored.id, "rt-id");
+  assert.equal(restored.getMessages().length, 1);
+  assert.equal(restored.getMessages()[0]?.content, "test");
+});

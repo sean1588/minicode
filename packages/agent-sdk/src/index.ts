@@ -24,7 +24,7 @@ export {
 } from "./agent/agent.js";
 
 // Session
-export { Session } from "./session/session.js";
+export { Session, type SessionSnapshot } from "./session/session.js";
 
 // Model clients
 export {
