@@ -230,6 +230,27 @@ export class CodingAgent {
       : undefined;
   }
 
+  /**
+   * Check whether a previously-read file's content is still present in the
+   * session context (i.e. hasn't been trimmed/compacted away). We look for
+   * a tool message from "read_file" whose content still contains the file
+   * path and hasn't been replaced with a summary stub.
+   */
+  private isFileReadStillInContext(filePath: string): boolean {
+    const messages = this.session.getMessages();
+    for (const msg of messages) {
+      if (
+        msg.role === "tool" &&
+        msg.toolName === "read_file" &&
+        msg.content.includes(filePath) &&
+        !msg.content.startsWith("[summary:")
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async runTurn(
     userMessage: string,
     options?: { signal?: AbortSignal },
@@ -438,14 +459,17 @@ export class CodingAgent {
         }
         // Deduplicate read_file calls: if the same file (with same
         // offset/limit) was already read in this turn, return a short
-        // reference instead of the full content.
+        // reference instead of the full content — but only if the
+        // original result is still present in context (not trimmed or
+        // compacted away).
         let toolResult: string;
         const toolStartMs = Date.now();
 
         if (toolCall.name === "read_file") {
           const cacheKey = `${toolCall.input.path}:${toolCall.input.offset ?? ""}:${toolCall.input.limit ?? ""}`;
           const cachedStep = this.fileReadCache.get(cacheKey);
-          if (cachedStep !== undefined) {
+          const canDedup = cachedStep !== undefined && this.isFileReadStillInContext(String(toolCall.input.path));
+          if (canDedup) {
             toolResult = `[File "${toolCall.input.path}" was already read at step ${cachedStep}. Refer to that earlier output.]`;
           } else {
             toolResult = await this.toolRegistry.execute(
