@@ -195,7 +195,7 @@ export async function loadAgentConfig(
     ),
     maxContextTokens: parseNumber(
       process.env.MAX_CONTEXT_TOKENS,
-      fileConfig.maxContextTokens ?? 120_000,
+      fileConfig.maxContextTokens ?? 40_000,
     ),
     workspaceRoot,
     commandTimeoutMs: parseNumber(
