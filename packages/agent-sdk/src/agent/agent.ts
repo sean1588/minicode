@@ -54,6 +54,56 @@ const VERBOSE_SEP = "\u2500".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
 const MAX_FOCUS_SYMBOLS = 30;
 
+/**
+ * Content-aware truncation for tool outputs.
+ * Different tools benefit from different truncation strategies:
+ * - read_file: Keep head + tail so the model sees file structure
+ * - run_command: Keep tail (errors/results are at the end)
+ * - search: Keep head with a match count footer
+ * - default: Keep head (existing behavior)
+ */
+function truncateToolOutput(
+  toolName: string,
+  output: string,
+  maxChars: number,
+): string {
+  if (maxChars <= 0 || output.length <= maxChars) {
+    return output;
+  }
+
+  const totalLen = output.length;
+  const overflowNote = `\n\n[... truncated, ${totalLen - maxChars} more chars ...]`;
+
+  if (toolName === "read_file") {
+    // Keep head + tail so model sees file structure and end
+    const headChars = Math.floor(maxChars * 0.7);
+    const tailChars = maxChars - headChars;
+    const head = output.slice(0, headChars);
+    const tail = output.slice(totalLen - tailChars);
+    return `${head}\n\n[... ${totalLen - headChars - tailChars} chars omitted ...]\n\n${tail}`;
+  }
+
+  if (toolName === "run_command") {
+    // Keep tail — errors and results are usually at the end
+    const tailChars = Math.floor(maxChars * 0.8);
+    const headChars = maxChars - tailChars;
+    const head = output.slice(0, headChars);
+    const tail = output.slice(totalLen - tailChars);
+    return `${head}\n\n[... ${totalLen - headChars - tailChars} chars omitted ...]\n\n${tail}`;
+  }
+
+  if (toolName === "search") {
+    // Keep head with match count
+    const lines = output.split("\n");
+    const truncated = output.slice(0, maxChars);
+    const shownLines = truncated.split("\n").length;
+    return `${truncated}\n\n[... showing ~${shownLines} of ${lines.length} match lines, ${totalLen - maxChars} more chars ...]`;
+  }
+
+  // Default: head-only (existing behavior)
+  return `${output.slice(0, maxChars)}${overflowNote}`;
+}
+
 export type UiUpdateThinking = { type: "thinking"; content: string };
 export type UiUpdateStreamingChunk = { type: "streaming_chunk"; content: string };
 export type UiUpdateStep = { type: "step"; step: number };
@@ -76,6 +126,35 @@ export type UiUpdate =
   | UiUpdateToolCallStart
   | UiUpdateToolCallEnd;
 
+/**
+ * Compute an effective keepRecentMessages that scales proportionally
+ * with context fullness. When context is lightly used, keep the full
+ * configured amount. As context fills up, reduce to allow more
+ * aggressive trimming/compaction.
+ *
+ * At ≤50% usage: keep full configured value (e.g. 12)
+ * At 100% usage: keep minimum of 4
+ */
+function computeEffectiveKeepRecent(
+  configKeepRecent: number,
+  currentTokens: number,
+  maxTokens: number,
+): number {
+  const MIN_KEEP = 4;
+  const usageRatio = Math.min(currentTokens / maxTokens, 1);
+
+  if (usageRatio <= 0.5) {
+    return configKeepRecent;
+  }
+
+  // Linear scale from configKeepRecent at 50% → MIN_KEEP at 100%
+  const scale = 1 - (usageRatio - 0.5) / 0.5;
+  return Math.max(
+    MIN_KEEP,
+    Math.round(MIN_KEEP + (configKeepRecent - MIN_KEEP) * scale),
+  );
+}
+
 export class CodingAgent {
   private readonly session: Session;
   private readonly config: AgentConfig;
@@ -93,6 +172,13 @@ export class CodingAgent {
    */
   private readonly focusedSymbols: Map<string, number> = new Map();
   private focusGeneration = 0;
+
+  /**
+   * Cache of recently read file paths (key: "path:offset:limit") to avoid
+   * sending duplicate full file contents through the context window.
+   * Maps to the step number when the file was last read.
+   */
+  private readonly fileReadCache: Map<string, number> = new Map();
 
   constructor(params: {
     config: AgentConfig;
@@ -167,11 +253,20 @@ export class CodingAgent {
       if (this.onUiUpdate) {
         this.onUiUpdate({ type: "step", step });
       }
+      // Compute effective keepRecentMessages based on context fullness.
+      // When context is nearly full, protect fewer messages so trimming
+      // can reclaim more space.
+      const effectiveKeepRecent = computeEffectiveKeepRecent(
+        this.config.keepRecentMessages,
+        this.session.getTokenEstimate(),
+        this.config.maxContextTokens,
+      );
+
       // Auto-compact when context exceeds 80% of max budget.
       // Compaction summarizes old messages instead of just dropping them,
       // preserving conversational context for the model.
       if (this.session.shouldCompact(this.config.maxContextTokens)) {
-        const result = this.session.compact(this.config.keepRecentMessages);
+        const result = this.session.compact(effectiveKeepRecent);
         if (result && this.onProgress) {
           this.onProgress(
             `context compacted: ${result.removedMessages} messages summarized, ` +
@@ -190,7 +285,7 @@ export class CodingAgent {
 
       this.session.trim(
         this.config.maxContextTokens,
-        this.config.keepRecentMessages,
+        effectiveKeepRecent,
       );
 
       // Rebuild system prompt each step with the latest focus set,
@@ -341,15 +436,36 @@ export class CodingAgent {
           console.error(`[verbose] Tool: ${toolCall.name}`);
           console.error("Arguments:", JSON.stringify(toolCall.input, null, 2));
         }
+        // Deduplicate read_file calls: if the same file (with same
+        // offset/limit) was already read in this turn, return a short
+        // reference instead of the full content.
+        let toolResult: string;
         const toolStartMs = Date.now();
-        let toolResult = await this.toolRegistry.execute(
-          toolCall.name,
-          toolCall.input,
-        );
-        const maxChars = this.config.maxToolOutputChars;
-        if (maxChars > 0 && toolResult.length > maxChars) {
-          toolResult = `${toolResult.slice(0, maxChars)}\n\n[... truncated, ${toolResult.length - maxChars} more chars ...]`;
+
+        if (toolCall.name === "read_file") {
+          const cacheKey = `${toolCall.input.path}:${toolCall.input.offset ?? ""}:${toolCall.input.limit ?? ""}`;
+          const cachedStep = this.fileReadCache.get(cacheKey);
+          if (cachedStep !== undefined) {
+            toolResult = `[File "${toolCall.input.path}" was already read at step ${cachedStep}. Refer to that earlier output.]`;
+          } else {
+            toolResult = await this.toolRegistry.execute(
+              toolCall.name,
+              toolCall.input,
+            );
+            this.fileReadCache.set(cacheKey, step);
+          }
+        } else {
+          toolResult = await this.toolRegistry.execute(
+            toolCall.name,
+            toolCall.input,
+          );
         }
+
+        toolResult = truncateToolOutput(
+          toolCall.name,
+          toolResult,
+          this.config.maxToolOutputChars,
+        );
         if (this.onUiUpdate) {
           this.onUiUpdate({
             type: "tool_call_end",

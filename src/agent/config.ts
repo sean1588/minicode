@@ -221,7 +221,7 @@ export async function loadAgentConfig(
     ),
     maxToolOutputChars: parseNumber(
       process.env.MAX_TOOL_OUTPUT_CHARS,
-      fileConfig.maxToolOutputChars ?? 15_000,
+      fileConfig.maxToolOutputChars ?? 8_000,
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
