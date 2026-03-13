@@ -105,7 +105,7 @@ export async function runInkCli(
       verbose,
       ...(session ? { session } : {}),
       ...(projectIndex !== undefined
-        ? { getCodeMap: () => projectIndex.getCodeMap() }
+        ? { getCodeMap: (focusSymbols?: Set<string>) => projectIndex.getCodeMap(undefined, focusSymbols) }
         : {}),
       ...(verbose
         ? {

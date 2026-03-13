@@ -31,8 +31,28 @@ function formatToolCallForProgress(toolCall: ToolCall, maxArgsLen = 100): string
   return `${toolCall.name}(${truncated})`;
 }
 
+/** Tools whose "name" input parameter refers to a symbol in the index. */
+const SYMBOL_TOOLS = new Set([
+  "read_symbol",
+  "find_references",
+  "get_dependencies",
+  "search_code_map",
+]);
+
+/**
+ * Extract the symbol name from a tool call input if the tool is symbol-aware.
+ */
+function extractFocusSymbol(toolCall: ToolCall): string | undefined {
+  if (!SYMBOL_TOOLS.has(toolCall.name)) {
+    return undefined;
+  }
+  const name = toolCall.input.name ?? toolCall.input.symbol ?? toolCall.input.query;
+  return typeof name === "string" && name.length > 0 ? name : undefined;
+}
+
 const VERBOSE_SEP = "\u2500".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
+const MAX_FOCUS_SYMBOLS = 30;
 
 export type UiUpdateThinking = { type: "thinking"; content: string };
 export type UiUpdateStreamingChunk = { type: "streaming_chunk"; content: string };
@@ -61,17 +81,25 @@ export class CodingAgent {
   private readonly config: AgentConfig;
   private readonly modelClient: ModelClient;
   private readonly toolRegistry: ToolRegistry;
-  private readonly getCodeMap: (() => CodeMapResult | undefined) | undefined;
+  private readonly getCodeMap: ((focusSymbols?: Set<string>) => CodeMapResult | undefined) | undefined;
   private readonly verbose: boolean;
   private readonly onProgress: ((message: string) => void) | undefined;
   private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
+
+  /**
+   * Tracks symbol names the user/agent has been working with.
+   * Persists across turns so the code map stays focused on the
+   * current area of interest.
+   */
+  private readonly focusedSymbols: Map<string, number> = new Map();
+  private focusGeneration = 0;
 
   constructor(params: {
     config: AgentConfig;
     modelClient: ModelClient;
     toolRegistry: ToolRegistry;
     session?: Session;
-    getCodeMap?: () => CodeMapResult | undefined;
+    getCodeMap?: (focusSymbols?: Set<string>) => CodeMapResult | undefined;
     verbose?: boolean;
     onProgress?: (message: string) => void;
     onUiUpdate?: (event: UiUpdate) => void;
@@ -90,6 +118,32 @@ export class CodingAgent {
     return this.session;
   }
 
+  private addFocusSymbol(name: string): void {
+    this.focusGeneration += 1;
+    this.focusedSymbols.set(name, this.focusGeneration);
+
+    // Evict oldest if over limit
+    if (this.focusedSymbols.size > MAX_FOCUS_SYMBOLS) {
+      let oldestKey: string | null = null;
+      let oldestGen = Infinity;
+      for (const [key, gen] of this.focusedSymbols) {
+        if (gen < oldestGen) {
+          oldestGen = gen;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey) {
+        this.focusedSymbols.delete(oldestKey);
+      }
+    }
+  }
+
+  private getFocusSet(): Set<string> | undefined {
+    return this.focusedSymbols.size > 0
+      ? new Set(this.focusedSymbols.keys())
+      : undefined;
+  }
+
   async runTurn(
     userMessage: string,
     options?: { signal?: AbortSignal },
@@ -104,12 +158,6 @@ export class CodingAgent {
     });
 
     const toolSchemas = this.toolRegistry.getToolSchemas();
-    const codeMapResult = this.getCodeMap?.();
-    const systemPrompt = buildSystemPrompt(
-      this.config,
-      toolSchemas,
-      codeMapResult,
-    );
     const recentToolCallFingerprints: string[] = [];
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -143,6 +191,15 @@ export class CodingAgent {
       this.session.trim(
         this.config.maxContextTokens,
         this.config.keepRecentMessages,
+      );
+
+      // Rebuild system prompt each step with the latest focus set,
+      // so the code map dynamically adapts as the agent explores symbols.
+      const codeMapResult = this.getCodeMap?.(this.getFocusSet());
+      const systemPrompt = buildSystemPrompt(
+        this.config,
+        toolSchemas,
+        codeMapResult,
       );
 
       const messages = this.session.getMessages();
@@ -252,6 +309,12 @@ export class CodingAgent {
             usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
             streamed: false,
           };
+        }
+
+        // Track symbol focus from symbol-aware tool calls
+        const focusSymbol = extractFocusSymbol(toolCall);
+        if (focusSymbol) {
+          this.addFocusSymbol(focusSymbol);
         }
 
         if (this.onProgress) {

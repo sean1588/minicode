@@ -98,8 +98,8 @@ export function createProjectIndex(
       return [...result.values()];
     },
 
-    getCodeMap(tokenBudget?: number): CodeMapResult {
-      return generateCodeMap(files, tokenBudget, dependencyEdges);
+    getCodeMap(tokenBudget?: number, focusSymbols?: Set<string>): CodeMapResult {
+      return generateCodeMap(files, tokenBudget, dependencyEdges, focusSymbols);
     },
 
     reindexFile(filePath: string, content: string): void {

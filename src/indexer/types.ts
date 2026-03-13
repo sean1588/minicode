@@ -73,7 +73,7 @@ export interface ProjectIndex {
   getSymbol(name: string): IndexedSymbol | undefined;
   getSymbolsInFile(filePath: string): IndexedSymbol[];
   getDependencyCone(symbolName: string, depth?: number): IndexedSymbol[];
-  getCodeMap(tokenBudget?: number): import("./code-map.js").CodeMapResult;
+  getCodeMap(tokenBudget?: number, focusSymbols?: Set<string>): import("./code-map.js").CodeMapResult;
 
   /** Re-index a file after it has been modified. Updates symbols and dependency edges. */
   reindexFile(filePath: string, content: string): void;
