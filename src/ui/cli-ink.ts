@@ -148,7 +148,7 @@ export async function runInkCli(
       store.addItem({
         type: "system",
         content:
-          'Commands: "/help", "/config", "/save [label]", "/load [label]", "/sessions", "/exit".',
+          'Commands: "/help", "/config", "/compact", "/save [label]", "/load [label]", "/sessions", "/exit".',
       });
       return;
     }
@@ -158,6 +158,26 @@ export async function runInkCli(
         type: "system",
         content: formatConfigForDisplay(config),
       });
+      return;
+    }
+
+    if (trimmed === "/compact") {
+      const session = agent.getSession();
+      const result = session.compact(config.keepRecentMessages);
+      if (result) {
+        store.addItem({
+          type: "system",
+          content:
+            `Compacted: ${result.removedMessages} messages summarized, ` +
+            `${result.previousTokens} → ${result.newTokens} tokens ` +
+            `(saved ${result.previousTokens - result.newTokens} tokens)`,
+        });
+      } else {
+        store.addItem({
+          type: "system",
+          content: `Nothing to compact (${session.getTokenEstimate()} tokens, ${session.getMessages().length} messages).`,
+        });
+      }
       return;
     }
 

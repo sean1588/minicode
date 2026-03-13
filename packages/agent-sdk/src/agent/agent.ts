@@ -119,6 +119,27 @@ export class CodingAgent {
       if (this.onUiUpdate) {
         this.onUiUpdate({ type: "step", step });
       }
+      // Auto-compact when context exceeds 80% of max budget.
+      // Compaction summarizes old messages instead of just dropping them,
+      // preserving conversational context for the model.
+      if (this.session.shouldCompact(this.config.maxContextTokens)) {
+        const result = this.session.compact(this.config.keepRecentMessages);
+        if (result && this.onProgress) {
+          this.onProgress(
+            `context compacted: ${result.removedMessages} messages summarized, ` +
+            `${result.previousTokens} → ${result.newTokens} tokens`,
+          );
+        }
+        if (result && this.onUiUpdate) {
+          this.onUiUpdate({
+            type: "thinking",
+            content:
+              `Context compacted: ${result.removedMessages} messages summarized, ` +
+              `${result.previousTokens} → ${result.newTokens} tokens`,
+          });
+        }
+      }
+
       this.session.trim(
         this.config.maxContextTokens,
         this.config.keepRecentMessages,

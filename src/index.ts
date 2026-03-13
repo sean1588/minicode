@@ -141,13 +141,29 @@ async function runInteractive(
     }
 
     if (trimmed === "/help") {
-      console.log('Commands: "/help", "/config", "/save [label]", "/load [label]", "/sessions", "/exit"');
+      console.log('Commands: "/help", "/config", "/compact", "/save [label]", "/load [label]", "/sessions", "/exit"');
       console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
       continue;
     }
 
     if (trimmed === "/config") {
       console.log("\n" + formatConfigForDisplay(config) + "\n");
+      continue;
+    }
+
+    if (trimmed === "/compact") {
+      const session = agent.getSession();
+      const tokensBefore = session.getTokenEstimate();
+      const result = session.compact(config.keepRecentMessages);
+      if (result) {
+        console.log(
+          `Compacted: ${result.removedMessages} messages summarized, ` +
+          `${result.previousTokens} → ${result.newTokens} tokens ` +
+          `(saved ${result.previousTokens - result.newTokens} tokens)`,
+        );
+      } else {
+        console.log(`Nothing to compact (${tokensBefore} tokens, ${session.getMessages().length} messages).`);
+      }
       continue;
     }
 
