@@ -278,9 +278,18 @@ export class CodingAgent {
         }
       }
 
+      // Cap thinking text stored in context. The model's reasoning before
+      // a tool call is not useful on subsequent steps — only the intent
+      // matters. Keep the opening (which captures the decision) and trim
+      // the tail. The UI already received the full text via onUiUpdate.
+      const thinkingContent =
+        response.text.length > PROGRESS_THINKING_MAX
+          ? response.text.slice(0, PROGRESS_THINKING_MAX) + "..."
+          : response.text;
+
       this.session.addMessage({
         role: "assistant",
-        content: response.text,
+        content: thinkingContent,
         toolCalls: response.toolCalls,
       });
 
