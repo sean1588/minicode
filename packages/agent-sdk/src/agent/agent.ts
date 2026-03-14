@@ -57,7 +57,7 @@ const MAX_FOCUS_SYMBOLS = 30;
 /**
  * Content-aware truncation for tool outputs.
  * Different tools benefit from different truncation strategies:
- * - read_file: Keep head + tail so the model sees file structure
+ * - read_file: No truncation — the model needs exact text for edits
  * - run_command: Keep tail (errors/results are at the end)
  * - search: Keep head with a match count footer
  * - default: Keep head (existing behavior)
@@ -67,21 +67,17 @@ function truncateToolOutput(
   output: string,
   maxChars: number,
 ): string {
+  // Never truncate read_file — the model needs exact content for edits
+  if (toolName === "read_file") {
+    return output;
+  }
+
   if (maxChars <= 0 || output.length <= maxChars) {
     return output;
   }
 
   const totalLen = output.length;
   const overflowNote = `\n\n[... truncated, ${totalLen - maxChars} more chars ...]`;
-
-  if (toolName === "read_file") {
-    // Keep head + tail so model sees file structure and end
-    const headChars = Math.floor(maxChars * 0.7);
-    const tailChars = maxChars - headChars;
-    const head = output.slice(0, headChars);
-    const tail = output.slice(totalLen - tailChars);
-    return `${head}\n\n[... ${totalLen - headChars - tailChars} chars omitted ...]\n\n${tail}`;
-  }
 
   if (toolName === "run_command") {
     // Keep tail — errors and results are usually at the end
