@@ -40,6 +40,15 @@ export interface AgentConfig {
   maxToolOutputChars: number;
   openAiBaseUrl: string;
   openAiApiKey?: string;
+
+  /** Deduplicate repeated read_file calls for the same file within a turn. Default: false */
+  enableFileReadDedup?: boolean;
+  /** Scale keepRecentMessages down as context fills up. Default: false */
+  enableAdaptiveKeepRecent?: boolean;
+  /** Apply content-aware truncation strategies per tool type. Default: false */
+  enableToolOutputTruncation?: boolean;
+  /** Context fullness ratio (0-1) at which compaction triggers. Default: undefined (no auto-compaction) */
+  compactionThreshold?: number;
 }
 
 export interface ToolSchema {

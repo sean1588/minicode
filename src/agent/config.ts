@@ -32,6 +32,10 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "commandDenylist: " + config.commandDenylist.length + " patterns",
     "openAiBaseUrl: " + config.openAiBaseUrl,
     "openAiApiKey: " + (config.openAiApiKey ? "***" : "(unset)"),
+    "enableFileReadDedup: " + (config.enableFileReadDedup ?? false),
+    "enableAdaptiveKeepRecent: " + (config.enableAdaptiveKeepRecent ?? false),
+    "enableToolOutputTruncation: " + (config.enableToolOutputTruncation ?? false),
+    "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
   ];
   return lines.join("\n");
 }
@@ -74,6 +78,10 @@ interface AgentConfigFile {
   maxToolOutputChars?: number;
   openAiBaseUrl?: string;
   openAiApiKey?: string;
+  enableFileReadDedup?: boolean;
+  enableAdaptiveKeepRecent?: boolean;
+  enableToolOutputTruncation?: boolean;
+  compactionThreshold?: number;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -225,6 +233,22 @@ export async function loadAgentConfig(
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
+    enableFileReadDedup: parseBoolean(
+      process.env.ENABLE_FILE_READ_DEDUP,
+      fileConfig.enableFileReadDedup ?? true,
+    ),
+    enableAdaptiveKeepRecent: parseBoolean(
+      process.env.ENABLE_ADAPTIVE_KEEP_RECENT,
+      fileConfig.enableAdaptiveKeepRecent ?? true,
+    ),
+    enableToolOutputTruncation: parseBoolean(
+      process.env.ENABLE_TOOL_OUTPUT_TRUNCATION,
+      fileConfig.enableToolOutputTruncation ?? true,
+    ),
+    compactionThreshold: parseNumber(
+      process.env.COMPACTION_THRESHOLD,
+      fileConfig.compactionThreshold ?? 0.8,
+    ),
   };
 }
 

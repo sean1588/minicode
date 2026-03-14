@@ -270,19 +270,21 @@ export class CodingAgent {
       if (this.onUiUpdate) {
         this.onUiUpdate({ type: "step", step });
       }
-      // Compute effective keepRecentMessages based on context fullness.
-      // When context is nearly full, protect fewer messages so trimming
-      // can reclaim more space.
-      const effectiveKeepRecent = computeEffectiveKeepRecent(
-        this.config.keepRecentMessages,
-        this.session.getTokenEstimate(),
-        this.config.maxContextTokens,
-      );
+      // Compute effective keepRecentMessages based on context fullness
+      // (only when adaptive scaling is enabled).
+      const effectiveKeepRecent = this.config.enableAdaptiveKeepRecent
+        ? computeEffectiveKeepRecent(
+            this.config.keepRecentMessages,
+            this.session.getTokenEstimate(),
+            this.config.maxContextTokens,
+          )
+        : this.config.keepRecentMessages;
 
-      // Auto-compact when context exceeds 80% of max budget.
+      // Auto-compact when context exceeds the configured threshold.
       // Compaction summarizes old messages instead of just dropping them,
       // preserving conversational context for the model.
-      if (this.session.shouldCompact(this.config.maxContextTokens)) {
+      const compactionThreshold = this.config.compactionThreshold;
+      if (compactionThreshold !== undefined && this.session.shouldCompact(this.config.maxContextTokens, compactionThreshold)) {
         const result = this.session.compact(effectiveKeepRecent);
         if (result && this.onProgress) {
           this.onProgress(
@@ -453,15 +455,11 @@ export class CodingAgent {
           console.error(`[verbose] Tool: ${toolCall.name}`);
           console.error("Arguments:", JSON.stringify(toolCall.input, null, 2));
         }
-        // Deduplicate read_file calls: if the same file (with same
-        // offset/limit) was already read in this turn, return a short
-        // reference instead of the full content — but only if the
-        // original result is still present in context (not trimmed or
-        // compacted away).
         let toolResult: string;
         const toolStartMs = Date.now();
 
-        if (toolCall.name === "read_file") {
+        // Optionally deduplicate read_file calls when enabled.
+        if (this.config.enableFileReadDedup && toolCall.name === "read_file") {
           const cacheKey = `${toolCall.input.path}:${toolCall.input.offset ?? ""}:${toolCall.input.limit ?? ""}`;
           const cachedStep = this.fileReadCache.get(cacheKey);
           const canDedup = cachedStep !== undefined && this.isFileReadStillInContext(String(toolCall.input.path));
@@ -481,11 +479,20 @@ export class CodingAgent {
           );
         }
 
-        toolResult = truncateToolOutput(
-          toolCall.name,
-          toolResult,
-          this.config.maxToolOutputChars,
-        );
+        // Apply content-aware truncation when enabled, otherwise
+        // fall back to simple head-only truncation.
+        if (this.config.enableToolOutputTruncation) {
+          toolResult = truncateToolOutput(
+            toolCall.name,
+            toolResult,
+            this.config.maxToolOutputChars,
+          );
+        } else {
+          const maxChars = this.config.maxToolOutputChars;
+          if (maxChars > 0 && toolResult.length > maxChars) {
+            toolResult = `${toolResult.slice(0, maxChars)}\n\n[... truncated, ${toolResult.length - maxChars} more chars ...]`;
+          }
+        }
         if (this.onUiUpdate) {
           this.onUiUpdate({
             type: "tool_call_end",
