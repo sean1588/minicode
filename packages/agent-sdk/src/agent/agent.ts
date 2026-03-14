@@ -281,22 +281,27 @@ export class CodingAgent {
         : this.config.keepRecentMessages;
 
       // Auto-compact when context exceeds the configured threshold.
-      // Compaction summarizes old messages instead of just dropping them,
-      // preserving conversational context for the model.
+      // When compactionModel is set, use LLM-based summarization for higher
+      // quality summaries. Otherwise, fall back to mechanical compaction.
       const compactionThreshold = this.config.compactionThreshold;
       if (compactionThreshold !== undefined && this.session.shouldCompact(this.config.maxContextTokens, compactionThreshold)) {
-        const result = this.session.compact(effectiveKeepRecent);
+        const compactionModel = this.config.compactionModel;
+        const result = compactionModel
+          ? await this.session.compactWithLlm(effectiveKeepRecent, this.modelClient, compactionModel)
+          : this.session.compact(effectiveKeepRecent);
         if (result && this.onProgress) {
+          const method = compactionModel ? "LLM" : "mechanical";
           this.onProgress(
-            `context compacted: ${result.removedMessages} messages summarized, ` +
+            `context compacted (${method}): ${result.removedMessages} messages summarized, ` +
             `${result.previousTokens} → ${result.newTokens} tokens`,
           );
         }
         if (result && this.onUiUpdate) {
+          const method = compactionModel ? "LLM" : "mechanical";
           this.onUiUpdate({
             type: "thinking",
             content:
-              `Context compacted: ${result.removedMessages} messages summarized, ` +
+              `Context compacted (${method}): ${result.removedMessages} messages summarized, ` +
               `${result.previousTokens} → ${result.newTokens} tokens`,
           });
         }

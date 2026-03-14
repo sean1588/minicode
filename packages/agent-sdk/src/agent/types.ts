@@ -49,6 +49,8 @@ export interface AgentConfig {
   enableToolOutputTruncation?: boolean;
   /** Context fullness ratio (0-1) at which compaction triggers. Default: undefined (no auto-compaction) */
   compactionThreshold?: number;
+  /** Model to use for LLM-based compaction. When set, compaction uses an LLM to summarize instead of mechanical truncation. */
+  compactionModel?: string;
 }
 
 export interface ToolSchema {

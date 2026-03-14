@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { SessionMessage } from "../agent/types.js";
+import type { ModelClient, SessionMessage } from "../agent/types.js";
 
 function estimateMessageTokens(message: SessionMessage): number {
   if (message.role === "tool") {
@@ -196,6 +196,100 @@ export class Session {
       summaryParts.join("\n");
 
     // Insert the summary as the first message (user role to maintain valid message ordering)
+    this.messages.unshift({
+      role: "user",
+      content: summaryText,
+    });
+
+    const newTokens = this.getTokenEstimate();
+    const summaryTokens = estimateMessageTokens(this.messages[0]!);
+
+    return {
+      removedMessages: oldMessages.length,
+      summaryTokens,
+      previousTokens,
+      newTokens,
+    };
+  }
+
+  /**
+   * Compact the conversation using an LLM to produce a high-quality summary.
+   * The LLM can identify what matters (decisions, modified files, user intent)
+   * rather than blindly truncating. Falls back to mechanical compaction on error.
+   *
+   * @param keepRecentMessages Number of recent messages to preserve verbatim.
+   * @param modelClient The model client to use for the summarization call.
+   * @param compactionModel The model ID to use (e.g. "claude-haiku-4-5-20251001").
+   * @returns CompactionResult with stats, or null if nothing to compact.
+   */
+  async compactWithLlm(
+    keepRecentMessages: number,
+    modelClient: ModelClient,
+    compactionModel: string,
+  ): Promise<CompactionResult | null> {
+    const protectedStart = this.getProtectedStart(keepRecentMessages);
+    if (protectedStart <= 0) {
+      return null;
+    }
+
+    const previousTokens = this.getTokenEstimate();
+    const oldMessages = this.messages.slice(0, protectedStart);
+
+    // Build a text representation of the old messages for the LLM to summarize
+    const conversationText = oldMessages
+      .map((msg) => {
+        if (msg.role === "user") {
+          return `User: ${msg.content}`;
+        } else if (msg.role === "assistant") {
+          const toolInfo =
+            msg.toolCalls?.length
+              ? `\n[Called tools: ${msg.toolCalls.map((tc) => tc.name).join(", ")}]`
+              : "";
+          return `Assistant: ${msg.content}${toolInfo}`;
+        } else if (msg.role === "tool") {
+          const brief =
+            msg.content.length > 500
+              ? msg.content.slice(0, 500) + "..."
+              : msg.content;
+          return `Tool (${msg.toolName}): ${brief}`;
+        }
+        return "";
+      })
+      .join("\n\n");
+
+    let summaryText: string;
+    try {
+      const response = await modelClient.chat({
+        model: compactionModel,
+        system:
+          "You are a conversation summarizer. Produce a concise summary of the conversation below. " +
+          "Focus on preserving:\n" +
+          "- The user's overall goal and current task\n" +
+          "- Key decisions made and their rationale\n" +
+          "- Files that were read, created, or modified (with paths)\n" +
+          "- Important facts, constraints, or preferences stated by the user\n" +
+          "- Current state of progress (what's done, what's pending)\n\n" +
+          "Omit: verbose tool outputs, redundant information, intermediate reasoning that led nowhere.\n" +
+          "Format the summary as a structured, scannable document. Be concise but thorough.",
+        messages: [
+          {
+            role: "user",
+            content: `Summarize this conversation:\n\n${conversationText}`,
+          },
+        ],
+        tools: [],
+        maxTokens: 1500,
+      });
+      summaryText =
+        "[Conversation Summary — earlier messages were compacted using LLM summarization]\n" +
+        response.text;
+    } catch {
+      // Fall back to mechanical compaction on any error
+      return this.compact(keepRecentMessages);
+    }
+
+    // Remove old messages and insert the summary
+    this.messages.splice(0, protectedStart);
     this.messages.unshift({
       role: "user",
       content: summaryText,

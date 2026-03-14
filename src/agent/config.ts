@@ -36,6 +36,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "enableAdaptiveKeepRecent: " + (config.enableAdaptiveKeepRecent ?? false),
     "enableToolOutputTruncation: " + (config.enableToolOutputTruncation ?? false),
     "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
+    "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
   ];
   return lines.join("\n");
 }
@@ -82,6 +83,7 @@ interface AgentConfigFile {
   enableAdaptiveKeepRecent?: boolean;
   enableToolOutputTruncation?: boolean;
   compactionThreshold?: number;
+  compactionModel?: string;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -249,6 +251,9 @@ export async function loadAgentConfig(
       process.env.COMPACTION_THRESHOLD,
       fileConfig.compactionThreshold ?? 0.8,
     ),
+    ...(process.env.COMPACTION_MODEL ?? fileConfig.compactionModel
+      ? { compactionModel: process.env.COMPACTION_MODEL ?? fileConfig.compactionModel }
+      : {}),
   };
 }
 
