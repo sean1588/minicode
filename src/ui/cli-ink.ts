@@ -163,12 +163,13 @@ export async function runInkCli(
 
     if (trimmed === "/compact") {
       const session = agent.getSession();
-      const result = session.compact(config.keepRecentMessages);
+      const result = await agent.compactContext();
       if (result) {
+        const method = config.compactionModel ? "LLM" : "mechanical";
         store.addItem({
           type: "system",
           content:
-            `Compacted: ${result.removedMessages} messages summarized, ` +
+            `Compacted (${method}): ${result.removedMessages} messages summarized, ` +
             `${result.previousTokens} → ${result.newTokens} tokens ` +
             `(saved ${result.previousTokens - result.newTokens} tokens)`,
         });

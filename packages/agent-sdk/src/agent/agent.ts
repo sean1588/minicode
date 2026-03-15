@@ -2,6 +2,7 @@ import { buildSystemPrompt } from "../prompt/system-prompt.js";
 import type { CodeMapResult } from "../prompt/system-prompt.js";
 import { ensureStepWithinLimit } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
+import type { CompactionResult } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { AgentConfig, ModelClient, ToolCall } from "./types.js";
 
@@ -198,6 +199,19 @@ export class CodingAgent {
 
   getSession(): Session {
     return this.session;
+  }
+
+  /**
+   * Manually compact the conversation context.
+   * Uses LLM-based summarization when compactionModel is configured,
+   * otherwise falls back to mechanical compaction.
+   */
+  async compactContext(): Promise<CompactionResult | null> {
+    const keepRecent = this.config.keepRecentMessages;
+    const compactionModel = this.config.compactionModel;
+    return compactionModel
+      ? this.session.compactWithLlm(keepRecent, this.modelClient, compactionModel)
+      : this.session.compact(keepRecent);
   }
 
   private addFocusSymbol(name: string): void {
