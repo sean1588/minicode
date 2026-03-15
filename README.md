@@ -194,6 +194,8 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `CONFIRM_DESTRUCTIVE`   | No              | `true`                     | If `true`, blocks destructive shell commands unless confirmed                                                                         |
 | `KEEP_RECENT_MESSAGES`  | No              | `12`                       | Minimum number of latest messages kept during trimming                                                                                |
 | `LOOP_DETECTION_WINDOW` | No              | `6`                        | Window for repeated tool-call loop detection                                                                                          |
+| `COMPACTION_THRESHOLD`  | No              | `0.8`                      | Context fullness ratio (0–1) at which auto-compaction triggers                                                                        |
+| `COMPACTION_MODEL`      | No              | none                       | Model for LLM-based compaction summaries. When set, `/compact` and auto-compaction use this model instead of mechanical truncation. Use a small, fast model (e.g. your local model). |
 
 
 ### `agent.config.json`
@@ -215,7 +217,8 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
   "keepRecentMessages": 12,
   "loopDetectionWindow": 6,
   "openAiBaseUrl": "http://localhost:1234/v1",
-  "openAiApiKey": ""
+  "openAiApiKey": "",
+  "compactionModel": ""
 }
 ```
 
@@ -235,6 +238,8 @@ Field mapping:
 - `loopDetectionWindow` ↔ `LOOP_DETECTION_WINDOW`
 - `openAiBaseUrl` ↔ `OPENAI_BASE_URL`
 - `openAiApiKey` ↔ `OPENAI_API_KEY`
+- `compactionThreshold` ↔ `COMPACTION_THRESHOLD`
+- `compactionModel` ↔ `COMPACTION_MODEL`
 
 ## Usage
 

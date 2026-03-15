@@ -36,17 +36,21 @@ This preserves the fact that a tool was called and a rough sense of the result, 
 
 **Phase 3 — Emergency:** If still over budget after dropping all removable messages, shrink tool results in the protected (recent) window too.
 
-### 2. Conversation compaction (`Session.compact`)
+### 2. Conversation compaction (`Session.compact` / `Session.compactWithLlm`)
 
 **File:** `packages/agent-sdk/src/session/session.ts`
 
-Compaction summarizes old messages into a single structured message instead of silently deleting them. The summary preserves:
+Compaction summarizes old messages into a single structured message instead of silently deleting them. There are two modes:
+
+#### Mechanical compaction (default)
+
+The default mode truncates messages and stitches them into a bullet-point summary:
 - What the user asked (truncated to 300 chars)
 - What the agent responded (truncated to 300 chars)
 - Which tools were called
 - Brief excerpts of tool results (100 chars)
 
-Example compacted message:
+Example:
 ```
 [Conversation Summary — earlier messages were compacted to save context]
 - User asked: refactor the auth module to use JWT tokens...
@@ -55,11 +59,24 @@ Example compacted message:
   edit_file returned: File updated successfully...
 ```
 
-**Auto-trigger:** Compaction fires automatically when the session token estimate exceeds 80% of `maxContextTokens` (i.e., 32k tokens with the 40k default). This happens at the start of each step in the agent turn loop, before trimming.
+#### LLM-based compaction (opt-in via `compactionModel`)
 
-**Manual trigger:** The `/compact` slash command lets users manually compact at any time. It reports stats:
+When `COMPACTION_MODEL` is set (or `compactionModel` in config), compaction sends old messages to a model for intelligent summarization. The LLM produces a structured summary that preserves:
+- The user's overall goal and current task
+- Key decisions made and their rationale
+- Files that were read, created, or modified (with paths)
+- Important facts, constraints, or preferences stated by the user
+- Current state of progress (what's done, what's pending)
+
+This produces significantly better summaries than mechanical truncation because the model can identify what actually matters rather than blindly keeping the first N characters. Set `compactionModel` to any model available through your configured provider — typically the same local model you're already running (e.g. `zai-org/glm-4.7-flash`), or a smaller/faster one if available.
+
+If the LLM summarization call fails for any reason, it automatically falls back to mechanical compaction.
+
+**Auto-trigger:** Compaction fires automatically when the session token estimate exceeds `compactionThreshold` (default 80%) of `maxContextTokens`. This happens at the start of each step in the agent turn loop, before trimming.
+
+**Manual trigger:** The `/compact` slash command lets users manually compact at any time. It reports stats and which method was used:
 ```
-Compacted: 24 messages summarized, 28500 → 8200 tokens (saved 20300 tokens)
+Compacted (LLM): 24 messages summarized, 28500 → 8200 tokens (saved 20300 tokens)
 ```
 
 ### 3. Thinking trace capping

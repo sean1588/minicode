@@ -219,7 +219,7 @@ export class Session {
    *
    * @param keepRecentMessages Number of recent messages to preserve verbatim.
    * @param modelClient The model client to use for the summarization call.
-   * @param compactionModel The model ID to use (e.g. "claude-haiku-4-5-20251001").
+   * @param compactionModel The model ID to use (e.g. "zai-org/glm-4.7-flash").
    * @returns CompactionResult with stats, or null if nothing to compact.
    */
   async compactWithLlm(
