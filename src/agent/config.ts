@@ -32,6 +32,11 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "commandDenylist: " + config.commandDenylist.length + " patterns",
     "openAiBaseUrl: " + config.openAiBaseUrl,
     "openAiApiKey: " + (config.openAiApiKey ? "***" : "(unset)"),
+    "enableFileReadDedup: " + (config.enableFileReadDedup ?? false),
+    "enableAdaptiveKeepRecent: " + (config.enableAdaptiveKeepRecent ?? false),
+    "enableToolOutputTruncation: " + (config.enableToolOutputTruncation ?? false),
+    "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
+    "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
   ];
   return lines.join("\n");
 }
@@ -74,6 +79,11 @@ interface AgentConfigFile {
   maxToolOutputChars?: number;
   openAiBaseUrl?: string;
   openAiApiKey?: string;
+  enableFileReadDedup?: boolean;
+  enableAdaptiveKeepRecent?: boolean;
+  enableToolOutputTruncation?: boolean;
+  compactionThreshold?: number;
+  compactionModel?: string;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -195,7 +205,7 @@ export async function loadAgentConfig(
     ),
     maxContextTokens: parseNumber(
       process.env.MAX_CONTEXT_TOKENS,
-      fileConfig.maxContextTokens ?? 120_000,
+      fileConfig.maxContextTokens ?? 40_000,
     ),
     workspaceRoot,
     commandTimeoutMs: parseNumber(
@@ -221,10 +231,29 @@ export async function loadAgentConfig(
     ),
     maxToolOutputChars: parseNumber(
       process.env.MAX_TOOL_OUTPUT_CHARS,
-      fileConfig.maxToolOutputChars ?? 15_000,
+      fileConfig.maxToolOutputChars ?? 8_000,
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
+    enableFileReadDedup: parseBoolean(
+      process.env.ENABLE_FILE_READ_DEDUP,
+      fileConfig.enableFileReadDedup ?? true,
+    ),
+    enableAdaptiveKeepRecent: parseBoolean(
+      process.env.ENABLE_ADAPTIVE_KEEP_RECENT,
+      fileConfig.enableAdaptiveKeepRecent ?? true,
+    ),
+    enableToolOutputTruncation: parseBoolean(
+      process.env.ENABLE_TOOL_OUTPUT_TRUNCATION,
+      fileConfig.enableToolOutputTruncation ?? true,
+    ),
+    compactionThreshold: parseNumber(
+      process.env.COMPACTION_THRESHOLD,
+      fileConfig.compactionThreshold ?? 0.8,
+    ),
+    ...(process.env.COMPACTION_MODEL ?? fileConfig.compactionModel
+      ? { compactionModel: process.env.COMPACTION_MODEL ?? fileConfig.compactionModel }
+      : {}),
   };
 }
 

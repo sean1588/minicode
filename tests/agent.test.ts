@@ -140,6 +140,92 @@ test("agent omits code map when projectIndex is not provided", async () => {
   assert.ok(!capturedSystem.includes("[Project Code Map]"));
 });
 
+test("agent caps thinking text in session but preserves final response", async () => {
+  const longThinking = "I need to analyze this carefully. ".repeat(20); // ~660 chars, well over 200
+  const finalResponse = "Here is the complete and detailed answer that should not be truncated at all. ".repeat(10); // ~780 chars
+
+  const responses: ModelResponse[] = [
+    {
+      text: longThinking,
+      toolCalls: [{ id: "tool-1", name: "echo_tool", input: { value: "ok" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 10, outputTokens: 8 },
+    },
+    {
+      text: finalResponse,
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 12, outputTokens: 6 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Do something complex");
+
+  const messages = agent.getSession().getMessages();
+
+  // Thinking message (assistant with toolCalls) should be capped at ~200 chars + "..."
+  const thinkingMsg = messages[1];
+  assert.equal(thinkingMsg?.role, "assistant");
+  assert.ok(
+    thinkingMsg?.role === "assistant" && thinkingMsg.content.length <= 204,
+    `Thinking should be capped but was ${thinkingMsg?.role === "assistant" ? thinkingMsg.content.length : "?"} chars`,
+  );
+  assert.ok(
+    thinkingMsg?.role === "assistant" && thinkingMsg.content.endsWith("..."),
+    "Capped thinking should end with ellipsis",
+  );
+
+  // Final response (assistant without toolCalls) should be preserved in full
+  const finalMsg = messages[3];
+  assert.equal(finalMsg?.role, "assistant");
+  assert.equal(text, finalResponse);
+  assert.ok(
+    finalMsg?.role === "assistant" && finalMsg.content === finalResponse,
+    "Final response should not be truncated",
+  );
+});
+
+test("agent preserves short thinking text without capping", async () => {
+  const shortThinking = "Let me check.";
+
+  const responses: ModelResponse[] = [
+    {
+      text: shortThinking,
+      toolCalls: [{ id: "tool-1", name: "echo_tool", input: { value: "ok" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 10, outputTokens: 8 },
+    },
+    {
+      text: "Done.",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 12, outputTokens: 6 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  await agent.runTurn("Quick task");
+
+  const messages = agent.getSession().getMessages();
+  const thinkingMsg = messages[1];
+  assert.equal(thinkingMsg?.role, "assistant");
+  assert.ok(
+    thinkingMsg?.role === "assistant" && thinkingMsg.content === shortThinking,
+    "Short thinking should be preserved verbatim",
+  );
+});
+
 test("agent includes code map in system prompt when projectIndex is provided", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const projectIndex = await buildProjectIndex(root);

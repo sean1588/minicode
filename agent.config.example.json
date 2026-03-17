@@ -12,5 +12,6 @@
   "keepRecentMessages": 12,
   "loopDetectionWindow": 6,
   "openAiBaseUrl": "http://localhost:1234/v1",
-  "openAiApiKey": ""
+  "openAiApiKey": "",
+  "compactionModel": ""
 }

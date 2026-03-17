@@ -2,6 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { Session } from "../src/session/session.js";
+import type {
+  ModelClient,
+  ModelResponse,
+  SessionMessage,
+  ToolSchema,
+} from "../src/agent/types.js";
 
 test("session stores and returns messages", () => {
   const session = new Session("test");
@@ -137,4 +143,100 @@ test("fromJSON roundtrips through JSON.stringify/parse", () => {
   assert.equal(restored.id, "rt-id");
   assert.equal(restored.getMessages().length, 1);
   assert.equal(restored.getMessages()[0]?.content, "test");
+});
+
+// --- LLM-based compaction tests ---
+
+class FakeModelClient implements ModelClient {
+  readonly lastMessages: SessionMessage[][] = [];
+  responseText: string;
+
+  constructor(responseText = "Summary: user asked to fix a bug in app.ts") {
+    this.responseText = responseText;
+  }
+
+  async chat(params: {
+    model: string;
+    system: string;
+    messages: SessionMessage[];
+    tools: ToolSchema[];
+    maxTokens: number;
+  }): Promise<ModelResponse> {
+    this.lastMessages.push([...params.messages]);
+    return {
+      text: this.responseText,
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 100, outputTokens: 50 },
+    };
+  }
+}
+
+test("compactWithLlm uses LLM summary and preserves recent messages", async () => {
+  const session = new Session("llm-compact");
+  session.addMessage({ role: "user", content: "fix the bug in app.ts" });
+  session.addMessage({ role: "assistant", content: "I will read the file" });
+  session.addMessage({
+    role: "assistant",
+    content: "reading",
+    toolCalls: [{ id: "t1", name: "read_file", input: { path: "app.ts" } }],
+  });
+  session.addMessage({
+    role: "tool",
+    toolCallId: "t1",
+    toolName: "read_file",
+    content: "const x = 1;\nconst y = 2;",
+  });
+  session.addMessage({ role: "assistant", content: "I found the issue" });
+  session.addMessage({ role: "user", content: "great, fix it" });
+
+  const client = new FakeModelClient();
+  const result = await session.compactWithLlm(2, client, "test-haiku");
+
+  assert.ok(result);
+  assert.equal(result.removedMessages, 4);
+
+  const messages = session.getMessages();
+  // Summary + 2 preserved recent messages
+  assert.equal(messages.length, 3);
+  assert.equal(messages[0]?.role, "user");
+  assert.ok(messages[0]?.content.includes("LLM summarization"));
+  assert.ok(messages[0]?.content.includes("Summary: user asked to fix a bug"));
+  // Recent messages preserved
+  assert.equal(messages[1]?.content, "I found the issue");
+  assert.equal(messages[2]?.content, "great, fix it");
+});
+
+test("compactWithLlm returns null when nothing to compact", async () => {
+  const session = new Session("llm-empty");
+  session.addMessage({ role: "user", content: "hello" });
+
+  const client = new FakeModelClient();
+  const result = await session.compactWithLlm(5, client, "test-haiku");
+
+  assert.equal(result, null);
+  assert.equal(client.lastMessages.length, 0); // LLM should not be called
+});
+
+test("compactWithLlm falls back to mechanical compaction on error", async () => {
+  const session = new Session("llm-fallback");
+  session.addMessage({ role: "user", content: "first message" });
+  session.addMessage({ role: "assistant", content: "first response" });
+  session.addMessage({ role: "user", content: "second message" });
+  session.addMessage({ role: "assistant", content: "second response" });
+
+  const failingClient: ModelClient = {
+    async chat() {
+      throw new Error("API unavailable");
+    },
+  };
+
+  const result = await session.compactWithLlm(2, failingClient, "test-haiku");
+
+  assert.ok(result);
+  const messages = session.getMessages();
+  // Should fall back to mechanical compaction
+  assert.equal(messages[0]?.role, "user");
+  assert.ok(messages[0]?.content.includes("Conversation Summary"));
+  assert.ok(!messages[0]?.content.includes("LLM summarization"));
 });
