@@ -2,8 +2,6 @@
 
 A lightweight CLI coding agent optimized for **local models** by providing AST-based intelligent context for smaller models running on consumer hardware.
 
-> minicode gives local models a dependency-aware map of your codebase, so agents read less, reason better, and ship changes faster.
-
 Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
 
 ## Quick Start (LM Studio)
@@ -23,7 +21,7 @@ OPENAI_BASE_URL=http://localhost:1234/v1
 OPENAI_API_KEY=
 MAX_STEPS=50
 MAX_TOKENS=4096
-MAX_CONTEXT_TOKENS=60000
+MAX_CONTEXT_TOKENS=24000
 WORKSPACE_ROOT=.
 COMMAND_TIMEOUT_MS=30000
 MAX_FILE_SIZE_BYTES=1000000
