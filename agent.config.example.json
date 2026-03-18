@@ -13,5 +13,8 @@
   "loopDetectionWindow": 6,
   "openAiBaseUrl": "http://localhost:1234/v1",
   "openAiApiKey": "",
-  "compactionModel": ""
+  "compactionModel": "",
+  "enableReasoning": false,
+  "reasoningEffort": "high",
+  "reasoningMaxTokens": 5000
 }

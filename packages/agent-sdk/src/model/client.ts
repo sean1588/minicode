@@ -71,6 +71,12 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
   const toolCalls: ToolCall[] = [];
 
   for (const block of response.content) {
+    if (block.type === "thinking") {
+      // Extended thinking blocks: include as text so the agent loop can surface them
+      textParts.push((block as { type: "thinking"; thinking: string }).thinking);
+      continue;
+    }
+
     if (block.type === "text") {
       textParts.push(block.text);
       continue;
@@ -298,8 +304,15 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 export class AnthropicModelClient implements ModelClient {
   private readonly client: Anthropic;
+  private readonly enableReasoning: boolean;
+  private readonly reasoningMaxTokens: number;
 
-  constructor(apiKey = process.env.ANTHROPIC_API_KEY) {
+  constructor(params?: {
+    apiKey?: string;
+    enableReasoning?: boolean;
+    reasoningMaxTokens?: number;
+  }) {
+    const apiKey = params?.apiKey ?? process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new Error(
         "Missing ANTHROPIC_API_KEY. Set the environment variable or pass it to the constructor.",
@@ -307,6 +320,8 @@ export class AnthropicModelClient implements ModelClient {
     }
 
     this.client = new Anthropic({ apiKey });
+    this.enableReasoning = params?.enableReasoning ?? false;
+    this.reasoningMaxTokens = params?.reasoningMaxTokens ?? 5000;
   }
 
   async chat(params: {
@@ -318,6 +333,10 @@ export class AnthropicModelClient implements ModelClient {
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
   }): Promise<ModelResponse> {
+    const thinkingParam = this.enableReasoning
+      ? { thinking: { type: "enabled" as const, budget_tokens: Math.min(this.reasoningMaxTokens, params.maxTokens - 1) } }
+      : {};
+
     const response = await withRetry<Anthropic.Messages.Message>(() =>
       this.client.messages.create({
         model: params.model,
@@ -326,6 +345,7 @@ export class AnthropicModelClient implements ModelClient {
         messages: toAnthropicMessages(params.messages),
         tools: params.tools as unknown as Anthropic.Messages.ToolUnion[],
         stream: false,
+        ...thinkingParam,
       }) as Promise<Anthropic.Messages.Message>,
     );
 
@@ -443,11 +463,17 @@ export class OpenAICompatibleModelClient implements ModelClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
+  private readonly enableReasoning: boolean;
+  private readonly reasoningEffort: string | undefined;
+  private readonly reasoningMaxTokens: number | undefined;
 
   constructor(params?: {
     baseUrl?: string;
     apiKey?: string;
     fetchImpl?: typeof fetch;
+    enableReasoning?: boolean;
+    reasoningEffort?: string;
+    reasoningMaxTokens?: number;
   }) {
     this.baseUrl = normalizeBaseUrl(
       params?.baseUrl ?? process.env.OPENAI_BASE_URL ?? "http://localhost:1234/v1",
@@ -459,6 +485,9 @@ export class OpenAICompatibleModelClient implements ModelClient {
         ? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY
         : process.env.OPENAI_API_KEY);
     this.fetchImpl = params?.fetchImpl ?? fetch;
+    this.enableReasoning = params?.enableReasoning ?? false;
+    this.reasoningEffort = params?.reasoningEffort;
+    this.reasoningMaxTokens = params?.reasoningMaxTokens;
   }
 
   async chat(params: {
@@ -494,6 +523,18 @@ export class OpenAICompatibleModelClient implements ModelClient {
 
     const useStream = params.onStream !== undefined;
 
+    // Build optional reasoning parameter for OpenRouter / compatible APIs
+    let reasoningParam: Record<string, unknown> | undefined;
+    if (this.enableReasoning) {
+      if (this.reasoningEffort) {
+        reasoningParam = { effort: this.reasoningEffort };
+      } else if (this.reasoningMaxTokens) {
+        reasoningParam = { max_tokens: this.reasoningMaxTokens };
+      } else {
+        reasoningParam = { enabled: true };
+      }
+    }
+
     const response = await withRetry(async () => {
       const httpResponse = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
         method: "POST",
@@ -505,6 +546,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
           tool_choice: "auto",
           max_tokens: params.maxTokens,
           stream: useStream,
+          ...(reasoningParam ? { reasoning: reasoningParam } : {}),
         }),
         ...(params.signal && { signal: params.signal }),
       });
@@ -536,10 +578,14 @@ export function createModelClient(config: AgentConfig): ModelClient {
   if (config.modelProvider === "openai-compatible") {
     return new OpenAICompatibleModelClient({
       baseUrl: config.openAiBaseUrl,
-      ...(config.openAiApiKey !== undefined
-        ? { apiKey: config.openAiApiKey }
-        : {}),
+      ...(config.openAiApiKey !== undefined ? { apiKey: config.openAiApiKey } : {}),
+      enableReasoning: config.enableReasoning,
+      reasoningEffort: config.reasoningEffort,
+      reasoningMaxTokens: config.reasoningMaxTokens,
     });
   }
-  return new AnthropicModelClient();
+  return new AnthropicModelClient({
+    enableReasoning: config.enableReasoning,
+    reasoningMaxTokens: config.reasoningMaxTokens,
+  });
 }

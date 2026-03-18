@@ -37,6 +37,9 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "enableToolOutputTruncation: " + (config.enableToolOutputTruncation ?? false),
     "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
     "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
+    "enableReasoning: " + (config.enableReasoning ?? false),
+    "reasoningEffort: " + (config.reasoningEffort ?? "(unset)"),
+    "reasoningMaxTokens: " + (config.reasoningMaxTokens ?? "(unset)"),
   ];
   return lines.join("\n");
 }
@@ -84,6 +87,9 @@ interface AgentConfigFile {
   enableToolOutputTruncation?: boolean;
   compactionThreshold?: number;
   compactionModel?: string;
+  enableReasoning?: boolean;
+  reasoningEffort?: string;
+  reasoningMaxTokens?: number;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -253,6 +259,16 @@ export async function loadAgentConfig(
     ),
     ...(process.env.COMPACTION_MODEL ?? fileConfig.compactionModel
       ? { compactionModel: process.env.COMPACTION_MODEL ?? fileConfig.compactionModel }
+      : {}),
+    enableReasoning: parseBoolean(
+      process.env.ENABLE_REASONING,
+      fileConfig.enableReasoning ?? false,
+    ),
+    ...(process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort
+      ? { reasoningEffort: (process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort) as AgentConfig["reasoningEffort"] }
+      : {}),
+    ...(process.env.REASONING_MAX_TOKENS ?? fileConfig.reasoningMaxTokens !== undefined
+      ? { reasoningMaxTokens: parseNumber(process.env.REASONING_MAX_TOKENS, fileConfig.reasoningMaxTokens ?? 0) || undefined }
       : {}),
   };
 }

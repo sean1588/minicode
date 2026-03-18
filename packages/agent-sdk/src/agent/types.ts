@@ -51,6 +51,12 @@ export interface AgentConfig {
   compactionThreshold?: number;
   /** Model to use for LLM-based compaction. When set, compaction uses an LLM to summarize instead of mechanical truncation. */
   compactionModel?: string;
+  /** Enable reasoning/thinking tokens for supported models. Default: false */
+  enableReasoning?: boolean;
+  /** Reasoning effort level for OpenRouter-compatible APIs: "xhigh" | "high" | "medium" | "low" | "mini" */
+  reasoningEffort?: "xhigh" | "high" | "medium" | "low" | "mini";
+  /** Max tokens allocated for reasoning (Anthropic budget_tokens or OpenRouter max_tokens). */
+  reasoningMaxTokens?: number;
 }
 
 export interface ToolSchema {
