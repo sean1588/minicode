@@ -579,13 +579,13 @@ export function createModelClient(config: AgentConfig): ModelClient {
     return new OpenAICompatibleModelClient({
       baseUrl: config.openAiBaseUrl,
       ...(config.openAiApiKey !== undefined ? { apiKey: config.openAiApiKey } : {}),
-      enableReasoning: config.enableReasoning,
-      reasoningEffort: config.reasoningEffort,
-      reasoningMaxTokens: config.reasoningMaxTokens,
+      ...(config.enableReasoning !== undefined ? { enableReasoning: config.enableReasoning } : {}),
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+      ...(config.reasoningMaxTokens !== undefined ? { reasoningMaxTokens: config.reasoningMaxTokens } : {}),
     });
   }
   return new AnthropicModelClient({
-    enableReasoning: config.enableReasoning,
-    reasoningMaxTokens: config.reasoningMaxTokens,
+    ...(config.enableReasoning !== undefined ? { enableReasoning: config.enableReasoning } : {}),
+    ...(config.reasoningMaxTokens !== undefined ? { reasoningMaxTokens: config.reasoningMaxTokens } : {}),
   });
 }
