@@ -265,10 +265,10 @@ export async function loadAgentConfig(
       fileConfig.enableReasoning ?? false,
     ),
     ...(process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort
-      ? { reasoningEffort: (process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort) as AgentConfig["reasoningEffort"] }
+      ? { reasoningEffort: (process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort) as NonNullable<AgentConfig["reasoningEffort"]> }
       : {}),
     ...(process.env.REASONING_MAX_TOKENS ?? fileConfig.reasoningMaxTokens !== undefined
-      ? { reasoningMaxTokens: parseNumber(process.env.REASONING_MAX_TOKENS, fileConfig.reasoningMaxTokens ?? 0) || undefined }
+      ? { reasoningMaxTokens: parseNumber(process.env.REASONING_MAX_TOKENS, fileConfig.reasoningMaxTokens ?? 0) }
       : {}),
   };
 }
