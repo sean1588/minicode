@@ -122,6 +122,13 @@ All of the above requires a server mode as the foundation.
 - `POST /focus` — pin/unpin symbols
 - `POST /annotations` — attach instructions to symbols
 
+**OpenAI-Compatible API (`/v1/`):**
+- `POST /v1/chat/completions` — standard OpenAI Chat Completions format (streaming SSE + non-streaming)
+- `GET /v1/models` — returns `minicode-agent` model
+- Enables instant compatibility with any client that speaks the OpenAI API: OpenWebUI, TypingMind, ChatGPT-Next-Web, Lobe Chat, etc.
+- The agent loop (tool calls, code map navigation, etc.) runs transparently — consumers just see a "smart model"
+- This is the "agent-as-a-model" pattern: generic clients get a great experience, while the custom minicode client uses the `/api/*` endpoints for the full agent-native IDE features
+
 **WebSocket:**
 - Real-time streaming of `onUiUpdate` events during agent turns:
   - `thinking` — agent thinking content
@@ -158,9 +165,8 @@ All of the above requires a server mode as the foundation.
 
 ## Incremental Build Path
 
-1. **API server** — `minicode serve` with REST + WebSocket for chat, sessions, config
+1. **API server + OpenAI compat + basic web chat** — `minicode serve` with REST + WebSocket for chat, sessions, config; OpenAI-compatible `/v1/chat/completions` endpoint for use with OpenWebUI etc.; minimal bundled web chat client
 2. **Graph data endpoints** — expose ProjectIndex data (symbols, edges, code map)
-3. **Basic web chat** — minimal React SPA with chat interface + streaming
 4. **Dependency graph UI** — interactive graph visualization with symbol inspection
 5. **Live code map view** — real-time agent perspective, steerable focus
 6. **Symbol prompts** — attach symbols to prompts, symbol bookmarks/workspaces

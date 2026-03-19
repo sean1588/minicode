@@ -77,7 +77,7 @@ test("parseCliArgs rejects --out without value", () => {
 
 test("validateCliArgs rejects oneshot without task", () => {
   assert.throws(
-    () => validateCliArgs({ verbose: false, oneshot: true, json: false, task: "" }),
+    () => validateCliArgs({ verbose: false, oneshot: true, json: false, serve: false, port: 4567, task: "" }),
     /--oneshot requires a task prompt/,
   );
 });
@@ -89,6 +89,8 @@ test("validateCliArgs rejects json without oneshot", () => {
         verbose: false,
         oneshot: false,
         json: true,
+        serve: false,
+        port: 4567,
         task: "hello",
       }),
     /only supported with --oneshot/,
@@ -97,6 +99,6 @@ test("validateCliArgs rejects json without oneshot", () => {
 
 test("validateCliArgs allows non-oneshot empty task", () => {
   assert.doesNotThrow(() =>
-    validateCliArgs({ verbose: false, oneshot: false, json: false, task: "" }),
+    validateCliArgs({ verbose: false, oneshot: false, json: false, serve: false, port: 4567, task: "" }),
   );
 });

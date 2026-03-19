@@ -2,7 +2,9 @@
   "name": "@sean.holung/minicode",
   "version": "0.2.0",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "description": "A coding agent for mini models",
   "type": "module",
   "engines": {
@@ -11,12 +13,18 @@
   "bin": {
     "minicode": "dist/src/index.js"
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "bundleDependencies": ["@minicode/agent-sdk"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "bundleDependencies": [
+    "@minicode/agent-sdk"
+  ],
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "dev:ink": "CLI_UI_MODE=ink node --env-file=.env --import tsx src/index.ts",
-    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && chmod +x dist/src/index.js",
+    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && cp -r src/web dist/src/web && chmod +x dist/src/index.js",
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",
     "lint": "eslint \"src/**/*.ts\" \"src/**/*.tsx\" \"tests/**/*.ts\" --max-warnings=0",
@@ -25,18 +33,20 @@
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts"
   },
   "dependencies": {
-    "@minicode/agent-sdk": "*",
     "@anthropic-ai/sdk": "^0.76.0",
-    "typescript": "^5.9.3",
     "@inkjs/ui": "^2.0.0",
+    "@minicode/agent-sdk": "*",
     "dotenv": "^17.3.1",
     "ink": "^6.8.0",
     "picocolors": "^1.1.1",
-    "react": "^19.2.4"
+    "react": "^19.2.4",
+    "typescript": "^5.9.3",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.14",
+    "@types/ws": "^8.18.1",
     "eslint": "^10.0.0",
     "tsx": "^4.21.0",
     "typescript-eslint": "^8.56.0"

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>minicode</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="header-left">
+        <h1>minicode</h1>
+        <span id="status-badge" class="badge ready">ready</span>
+      </div>
+      <div class="header-right">
+        <span id="model-info"></span>
+      </div>
+    </header>
+
+    <main id="messages"></main>
+
+    <footer>
+      <form id="chat-form">
+        <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
+        <button type="submit" id="send-btn">Send</button>
+        <button type="button" id="cancel-btn" class="hidden">Cancel</button>
+      </form>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
