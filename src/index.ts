@@ -273,6 +273,12 @@ async function main(): Promise<void> {
   const cliArgs = parseCliArgs(process.argv);
   validateCliArgs(cliArgs);
 
+  if (cliArgs.serve) {
+    const { runServe } = await import("./serve/server.js");
+    await runServe(cliArgs.verbose, cliArgs.port);
+    return;
+  }
+
   if (cliArgs.oneshot) {
     await runOneshot(cliArgs);
     process.exitCode = EXIT_CODE_SUCCESS;
