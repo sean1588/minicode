@@ -5,6 +5,11 @@ const sendBtn = document.getElementById("send-btn");
 const cancelBtn = document.getElementById("cancel-btn");
 const statusBadge = document.getElementById("status-badge");
 const modelInfo = document.getElementById("model-info");
+const sessionBtn = document.getElementById("session-btn");
+const sessionDropdown = document.getElementById("session-dropdown");
+const sessionList = document.getElementById("session-list");
+const saveBtn = document.getElementById("save-btn");
+const saveLabelInput = document.getElementById("save-label");
 
 let ws;
 let currentAssistantEl = null;
@@ -253,6 +258,93 @@ chatInput.addEventListener("keydown", (e) => {
     chatForm.dispatchEvent(new Event("submit"));
   }
 });
+
+// ── Session management ──
+
+sessionBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const isOpen = !sessionDropdown.classList.contains("hidden");
+  sessionDropdown.classList.toggle("hidden");
+  if (!isOpen) {
+    refreshSessionList();
+  }
+});
+
+// Close dropdown on outside click
+document.addEventListener("click", (e) => {
+  if (!sessionDropdown.contains(e.target) && e.target !== sessionBtn) {
+    sessionDropdown.classList.add("hidden");
+  }
+});
+
+saveBtn.addEventListener("click", async () => {
+  const label = saveLabelInput.value.trim() || undefined;
+  try {
+    const res = await fetch("/api/sessions/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      saveLabelInput.value = "";
+      addMessage(`Session saved: "${data.label}"`, "thinking");
+      refreshSessionList();
+    }
+  } catch {
+    // ignore
+  }
+});
+
+saveLabelInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    saveBtn.click();
+  }
+});
+
+async function refreshSessionList() {
+  try {
+    const res = await fetch("/api/sessions");
+    const data = await res.json();
+    const sessions = data.sessions;
+
+    if (!sessions || sessions.length === 0) {
+      sessionList.innerHTML = '<div class="dropdown-empty">No saved sessions</div>';
+      return;
+    }
+
+    sessionList.innerHTML = "";
+    for (const s of sessions) {
+      const el = document.createElement("div");
+      el.className = "session-item";
+      el.innerHTML =
+        `<span class="session-label">${escapeHtml(s.label)}</span>` +
+        `<span class="session-meta">${s.messageCount} msgs</span>`;
+      el.addEventListener("click", () => loadSession(s.label));
+      sessionList.appendChild(el);
+    }
+  } catch {
+    sessionList.innerHTML = '<div class="dropdown-empty">Failed to load sessions</div>';
+  }
+}
+
+async function loadSession(label) {
+  try {
+    const res = await fetch("/api/sessions/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    if (res.ok) {
+      sessionDropdown.classList.add("hidden");
+      messagesEl.innerHTML = "";
+      addMessage(`Session "${label}" restored`, "thinking");
+    }
+  } catch {
+    // ignore
+  }
+}
 
 // Start connection
 connect();

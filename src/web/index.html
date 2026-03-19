@@ -15,6 +15,21 @@
       </div>
       <div class="header-right">
         <span id="model-info"></span>
+        <div class="session-menu">
+          <button id="session-btn" class="header-btn" title="Sessions">Sessions</button>
+          <div id="session-dropdown" class="dropdown hidden">
+            <div class="dropdown-section">
+              <div class="dropdown-row">
+                <input id="save-label" type="text" placeholder="Label (optional)" />
+                <button id="save-btn" class="dropdown-action">Save</button>
+              </div>
+            </div>
+            <div class="dropdown-divider"></div>
+            <div id="session-list" class="dropdown-section">
+              <div class="dropdown-empty">No saved sessions</div>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
 
