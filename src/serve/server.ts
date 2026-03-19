@@ -120,6 +120,92 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      // ── Graph / Index API ──
+
+      if (pathname === "/api/symbols" && method === "GET") {
+        if (!bridge.hasIndex()) {
+          sendJson(res, 404, { error: "No project index available" });
+          return;
+        }
+        sendJson(res, 200, { symbols: bridge.getSymbols() });
+        return;
+      }
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/dependencies") && method === "GET") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/dependencies".length));
+        const depthParam = url.searchParams.get("depth");
+        const depth = depthParam ? Number(depthParam) : undefined;
+        const result = bridge.getDependencies(name, depth);
+        if (!result) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found` });
+          return;
+        }
+        sendJson(res, 200, { symbol: name, dependencies: result });
+        return;
+      }
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/references") && method === "GET") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/references".length));
+        const result = bridge.getReferences(name);
+        if (!result) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found` });
+          return;
+        }
+        sendJson(res, 200, { symbol: name, references: result });
+        return;
+      }
+
+      if (pathname === "/api/code-map" && method === "GET") {
+        const budgetParam = url.searchParams.get("budget");
+        const budget = budgetParam ? Number(budgetParam) : undefined;
+        const result = bridge.getCodeMap(budget);
+        if (!result) {
+          sendJson(res, 404, { error: "No project index available" });
+          return;
+        }
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (pathname === "/api/graph" && method === "GET") {
+        const result = bridge.getGraph();
+        if (!result) {
+          sendJson(res, 404, { error: "No project index available" });
+          return;
+        }
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (pathname === "/api/focus" && method === "GET") {
+        sendJson(res, 200, { pinned: bridge.getPinnedSymbols() });
+        return;
+      }
+
+      if (pathname === "/api/focus" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { action: string; symbol: string };
+        if (!body.symbol || !body.action) {
+          sendJson(res, 400, { error: "action and symbol are required" });
+          return;
+        }
+        if (body.action === "pin") {
+          const ok = bridge.pinSymbol(body.symbol);
+          if (!ok) {
+            sendJson(res, 404, { error: `Symbol "${body.symbol}" not found` });
+            return;
+          }
+          sendJson(res, 200, { pinned: bridge.getPinnedSymbols() });
+          return;
+        }
+        if (body.action === "unpin") {
+          bridge.unpinSymbol(body.symbol);
+          sendJson(res, 200, { pinned: bridge.getPinnedSymbols() });
+          return;
+        }
+        sendJson(res, 400, { error: `Unknown action "${body.action}". Use "pin" or "unpin".` });
+        return;
+      }
+
       if (pathname === "/api/chat" && method === "POST") {
         const body = JSON.parse(await readBody(req)) as { message: string };
         if (!body.message) {

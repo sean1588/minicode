@@ -78,6 +78,73 @@ class MockBridge extends AgentBridge {
   setBusy(busy: boolean): void {
     this._busy = busy;
   }
+
+  override hasIndex(): boolean {
+    return true;
+  }
+
+  override getSymbols() {
+    return [
+      { name: "foo", qualifiedName: "foo", kind: "function", filePath: "src/foo.ts", startLine: 1, endLine: 5, signature: "function foo(): void", exported: true },
+      { name: "Bar", qualifiedName: "Bar", kind: "class", filePath: "src/bar.ts", startLine: 1, endLine: 20, signature: "class Bar", exported: true },
+      { name: "helper", qualifiedName: "Bar.helper", kind: "method", filePath: "src/bar.ts", startLine: 10, endLine: 15, signature: "helper(): string", exported: false },
+    ];
+  }
+
+  override getSymbol(name: string) {
+    const syms = this.getSymbols();
+    const match = syms.find((s) => s.qualifiedName === name || s.name === name);
+    if (!match) return undefined;
+    return { ...match, dependencies: [], kind: match.kind as "function" | "class" | "method" } as never;
+  }
+
+  override getDependencies(symbolName: string) {
+    if (symbolName === "foo") {
+      return [
+        { name: "foo", qualifiedName: "foo", kind: "function" as const, filePath: "src/foo.ts", signature: "function foo(): void" },
+        { name: "Bar", qualifiedName: "Bar", kind: "class" as const, filePath: "src/bar.ts", signature: "class Bar" },
+      ];
+    }
+    return undefined;
+  }
+
+  override getReferences(symbolName: string) {
+    if (symbolName === "Bar") {
+      return [{ from: "foo", kind: "calls" as const }];
+    }
+    return undefined;
+  }
+
+  override getCodeMap() {
+    return { text: "## src/foo.ts\n- foo(): void", shownCount: 1, totalCount: 3 };
+  }
+
+  override getGraph() {
+    return {
+      nodes: [
+        { id: "foo", name: "foo", kind: "function", filePath: "src/foo.ts", exported: true },
+        { id: "Bar", name: "Bar", kind: "class", filePath: "src/bar.ts", exported: true },
+      ],
+      edges: [{ from: "foo", to: "Bar", kind: "calls" as const }],
+    };
+  }
+
+  override getPinnedSymbols() {
+    return [...this._pinned];
+  }
+
+  private _pinned = new Set<string>();
+
+  override pinSymbol(name: string) {
+    if (name === "nonexistent") return false;
+    this._pinned.add(name);
+    return true;
+  }
+
+  override unpinSymbol(name: string) {
+    this._pinned.delete(name);
+    return true;
+  }
 }
 
 // ── Test harness ──
@@ -443,4 +510,152 @@ test("validateCliArgs rejects serve with --oneshot", async () => {
     () => validateCliArgs({ verbose: false, oneshot: true, json: false, serve: true, port: 4567, task: "test" }),
     (err: unknown) => err instanceof CliUsageError,
   );
+});
+
+// ── Graph / Index API tests ──
+
+test("GET /api/symbols returns all symbols", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { symbols: Array<{ name: string; kind: string }> };
+  assert.equal(body.symbols.length, 3);
+  assert.equal(body.symbols[0]!.name, "foo");
+  assert.equal(body.symbols[1]!.name, "Bar");
+  assert.equal(body.symbols[2]!.name, "helper");
+});
+
+test("GET /api/symbols/:name/dependencies returns dependency cone", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/foo/dependencies`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { symbol: string; dependencies: Array<{ name: string }> };
+  assert.equal(body.symbol, "foo");
+  assert.equal(body.dependencies.length, 2);
+});
+
+test("GET /api/symbols/:name/dependencies returns 404 for unknown symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/nonexistent/dependencies`);
+  assert.equal(res.status, 404);
+});
+
+test("GET /api/symbols/:name/references returns references", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/Bar/references`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { symbol: string; references: Array<{ from: string; kind: string }> };
+  assert.equal(body.symbol, "Bar");
+  assert.equal(body.references.length, 1);
+  assert.equal(body.references[0]!.from, "foo");
+});
+
+test("GET /api/symbols/:name/references returns 404 for unknown symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/nonexistent/references`);
+  assert.equal(res.status, 404);
+});
+
+test("GET /api/code-map returns code map", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/code-map`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { text: string; shownCount: number; totalCount: number };
+  assert.ok(body.text.includes("foo"));
+  assert.equal(body.shownCount, 1);
+  assert.equal(body.totalCount, 3);
+});
+
+test("GET /api/graph returns nodes and edges", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/graph`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as {
+    nodes: Array<{ id: string; name: string }>;
+    edges: Array<{ from: string; to: string; kind: string }>;
+  };
+  assert.equal(body.nodes.length, 2);
+  assert.equal(body.edges.length, 1);
+  assert.equal(body.edges[0]!.from, "foo");
+  assert.equal(body.edges[0]!.to, "Bar");
+  assert.equal(body.edges[0]!.kind, "calls");
+});
+
+test("GET /api/focus returns pinned symbols", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/focus`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { pinned: string[] };
+  assert.deepEqual(body.pinned, []);
+});
+
+test("POST /api/focus pins and unpins symbols", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  // Pin
+  const pinRes = await fetch(`${base}/api/focus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "pin", symbol: "foo" }),
+  });
+  assert.equal(pinRes.status, 200);
+  const pinBody = (await pinRes.json()) as { pinned: string[] };
+  assert.ok(pinBody.pinned.includes("foo"));
+
+  // Unpin
+  const unpinRes = await fetch(`${base}/api/focus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "unpin", symbol: "foo" }),
+  });
+  assert.equal(unpinRes.status, 200);
+  const unpinBody = (await unpinRes.json()) as { pinned: string[] };
+  assert.ok(!unpinBody.pinned.includes("foo"));
+});
+
+test("POST /api/focus returns 404 for unknown symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/focus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "pin", symbol: "nonexistent" }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test("POST /api/focus returns 400 for invalid action", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/focus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "toggle", symbol: "foo" }),
+  });
+  assert.equal(res.status, 400);
 });

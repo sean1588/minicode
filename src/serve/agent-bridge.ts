@@ -8,6 +8,7 @@ import {
   saveIndex,
 } from "../indexer/cache.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
+import type { ProjectIndex } from "../indexer/types.js";
 import { createToolRegistry } from "../tools/registry.js";
 import {
   listSessions,
@@ -22,12 +23,14 @@ export type UiListener = (msg: ServerMessage) => void;
 export class AgentBridge {
   private agent!: CodingAgent;
   private config!: Awaited<ReturnType<typeof loadAgentConfig>>;
+  private projectIndex: ProjectIndex | undefined;
   private buildAgent!: (session?: Session) => CodingAgent;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
   private verbose: boolean;
   private readonly listeners = new Set<UiListener>();
+  private readonly pinnedSymbols = new Set<string>();
 
   constructor(broadcast: (msg: ServerMessage) => void, verbose: boolean) {
     this.broadcast = broadcast;
@@ -70,6 +73,7 @@ export class AgentBridge {
 
     const toolRegistry = createToolRegistry(config, projectIndex);
     this.config = config;
+    this.projectIndex = projectIndex;
 
     this.buildAgent = (session?: Session): CodingAgent => {
       return new CodingAgent({
@@ -157,5 +161,119 @@ export class AgentBridge {
 
   async listSess() {
     return listSessions();
+  }
+
+  // ── Project index queries ──
+
+  hasIndex(): boolean {
+    return this.projectIndex !== undefined;
+  }
+
+  getSymbols() {
+    if (!this.projectIndex) return [];
+    const symbols: Array<{
+      name: string;
+      qualifiedName: string;
+      kind: string;
+      filePath: string;
+      startLine: number;
+      endLine: number;
+      signature: string;
+      exported: boolean;
+    }> = [];
+    for (const sym of this.projectIndex.symbols.values()) {
+      symbols.push({
+        name: sym.name,
+        qualifiedName: sym.qualifiedName,
+        kind: sym.kind,
+        filePath: sym.filePath,
+        startLine: sym.startLine,
+        endLine: sym.endLine,
+        signature: sym.signature,
+        exported: sym.exported,
+      });
+    }
+    return symbols;
+  }
+
+  getSymbol(name: string) {
+    if (!this.projectIndex) return undefined;
+    return this.projectIndex.getSymbol(name);
+  }
+
+  getDependencies(symbolName: string, depth?: number) {
+    if (!this.projectIndex) return undefined;
+    const cone = this.projectIndex.getDependencyCone(symbolName, depth);
+    if (cone.length === 0) return undefined;
+    return cone.map((sym) => ({
+      name: sym.name,
+      qualifiedName: sym.qualifiedName,
+      kind: sym.kind,
+      filePath: sym.filePath,
+      signature: sym.signature,
+    }));
+  }
+
+  getReferences(symbolName: string) {
+    if (!this.projectIndex) return undefined;
+    const sym = this.projectIndex.getSymbol(symbolName);
+    if (!sym) return undefined;
+    // Find all edges pointing TO this symbol
+    const refs = this.projectIndex.dependencyEdges
+      .filter((e) => e.to === sym.qualifiedName || e.to === sym.name)
+      .map((e) => ({ from: e.from, kind: e.kind }));
+    return refs;
+  }
+
+  getCodeMap(tokenBudget?: number) {
+    if (!this.projectIndex) return undefined;
+    const focus = this.pinnedSymbols.size > 0 ? this.pinnedSymbols : undefined;
+    return this.projectIndex.getCodeMap(tokenBudget, focus);
+  }
+
+  getGraph() {
+    if (!this.projectIndex) return undefined;
+    const nodes: Array<{
+      id: string;
+      name: string;
+      kind: string;
+      filePath: string;
+      exported: boolean;
+    }> = [];
+    for (const sym of this.projectIndex.symbols.values()) {
+      nodes.push({
+        id: sym.qualifiedName,
+        name: sym.name,
+        kind: sym.kind,
+        filePath: sym.filePath,
+        exported: sym.exported,
+      });
+    }
+    const edges = this.projectIndex.dependencyEdges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      kind: e.kind,
+    }));
+    return { nodes, edges };
+  }
+
+  getPinnedSymbols(): string[] {
+    return [...this.pinnedSymbols];
+  }
+
+  pinSymbol(name: string): boolean {
+    if (!this.projectIndex) return false;
+    const sym = this.projectIndex.getSymbol(name);
+    if (!sym) return false;
+    this.pinnedSymbols.add(sym.qualifiedName);
+    return true;
+  }
+
+  unpinSymbol(name: string): boolean {
+    if (!this.projectIndex) return false;
+    const sym = this.projectIndex.getSymbol(name);
+    if (!sym) return false;
+    this.pinnedSymbols.delete(sym.qualifiedName);
+    return true;
   }
 }
