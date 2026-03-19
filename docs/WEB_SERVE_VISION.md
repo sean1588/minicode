@@ -165,10 +165,10 @@ All of the above requires a server mode as the foundation.
 
 ## Incremental Build Path
 
-1. **API server + OpenAI compat + basic web chat** — `minicode serve` with REST + WebSocket for chat, sessions, config; OpenAI-compatible `/v1/chat/completions` endpoint for use with OpenWebUI etc.; minimal bundled web chat client
-2. **Graph data endpoints** — expose ProjectIndex data (symbols, edges, code map)
-4. **Dependency graph UI** — interactive graph visualization with symbol inspection
-5. **Live code map view** — real-time agent perspective, steerable focus
-6. **Symbol prompts** — attach symbols to prompts, symbol bookmarks/workspaces
-7. **Symbol annotations** — click-to-annotate with agent instructions, persisted per-project
-8. **Advanced features** — graph diffing, path highlighting, inline diffs, conversation-linked navigation, history replay
+1. ~~**API server + OpenAI compat + basic web chat**~~ **(IMPLEMENTED)** — `minicode serve` with REST + WebSocket for chat, sessions, config; OpenAI-compatible `/v1/chat/completions` endpoint for use with OpenWebUI etc.; bundled web chat client with dark theme, streaming responses, compact tool call pills, and session management UI
+2. ~~**Graph data endpoints**~~ **(IMPLEMENTED)** — REST endpoints exposing ProjectIndex data: `/api/symbols`, `/api/symbols/:name/dependencies`, `/api/symbols/:name/references`, `/api/code-map`, `/api/graph`, `/api/focus` (pin/unpin). 35 integration tests covering all endpoints.
+3. **Dependency graph UI** — interactive graph visualization with symbol inspection
+4. **Live code map view** — real-time agent perspective, steerable focus
+5. **Symbol prompts** — attach symbols to prompts, symbol bookmarks/workspaces
+6. **Symbol annotations** — click-to-annotate with agent instructions, persisted per-project
+7. **Advanced features** — graph diffing, path highlighting, inline diffs, conversation-linked navigation, history replay

@@ -1,6 +1,6 @@
 # minicode
 
-A lightweight CLI coding agent optimized for **local models** by providing AST-based intelligent context for smaller models running on consumer hardware.
+A lightweight coding agent optimized for **local models** — CLI-first with a built-in web UI. Provides AST-based intelligent context for smaller models running on consumer hardware.
 
 Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
 
@@ -46,6 +46,15 @@ or you can also pass it an intial prompt from the start:
 minicode "Add error handling to src/api.ts"
 ```
 
+Start the web UI (chat, session management, project graph data):
+
+```bash
+minicode serve              # http://localhost:4567
+minicode serve --port 8080  # custom port
+```
+
+The serve mode also exposes an **OpenAI-compatible API** at `/v1/chat/completions`, so you can point any client that speaks the OpenAI protocol (OpenWebUI, TypingMind, ChatGPT-Next-Web, Lobe Chat, etc.) at `http://localhost:4567/v1` and use minicode as a backend.
+
 Run a single task and exit (useful for scripts/CI/orchestration):
 
 ```bash
@@ -79,13 +88,9 @@ npm run install:global
 - Agent loop with model tool-use support
 - In-memory session history with trimming
 - Safety guardrails for file paths and shell commands
-- Built-in tools:
-  - `read_file`
-  - `write_file`
-  - `edit_file`
-  - `search` (ripgrep, grep fallback)
-  - `list_files`
-  - `run_command`
+- Built-in tools: `read_file`, `write_file`, `edit_file`, `search`, `list_files`, `run_command`
+- **Web UI** — `minicode serve` starts an HTTP + WebSocket server with a bundled chat client, real-time streaming, session management, and project graph data endpoints
+- **OpenAI-compatible API** — any client that speaks the OpenAI protocol can use minicode as a backend at `/v1/chat/completions`
 - **Context optimization:** Code map in system prompt, `read_symbol`, `find_references`, `get_dependencies`
 - **Plugin system:** Extensible language support (TypeScript built-in)
 
