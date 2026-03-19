@@ -93,7 +93,7 @@ main {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .message {
@@ -131,37 +131,67 @@ main {
   padding: 6px 14px;
 }
 
-/* Tool calls */
+/* Tool call group — clusters consecutive tool calls */
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0;
+}
+
+/* Tool calls — compact inline pills */
 .tool-call {
   font-size: 12px;
-  padding: 6px 10px;
-  margin: 4px 0;
+  padding: 4px 10px;
   border-radius: 4px;
-  background: rgba(122, 162, 247, 0.08);
-  border-left: 3px solid var(--accent-dim);
   color: var(--text-dim);
   cursor: pointer;
+  transition: background 0.15s;
+  line-height: 1.4;
+}
+
+.tool-call:hover {
+  background: rgba(122, 162, 247, 0.08);
+}
+
+.tool-call .tool-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .tool-call .tool-name {
   color: var(--accent);
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tool-call .tool-arg {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-call .tool-time {
   color: var(--text-dim);
-  margin-left: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 .tool-call .tool-result {
   display: none;
   margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.2);
   white-space: pre-wrap;
   max-height: 200px;
   overflow-y: auto;
   font-size: 11px;
+  color: var(--text-dim);
 }
 
 .tool-call.expanded .tool-result {
@@ -170,7 +200,7 @@ main {
 
 /* Streaming cursor */
 .streaming-cursor::after {
-  content: '▌';
+  content: '\25CC';
   animation: blink 0.8s step-end infinite;
   color: var(--accent);
 }
@@ -179,12 +209,13 @@ main {
   50% { opacity: 0; }
 }
 
-/* Step indicator */
-.step-indicator {
+/* Usage info */
+.usage-info {
   font-size: 11px;
   color: var(--text-dim);
-  text-align: center;
-  padding: 2px;
+  opacity: 0.6;
+  text-align: right;
+  padding: 2px 4px;
 }
 
 /* Footer / Input */

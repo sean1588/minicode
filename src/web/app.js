@@ -10,6 +10,9 @@ let ws;
 let currentAssistantEl = null;
 let assistantText = "";
 
+// Max chars to show in expanded tool result
+const TOOL_RESULT_MAX = 500;
+
 function connect() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${protocol}//${location.host}`);
@@ -78,7 +81,7 @@ function handleServerMessage(msg) {
       break;
 
     case "step":
-      addStepIndicator(msg.step);
+      // Intentionally not shown — tool calls provide enough context
       break;
 
     case "tool_call_start":
@@ -92,7 +95,6 @@ function handleServerMessage(msg) {
     case "turn_end":
       if (currentAssistantEl) {
         currentAssistantEl.classList.remove("streaming-cursor");
-        // Use the final text if we didn't stream
         if (!assistantText && msg.text) {
           currentAssistantEl.textContent = msg.text;
         }
@@ -130,49 +132,85 @@ function addMessage(text, type) {
   return el;
 }
 
-function addStepIndicator(step) {
-  const el = document.createElement("div");
-  el.className = "step-indicator";
-  el.textContent = `— step ${step + 1} —`;
-  messagesEl.appendChild(el);
+/**
+ * Extract the most meaningful short arg from tool input.
+ * e.g. for read_file → the path, for search → the query, for run_command → the command.
+ */
+function summarizeToolInput(name, input) {
+  // Priority keys by tool type
+  const key =
+    input.path ?? input.file_path ?? input.command ?? input.query ??
+    input.pattern ?? input.name ?? input.old_string;
+
+  if (typeof key === "string") {
+    return key.length > 60 ? key.slice(0, 57) + "..." : key;
+  }
+
+  // Fallback: first string value, truncated
+  for (const v of Object.values(input)) {
+    if (typeof v === "string" && v.length > 0) {
+      return v.length > 60 ? v.slice(0, 57) + "..." : v;
+    }
+  }
+  return "";
+}
+
+function getOrCreateToolGroup() {
+  const last = messagesEl.lastElementChild;
+  if (last && last.classList.contains("tool-group")) {
+    return last;
+  }
+  const group = document.createElement("div");
+  group.className = "tool-group";
+  messagesEl.appendChild(group);
+  return group;
 }
 
 function addToolCall(name, input) {
+  const group = getOrCreateToolGroup();
+
   const el = document.createElement("div");
   el.className = "tool-call";
   el.dataset.toolName = name;
 
-  const inputStr = Object.entries(input)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join(", ");
+  const summary = summarizeToolInput(name, input);
+  const summaryHtml = summary ? ` <span class="tool-arg">${escapeHtml(summary)}</span>` : "";
 
-  el.innerHTML = `<span class="tool-name">${escapeHtml(name)}</span> ${escapeHtml(inputStr)}<span class="tool-time">...</span><div class="tool-result"></div>`;
+  el.innerHTML =
+    `<span class="tool-header">` +
+    `<span class="tool-name">${escapeHtml(name)}</span>${summaryHtml}` +
+    `<span class="tool-time"></span>` +
+    `</span>` +
+    `<div class="tool-result"></div>`;
+
   el.addEventListener("click", () => el.classList.toggle("expanded"));
-  messagesEl.appendChild(el);
+  group.appendChild(el);
   scrollToBottom();
 }
 
 function finalizeToolCall(name, result, elapsedMs) {
-  // Find the last tool-call element with matching name and "..." time
   const toolEls = messagesEl.querySelectorAll(`.tool-call[data-tool-name="${name}"]`);
   const el = toolEls[toolEls.length - 1];
   if (!el) return;
 
   const timeEl = el.querySelector(".tool-time");
   if (timeEl) {
-    timeEl.textContent = ` ${elapsedMs}ms`;
+    timeEl.textContent = `${elapsedMs}ms`;
   }
 
   const resultEl = el.querySelector(".tool-result");
-  if (resultEl) {
-    resultEl.textContent = result;
+  if (resultEl && result) {
+    const truncated = result.length > TOOL_RESULT_MAX
+      ? result.slice(0, TOOL_RESULT_MAX) + `\n\n... (${result.length - TOOL_RESULT_MAX} more chars)`
+      : result;
+    resultEl.textContent = truncated;
   }
 }
 
 function addUsageInfo(usage) {
   const el = document.createElement("div");
-  el.className = "step-indicator";
-  el.textContent = `tokens: ${usage.inputTokens} in, ${usage.outputTokens} out`;
+  el.className = "usage-info";
+  el.textContent = `${usage.inputTokens} in / ${usage.outputTokens} out`;
   messagesEl.appendChild(el);
 }
 
