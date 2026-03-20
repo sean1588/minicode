@@ -91,6 +91,14 @@ function handleServerMessage(msg) {
 
     case "tool_call_start":
       addToolCall(msg.name, msg.input);
+      // Forward symbol-related tool calls to graph for highlighting
+      if (graphMode && typeof window.highlightAgentActivity === 'function') {
+        const symbolTools = ['read_symbol', 'get_dependencies', 'find_references'];
+        if (symbolTools.includes(msg.name)) {
+          const symName = msg.input?.name || msg.input?.symbol || msg.input?.qualifiedName;
+          if (symName) window.highlightAgentActivity(symName);
+        }
+      }
       break;
 
     case "tool_call_end":
@@ -345,6 +353,38 @@ async function loadSession(label) {
     // ignore
   }
 }
+
+// ── View toggle (Chat / Graph) ──
+
+const viewToggle = document.getElementById('view-toggle');
+const graphView = document.getElementById('graph-view');
+const chatMain = document.getElementById('messages');
+const chatFooter = document.querySelector('footer');
+const appEl = document.getElementById('app');
+let graphMode = false;
+
+viewToggle.addEventListener('click', () => {
+  graphMode = !graphMode;
+  if (graphMode) {
+    chatMain.classList.add('hidden');
+    chatFooter.classList.add('hidden');
+    graphView.classList.remove('hidden');
+    appEl.classList.add('graph-wide');
+    viewToggle.textContent = 'Chat';
+    viewToggle.classList.add('active');
+    // Lazy init graph on first switch
+    if (typeof window.initGraph === 'function') {
+      window.initGraph();
+    }
+  } else {
+    chatMain.classList.remove('hidden');
+    chatFooter.classList.remove('hidden');
+    graphView.classList.add('hidden');
+    appEl.classList.remove('graph-wide');
+    viewToggle.textContent = 'Graph';
+    viewToggle.classList.remove('active');
+  }
+});
 
 // Start connection
 connect();
