@@ -389,7 +389,14 @@ function buildStylesheet(): unknown[] {
 // -- Interactions --
 
 function setupInteractions(cyInst: CyInstance, detailEl: HTMLElement): void {
+  // Single click → show detail panel only
   cyInst.on('tap', 'node', function (evt: CyEvent) {
+    const node = evt.target as unknown as CyCollection;
+    showDetail(node, detailEl);
+  });
+
+  // Double click → expand 1-hop neighbors
+  cyInst.on('dbltap', 'node', function (evt: CyEvent) {
     const node = evt.target as unknown as CyCollection;
     const id = (node.data('qualifiedName') || node.data('id')) as string;
 
@@ -399,8 +406,6 @@ function setupInteractions(cyInst: CyInstance, detailEl: HTMLElement): void {
       connectExistingNodes();
       runLayout();
     }
-
-    showDetail(node, detailEl);
   });
 
   cyInst.on('mouseover', 'node', function (evt: CyEvent) {

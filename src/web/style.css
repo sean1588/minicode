@@ -33,8 +33,6 @@ html, body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 900px;
-  margin: 0 auto;
 }
 
 /* Header */
@@ -210,6 +208,57 @@ h1 {
   color: var(--red);
 }
 
+/* ── Workspace: side-by-side chat + graph ── */
+
+#workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Chat pane (left, default ~33%) */
+#chat-pane {
+  display: flex;
+  flex-direction: column;
+  width: 33%;
+  min-width: 280px;
+}
+
+/* Pane divider (draggable) */
+#pane-divider {
+  width: 1px;
+  cursor: col-resize;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: background 0.15s, width 0.15s;
+  z-index: 10;
+  position: relative;
+}
+
+#pane-divider::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 7px;
+  height: 100%;
+}
+
+#pane-divider:hover,
+#pane-divider.dragging {
+  width: 3px;
+  background: var(--accent-dim);
+}
+
+/* Graph pane (right, takes remaining space) */
+#graph-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 300px;
+  position: relative;
+}
+
 /* Messages */
 main {
   flex: 1;
@@ -232,7 +281,7 @@ main {
   background: var(--accent-dim);
   color: #fff;
   align-self: flex-end;
-  max-width: 80%;
+  max-width: 90%;
   border-radius: 8px 8px 2px 8px;
 }
 
@@ -421,19 +470,7 @@ main::-webkit-scrollbar-thumb {
   border-radius: 3px;
 }
 
-/* ── Graph view ── */
-
-#app.graph-wide {
-  max-width: none;
-}
-
-#graph-view {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  position: relative;
-}
+/* ── Graph pane ── */
 
 #graph-toolbar {
   display: flex;
@@ -649,12 +686,6 @@ main::-webkit-scrollbar-thumb {
 .detail-empty {
   color: var(--text-dim);
   font-style: italic;
-}
-
-/* Active view toggle button */
-#view-toggle.active {
-  color: var(--accent);
-  border-color: var(--accent);
 }
 
 /* Agent pulse animation */

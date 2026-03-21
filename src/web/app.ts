@@ -125,7 +125,7 @@ function handleServerMessage(msg: ServerMessage): void {
     case "tool_call_start":
       hadToolCalls = true;
       addToolCall(msg.name || '', msg.input || {});
-      if (graphMode) {
+      {
         const symbolTools = ['read_symbol', 'get_dependencies', 'find_references'];
         if (symbolTools.includes(msg.name || '')) {
           const symName = msg.input?.name || msg.input?.symbol || msg.input?.qualifiedName;
@@ -384,41 +384,37 @@ async function loadSession(label: string): Promise<void> {
   }
 }
 
-// -- View toggle (Chat / Graph) --
+// -- Resizable pane divider --
 
-const viewToggle = document.getElementById('view-toggle')!;
-const graphView = document.getElementById('graph-view')!;
-const chatMain = document.getElementById('messages')!;
-const chatFooter = document.querySelector('footer')!;
-const appEl = document.getElementById('app')!;
-let graphMode = false;
+const chatPane = document.getElementById('chat-pane')!;
+const divider = document.getElementById('pane-divider')!;
 
-viewToggle.addEventListener('click', () => {
-  graphMode = !graphMode;
-  if (graphMode) {
-    chatMain.classList.add('hidden');
-    chatFooter.classList.add('hidden');
-    graphView.classList.remove('hidden');
-    appEl.classList.add('graph-wide');
-    viewToggle.textContent = 'Chat';
-    viewToggle.classList.add('active');
-    initGraph();
-    if ((window as unknown as Record<string, unknown>).cy) {
-      setTimeout(() => {
-        const cyInst = (window as unknown as Record<string, { resize(): void; fit(p: number): void }>).cy;
-        cyInst.resize();
-        cyInst.fit(40);
-      }, 100);
-    }
-  } else {
-    chatMain.classList.remove('hidden');
-    chatFooter.classList.remove('hidden');
-    graphView.classList.add('hidden');
-    appEl.classList.remove('graph-wide');
-    viewToggle.textContent = 'Graph';
-    viewToggle.classList.remove('active');
+divider.addEventListener('mousedown', (e: MouseEvent) => {
+  e.preventDefault();
+  divider.classList.add('dragging');
+  const startX = e.clientX;
+  const startWidth = chatPane.offsetWidth;
+
+  function onMove(ev: MouseEvent): void {
+    const newWidth = startWidth + (ev.clientX - startX);
+    const clamped = Math.max(280, Math.min(newWidth, window.innerWidth - 300));
+    chatPane.style.width = clamped + 'px';
   }
+
+  function onUp(): void {
+    divider.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    // Resize cytoscape after pane change
+    const cyInst = (window as unknown as Record<string, { resize(): void }>).cy;
+    if (cyInst) cyInst.resize();
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 });
 
-// Start connection
+// -- Init --
+
 connect();
+initGraph();

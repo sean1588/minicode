@@ -19,7 +19,6 @@
       </div>
       <div class="header-right">
         <span id="model-info"></span>
-        <button id="view-toggle" class="header-btn">Graph</button>
         <div class="session-menu">
           <button id="session-btn" class="header-btn" title="Sessions">Sessions</button>
           <div id="session-dropdown" class="dropdown hidden">
@@ -38,24 +37,28 @@
       </div>
     </header>
 
-    <main id="messages"></main>
-
-    <footer>
-      <form id="chat-form">
-        <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
-        <button type="submit" id="send-btn">Send</button>
-        <button type="button" id="cancel-btn" class="hidden">Cancel</button>
-      </form>
-    </footer>
-    <div id="graph-view" class="hidden">
-      <div id="graph-toolbar">
-        <input id="graph-search" type="text" placeholder="Search symbols..." autocomplete="off" />
-        <button id="graph-fit" class="header-btn">Fit</button>
-        <button id="graph-relayout" class="header-btn">Re-layout</button>
-        <button id="graph-clear" class="header-btn">Clear</button>
+    <div id="workspace">
+      <div id="chat-pane">
+        <main id="messages"></main>
+        <footer>
+          <form id="chat-form">
+            <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
+            <button type="submit" id="send-btn">Send</button>
+            <button type="button" id="cancel-btn" class="hidden">Cancel</button>
+          </form>
+        </footer>
       </div>
-      <div id="cy"></div>
-      <div id="symbol-detail" class="hidden"></div>
+      <div id="pane-divider"></div>
+      <div id="graph-pane">
+        <div id="graph-toolbar">
+          <input id="graph-search" type="text" placeholder="Search symbols..." autocomplete="off" />
+          <button id="graph-fit" class="header-btn">Fit</button>
+          <button id="graph-relayout" class="header-btn">Re-layout</button>
+          <button id="graph-clear" class="header-btn">Clear</button>
+        </div>
+        <div id="cy"></div>
+        <div id="symbol-detail" class="hidden"></div>
+      </div>
     </div>
   </div>
 
