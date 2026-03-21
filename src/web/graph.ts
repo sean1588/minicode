@@ -2,6 +2,8 @@
 // Start empty. User searches for a symbol, selects it to seed the graph.
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
+import { escapeHtml } from './utils.ts';
+
 declare const cytoscape: (opts: unknown) => CyInstance;
 declare const hljs: { highlightElement(el: HTMLElement): void };
 
@@ -96,6 +98,8 @@ let cy: CyInstance | null = null;
 const symbolMap = new Map<string, IndexedSymbol>();
 const graphNodes = new Map<string, GraphNode>();
 let graphEdges: GraphEdge[] = [];
+// Adjacency index: node id → edges touching that node (O(1) neighbor lookup)
+const edgeIndex = new Map<string, GraphEdge[]>();
 const pinnedNames = new Set<string>();
 let allSymbolNames: string[] = [];
 let initialized = false;
@@ -172,6 +176,7 @@ export async function initGraph(): Promise<void> {
       target: e.target || e.to || '',
       kind: (e.kind || e.type || 'references').toLowerCase(),
     }));
+    buildEdgeIndex();
 
     // Build symbol map for detail panel
     const symbols = symbolsData.symbols || symbolsData;
@@ -197,8 +202,6 @@ export async function initGraph(): Promise<void> {
       minZoom: 0.2,
       maxZoom: 3,
     });
-    (window as unknown as Record<string, unknown>).cy = cy;
-
     setupInteractions(cy, detailEl);
     setupToolbar();
 
@@ -227,8 +230,7 @@ export function highlightAgentActivity(symbolName: string): void {
     return;
   }
   // Otherwise, add it to the graph with neighbors
-  addNodeAndNeighbors(symbolName);
-  runLayout();
+  expandNodeAndLayout(symbolName);
   const added = findNode(symbolName);
   if (added) {
     added.addClass('agent-pulse');
@@ -236,20 +238,41 @@ export function highlightAgentActivity(symbolName: string): void {
   }
 }
 
+/** Resize the Cytoscape canvas (call after pane resize). */
+export function resizeGraph(): void {
+  if (cy) cy.resize();
+}
+
 // -- Graph building (incremental) --
+
+function buildEdgeIndex(): void {
+  edgeIndex.clear();
+  for (const edge of graphEdges) {
+    let srcList = edgeIndex.get(edge.source);
+    if (!srcList) { srcList = []; edgeIndex.set(edge.source, srcList); }
+    srcList.push(edge);
+    let tgtList = edgeIndex.get(edge.target);
+    if (!tgtList) { tgtList = []; edgeIndex.set(edge.target, tgtList); }
+    tgtList.push(edge);
+  }
+}
 
 function addNodeAndNeighbors(symbolId: string): void {
   addNodeToGraph(symbolId);
 
-  for (const edge of graphEdges) {
-    if (edge.source === symbolId) {
-      addNodeToGraph(edge.target);
-      addEdgeToGraph(edge);
-    } else if (edge.target === symbolId) {
-      addNodeToGraph(edge.source);
-      addEdgeToGraph(edge);
-    }
+  const edges = edgeIndex.get(symbolId) || [];
+  for (const edge of edges) {
+    const neighbor = edge.source === symbolId ? edge.target : edge.source;
+    addNodeToGraph(neighbor);
+    addEdgeToGraph(edge);
   }
+}
+
+/** Add a node + neighbors, connect existing nodes, and re-run layout. */
+function expandNodeAndLayout(symbolId: string): void {
+  addNodeAndNeighbors(symbolId);
+  connectExistingNodes();
+  runLayout();
 }
 
 function addNodeToGraph(id: string): void {
@@ -402,10 +425,8 @@ function setupInteractions(cyInst: CyInstance, detailEl: HTMLElement): void {
     const id = (node.data('qualifiedName') || node.data('id')) as string;
 
     if (!node.hasClass('expanded')) {
-      addNodeAndNeighbors(id);
       node.addClass('expanded');
-      connectExistingNodes();
-      runLayout();
+      expandNodeAndLayout(id);
     }
   });
 
@@ -432,9 +453,16 @@ function setupInteractions(cyInst: CyInstance, detailEl: HTMLElement): void {
 function connectExistingNodes(): void {
   if (!cy) return;
   const nodeIds = new Set(cy.nodes().map((n: CyElement) => n.id()));
-  for (const edge of graphEdges) {
-    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
-      addEdgeToGraph(edge);
+  const visited = new Set<string>();
+  for (const id of nodeIds) {
+    const edges = edgeIndex.get(id) || [];
+    for (const edge of edges) {
+      const edgeId = `${edge.source}->${edge.target}:${edge.kind}`;
+      if (visited.has(edgeId)) continue;
+      visited.add(edgeId);
+      if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+        addEdgeToGraph(edge);
+      }
     }
   }
 }
@@ -455,14 +483,14 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
 
   let html = `
     <div class="detail-header">
-      <span class="detail-name">${esc(data.label)}</span>
+      <span class="detail-name">${escapeHtml(data.label)}</span>
       <span class="detail-kind-badge" style="background:${kindColor}20;color:${kindColor}">${kind}</span>
     </div>
-    <div class="detail-file">${esc(data.file || 'unknown')}${data.startLine ? ':' + data.startLine : ''}</div>
+    <div class="detail-file">${escapeHtml(data.file || 'unknown')}${data.startLine ? ':' + data.startLine : ''}</div>
   `;
 
   html += `<div id="detail-source"><div class="detail-section-title">Source</div><pre class="detail-code">Loading...</pre></div>`;
-  html += `<button class="detail-pin header-btn" data-name="${esc(data.qualifiedName)}">${isPinned ? 'Unpin' : 'Pin to focus'}</button>`;
+  html += `<button class="detail-pin header-btn" data-name="${escapeHtml(data.qualifiedName)}">${isPinned ? 'Unpin' : 'Pin to focus'}</button>`;
   html += '<div class="detail-section" id="detail-deps"><div class="detail-section-title">Dependencies</div><div class="detail-section-list">Loading...</div></div>';
   html += '<div class="detail-section" id="detail-refs"><div class="detail-section-title">References</div><div class="detail-section-list">Loading...</div></div>';
 
@@ -554,7 +582,7 @@ async function loadDepsAndRefs(name: string, detailEl: HTMLElement): Promise<voi
         ? items.map((d) => {
             const target = typeof d === 'string' ? d : d.qualifiedName || d.name || '';
             const label = typeof d === 'string' ? d : d.name || d.qualifiedName || '';
-            return `<a class="detail-link" data-target="${esc(target)}">${esc(label)}</a>`;
+            return `<a class="detail-link" data-target="${escapeHtml(target)}">${escapeHtml(label)}</a>`;
           }).join('')
         : '<span class="detail-empty">None</span>';
     } else {
@@ -569,7 +597,7 @@ async function loadDepsAndRefs(name: string, detailEl: HTMLElement): Promise<voi
             const id = typeof r === 'string' ? r : r.from || r.qualifiedName || r.name || '';
             const label = id.split('.').pop() || id;
             const kind = typeof r === 'string' ? '' : r.kind || '';
-            return `<a class="detail-link" data-target="${esc(id)}">${esc(label)} <span style="opacity:0.5">${esc(kind)}</span></a>`;
+            return `<a class="detail-link" data-target="${escapeHtml(id)}">${escapeHtml(label)} <span style="opacity:0.5">${escapeHtml(kind)}</span></a>`;
           }).join('')
         : '<span class="detail-empty">None</span>';
     } else {
@@ -580,9 +608,7 @@ async function loadDepsAndRefs(name: string, detailEl: HTMLElement): Promise<voi
     detailEl.querySelectorAll('.detail-link').forEach((link) => {
       link.addEventListener('click', () => {
         const target = (link as HTMLElement).dataset.target || '';
-        addNodeAndNeighbors(target);
-        connectExistingNodes();
-        runLayout();
+        expandNodeAndLayout(target);
         if (!cy) return;
         const targetNode = cy.getElementById(target);
         if (targetNode.length) {
@@ -661,8 +687,8 @@ function setupToolbar(): void {
       const kind = node ? (node.kind || '').toLowerCase() : '';
       const shortName = name.split('.').pop() || name;
       const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind]!.border : '#565f89';
-      return `<div class="search-result" data-id="${esc(name)}">
-        <span class="search-result-name">${esc(shortName)}</span>
+      return `<div class="search-result" data-id="${escapeHtml(name)}">
+        <span class="search-result-name">${escapeHtml(shortName)}</span>
         <span class="search-result-kind" style="color:${kindColor}">${kind}</span>
       </div>`;
     }).join('');
@@ -672,9 +698,7 @@ function setupToolbar(): void {
     dropdown.querySelectorAll('.search-result').forEach((el) => {
       el.addEventListener('click', () => {
         const id = (el as HTMLElement).dataset.id || '';
-        addNodeAndNeighbors(id);
-        connectExistingNodes();
-        runLayout();
+        expandNodeAndLayout(id);
         searchInput.value = '';
         dropdown.classList.add('hidden');
 
@@ -741,12 +765,4 @@ function setupToolbar(): void {
     cy.elements().remove();
     document.getElementById('symbol-detail')!.classList.add('hidden');
   });
-}
-
-// -- Helpers --
-
-function esc(str: string): string {
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
 }

@@ -1,4 +1,5 @@
-import { initGraph, highlightAgentActivity } from './graph.ts';
+import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
+import { escapeHtml } from './utils.ts';
 
 interface ServerMessage {
   type: string;
@@ -264,12 +265,6 @@ function scrollToBottom(): void {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function escapeHtml(str: string): string {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // Form handling
 chatForm.addEventListener("submit", (e: Event) => {
   e.preventDefault();
@@ -405,9 +400,7 @@ divider.addEventListener('mousedown', (e: MouseEvent) => {
     divider.classList.remove('dragging');
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
-    // Resize cytoscape after pane change
-    const cyInst = (window as unknown as Record<string, { resize(): void }>).cy;
-    if (cyInst) cyInst.resize();
+    resizeGraph();
   }
 
   document.addEventListener('mousemove', onMove);
