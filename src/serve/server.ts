@@ -11,10 +11,12 @@ import type { ServerMessage } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Resolve web dir: works in both dev (src/serve/) and dist (dist/src/serve/)
+// Resolve web dir: always serve from dist/src/web (built by scripts/build-web.mjs)
+// In dev (tsx): __dirname = src/serve → go up to project root, then dist/src/web
+// In prod (dist): __dirname = dist/src/serve → sibling dir dist/src/web
 const webDir = __dirname.includes(`${path.sep}dist${path.sep}`)
-  ? path.resolve(__dirname, "../../src/web")
-  : path.resolve(__dirname, "../web");
+  ? path.resolve(__dirname, "../web")
+  : path.resolve(__dirname, "../../dist/src/web");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",

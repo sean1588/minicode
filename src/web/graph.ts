@@ -1,16 +1,106 @@
-// graph.js — Interactive dependency graph: search → seed → expand by clicking
+// graph.ts — Interactive dependency graph: search -> seed -> expand by clicking
 // Start empty. User searches for a symbol, selects it to seed the graph.
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
-let cy = null;
-let symbolMap = new Map();       // qualifiedName → symbol detail
-let graphNodes = new Map();      // id → node element data (from /api/graph)
-let graphEdges = [];             // all edges from /api/graph
-let pinnedNames = new Set();
-let allSymbolNames = [];         // for search autocomplete
+declare const cytoscape: (opts: unknown) => CyInstance;
+declare const hljs: { highlightElement(el: HTMLElement): void };
+
+interface CyInstance {
+  getElementById(id: string): CyCollection;
+  nodes(): CyCollection;
+  elements(): CyCollection;
+  add(def: unknown): CyCollection;
+  layout(opts: Record<string, unknown>): { run(): void };
+  fit(padding?: number): void;
+  animate(target: unknown, opts: unknown): void;
+  resize(): void;
+  on(event: string, handler: (evt: CyEvent) => void): void;
+  on(event: string, selector: string, handler: (evt: CyEvent) => void): void;
+}
+
+interface CyCollection {
+  length: number;
+  data(key: string): unknown;
+  id(): string;
+  map<T>(fn: (el: CyElement) => T): T[];
+  filter(fn: (el: CyElement) => boolean): CyCollection;
+  not(other: CyCollection): CyCollection;
+  closedNeighborhood(): CyCollection;
+  addClass(cls: string): CyCollection;
+  removeClass(cls: string): CyCollection;
+  hasClass(cls: string): boolean;
+  flashClass(cls: string, duration: number): void;
+  remove(): void;
+}
+
+interface CyElement {
+  data(key: string): unknown;
+  id(): string;
+}
+
+interface CyEvent {
+  target: CyCollection & CyInstance;
+}
+
+interface GraphNode {
+  id?: string;
+  name?: string;
+  qualifiedName?: string;
+  kind?: string;
+  filePath?: string;
+  file?: string;
+  exported?: boolean;
+  startLine?: number;
+  endLine?: number;
+}
+
+interface GraphEdge {
+  source: string;
+  target: string;
+  kind: string;
+}
+
+interface RawEdge {
+  source?: string;
+  from?: string;
+  target?: string;
+  to?: string;
+  kind?: string;
+  type?: string;
+}
+
+interface IndexedSymbol {
+  qualifiedName?: string;
+  name?: string;
+  kind?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+  exported?: boolean;
+  signature?: string;
+}
+
+interface KindColor {
+  border: string;
+  bg: string;
+}
+
+interface EdgeStyle {
+  lineStyle: string;
+  opacity: number;
+  color: string;
+  width: number;
+}
+
+let cy: CyInstance | null = null;
+const symbolMap = new Map<string, IndexedSymbol>();
+const graphNodes = new Map<string, GraphNode>();
+let graphEdges: GraphEdge[] = [];
+const pinnedNames = new Set<string>();
+let allSymbolNames: string[] = [];
 let initialized = false;
 
-const KIND_COLORS = {
+const KIND_COLORS: Record<string, KindColor> = {
   function:  { border: '#7aa2f7', bg: 'rgba(122,162,247,0.15)' },
   class:     { border: '#bb9af7', bg: 'rgba(187,154,247,0.15)' },
   interface: { border: '#2ac3de', bg: 'rgba(42,195,222,0.15)' },
@@ -19,7 +109,7 @@ const KIND_COLORS = {
   method:    { border: '#7dcfff', bg: 'rgba(125,207,255,0.15)' },
 };
 
-const EDGE_STYLES = {
+const EDGE_STYLES: Record<string, EdgeStyle> = {
   calls:      { lineStyle: 'solid', opacity: 0.5, color: '#565f89', width: 1 },
   imports:    { lineStyle: 'dashed', opacity: 0.4, color: '#565f89', width: 1 },
   extends:    { lineStyle: 'solid', opacity: 0.7, color: '#bb9af7', width: 2 },
@@ -27,7 +117,7 @@ const EDGE_STYLES = {
   references: { lineStyle: 'dotted', opacity: 0.3, color: '#565f89', width: 1 },
 };
 
-const LAYOUT_OPTIONS = {
+const LAYOUT_OPTIONS: Record<string, unknown> = {
   name: 'cose',
   nodeRepulsion: function () { return 4000; },
   idealEdgeLength: function () { return 80; },
@@ -42,14 +132,14 @@ const LAYOUT_OPTIONS = {
   padding: 50,
 };
 
-// ── Public API ──
+// -- Public API --
 
-window.initGraph = async function initGraph() {
+export async function initGraph(): Promise<void> {
   if (initialized) return;
   initialized = true;
 
-  const cyEl = document.getElementById('cy');
-  const detailEl = document.getElementById('symbol-detail');
+  const cyEl = document.getElementById('cy')!;
+  const detailEl = document.getElementById('symbol-detail')!;
 
   try {
     const [graphRes, symbolsRes, focusRes] = await Promise.all([
@@ -73,29 +163,30 @@ window.initGraph = async function initGraph() {
     }
 
     // Build lookup maps from full graph data
-    for (const node of graphData.nodes) {
-      const id = node.qualifiedName || node.id || node.name;
+    for (const node of graphData.nodes as GraphNode[]) {
+      const id = node.qualifiedName || node.id || node.name || '';
       graphNodes.set(id, node);
     }
-    graphEdges = (graphData.edges || []).map(e => ({
-      source: e.source || e.from,
-      target: e.target || e.to,
+    graphEdges = ((graphData.edges || []) as RawEdge[]).map((e) => ({
+      source: e.source || e.from || '',
+      target: e.target || e.to || '',
       kind: (e.kind || e.type || 'references').toLowerCase(),
     }));
 
     // Build symbol map for detail panel
     const symbols = symbolsData.symbols || symbolsData;
     if (Array.isArray(symbols)) {
-      for (const s of symbols) {
-        symbolMap.set(s.qualifiedName || s.name, s);
+      for (const s of symbols as IndexedSymbol[]) {
+        symbolMap.set(s.qualifiedName || s.name || '', s);
       }
     }
     allSymbolNames = Array.from(graphNodes.keys()).sort();
 
     // Track pinned
-    const pinned = focusData.pinned || [];
+    const pinned: unknown[] = focusData.pinned || [];
     for (const f of pinned) {
-      pinnedNames.add(typeof f === 'string' ? f : f.name || f.qualifiedName);
+      const name = typeof f === 'string' ? f : (f as Record<string, string>).name || (f as Record<string, string>).qualifiedName;
+      if (name) pinnedNames.add(name);
     }
 
     // Create empty cytoscape instance
@@ -106,7 +197,7 @@ window.initGraph = async function initGraph() {
       minZoom: 0.2,
       maxZoom: 3,
     });
-    window.cy = cy;
+    (window as unknown as Record<string, unknown>).cy = cy;
 
     setupInteractions(cy, detailEl);
     setupToolbar();
@@ -121,11 +212,12 @@ window.initGraph = async function initGraph() {
 
   } catch (err) {
     console.error('Graph init failed:', err);
-    cyEl.innerHTML = `<div class="graph-empty">Failed to load graph: ${err.message || err}</div>`;
+    const msg = err instanceof Error ? err.message : String(err);
+    cyEl.innerHTML = `<div class="graph-empty">Failed to load graph: ${msg}</div>`;
   }
-};
+}
 
-window.highlightAgentActivity = function highlightAgentActivity(symbolName) {
+export function highlightAgentActivity(symbolName: string): void {
   if (!cy) return;
   // If node is already in graph, pulse it
   const node = findNode(symbolName);
@@ -142,15 +234,13 @@ window.highlightAgentActivity = function highlightAgentActivity(symbolName) {
     added.addClass('agent-pulse');
     setTimeout(() => added.removeClass('agent-pulse'), 2000);
   }
-};
+}
 
-// ── Graph building (incremental) ──
+// -- Graph building (incremental) --
 
-function addNodeAndNeighbors(symbolId) {
-  // Add the center node
+function addNodeAndNeighbors(symbolId: string): void {
   addNodeToGraph(symbolId);
 
-  // Find all edges involving this node and add neighbors
   for (const edge of graphEdges) {
     if (edge.source === symbolId) {
       addNodeToGraph(edge.target);
@@ -162,15 +252,15 @@ function addNodeAndNeighbors(symbolId) {
   }
 }
 
-function addNodeToGraph(id) {
-  // Skip if already in graph
+function addNodeToGraph(id: string): void {
+  if (!cy) return;
   if (cy.getElementById(id).length > 0) return;
 
   const nodeData = graphNodes.get(id);
   if (!nodeData) return;
 
   const kind = (nodeData.kind || 'function').toLowerCase();
-  const name = nodeData.name || id.split('.').pop();
+  const name = nodeData.name || id.split('.').pop() || id;
   const file = nodeData.filePath || nodeData.file || '';
 
   cy.add({
@@ -189,10 +279,10 @@ function addNodeToGraph(id) {
   });
 }
 
-function addEdgeToGraph(edge) {
+function addEdgeToGraph(edge: GraphEdge): void {
+  if (!cy) return;
   const edgeId = `${edge.source}->${edge.target}:${edge.kind}`;
   if (cy.getElementById(edgeId).length > 0) return;
-  // Only add if both endpoints exist in graph
   if (cy.getElementById(edge.source).length === 0) return;
   if (cy.getElementById(edge.target).length === 0) return;
 
@@ -207,27 +297,27 @@ function addEdgeToGraph(edge) {
   });
 }
 
-function runLayout() {
+function runLayout(): void {
   if (!cy || cy.nodes().length === 0) return;
   cy.layout(LAYOUT_OPTIONS).run();
 }
 
-function findNode(name) {
+function findNode(name: string): CyCollection | null {
+  if (!cy) return null;
   const node = cy.getElementById(name);
   if (node.length > 0) return node;
-  // Try matching by short name
-  const match = cy.nodes().filter(n => {
-    const nName = n.data('name') || '';
-    const qName = n.data('qualifiedName') || '';
+  const match = cy.nodes().filter((n: CyElement) => {
+    const nName = (n.data('name') || '') as string;
+    const qName = (n.data('qualifiedName') || '') as string;
     return nName === name || qName.endsWith('.' + name);
   });
   return match.length > 0 ? match : null;
 }
 
-// ── Stylesheet ──
+// -- Stylesheet --
 
-function buildStylesheet() {
-  const styles = [
+function buildStylesheet(): unknown[] {
+  const styles: unknown[] = [
     {
       selector: 'node',
       style: {
@@ -296,19 +386,16 @@ function buildStylesheet() {
   return styles;
 }
 
-// ── Interactions ──
+// -- Interactions --
 
-function setupInteractions(cy, detailEl) {
-  // Node click → expand neighbors + show detail
-  cy.on('tap', 'node', function (evt) {
-    const node = evt.target;
-    const id = node.data('qualifiedName') || node.data('id');
+function setupInteractions(cyInst: CyInstance, detailEl: HTMLElement): void {
+  cyInst.on('tap', 'node', function (evt: CyEvent) {
+    const node = evt.target as unknown as CyCollection;
+    const id = (node.data('qualifiedName') || node.data('id')) as string;
 
-    // Expand 1-hop neighbors if not already expanded
     if (!node.hasClass('expanded')) {
       addNodeAndNeighbors(id);
       node.addClass('expanded');
-      // Also add edges between existing nodes that we may have missed
       connectExistingNodes();
       runLayout();
     }
@@ -316,29 +403,29 @@ function setupInteractions(cy, detailEl) {
     showDetail(node, detailEl);
   });
 
-  // Node hover → highlight neighborhood
-  cy.on('mouseover', 'node', function (evt) {
-    const node = evt.target;
+  cyInst.on('mouseover', 'node', function (evt: CyEvent) {
+    if (!cy) return;
+    const node = evt.target as unknown as CyCollection;
     const neighborhood = node.closedNeighborhood();
     cy.elements().not(neighborhood).addClass('faded');
     neighborhood.addClass('highlighted');
   });
 
-  cy.on('mouseout', 'node', function () {
+  cyInst.on('mouseout', 'node', function () {
+    if (!cy) return;
     cy.elements().removeClass('faded highlighted');
   });
 
-  // Background click → dismiss detail
-  cy.on('tap', function (evt) {
-    if (evt.target === cy) {
+  cyInst.on('tap', function (evt: CyEvent) {
+    if (evt.target === (cyInst as unknown)) {
       detailEl.classList.add('hidden');
     }
   });
 }
 
-// Add any edges between nodes already in the graph
-function connectExistingNodes() {
-  const nodeIds = new Set(cy.nodes().map(n => n.id()));
+function connectExistingNodes(): void {
+  if (!cy) return;
+  const nodeIds = new Set(cy.nodes().map((n: CyElement) => n.id()));
   for (const edge of graphEdges) {
     if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
       addEdgeToGraph(edge);
@@ -346,12 +433,19 @@ function connectExistingNodes() {
   }
 }
 
-async function showDetail(node, detailEl) {
-  const data = node.data();
+async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<void> {
+  const data = {
+    label: node.data('label') as string,
+    qualifiedName: node.data('qualifiedName') as string,
+    name: node.data('name') as string,
+    kind: node.data('kind') as string,
+    file: node.data('file') as string,
+    startLine: node.data('startLine') as number | undefined,
+  };
   const sym = symbolMap.get(data.qualifiedName) || symbolMap.get(data.name) || {};
   const isPinned = pinnedNames.has(data.qualifiedName);
   const kind = data.kind || 'unknown';
-  const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind].border : '#565f89';
+  const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind]!.border : '#565f89';
 
   let html = `
     <div class="detail-header">
@@ -362,9 +456,7 @@ async function showDetail(node, detailEl) {
   `;
 
   html += `<div id="detail-source"><div class="detail-section-title">Source</div><pre class="detail-code">Loading...</pre></div>`;
-
   html += `<button class="detail-pin header-btn" data-name="${esc(data.qualifiedName)}">${isPinned ? 'Unpin' : 'Pin to focus'}</button>`;
-
   html += '<div class="detail-section" id="detail-deps"><div class="detail-section-title">Dependencies</div><div class="detail-section-list">Loading...</div></div>';
   html += '<div class="detail-section" id="detail-refs"><div class="detail-section-title">References</div><div class="detail-section-list">Loading...</div></div>';
 
@@ -372,14 +464,14 @@ async function showDetail(node, detailEl) {
   detailEl.classList.remove('hidden');
 
   // Setup resize handle drag
-  const handle = detailEl.querySelector('.resize-handle');
-  handle.addEventListener('mousedown', (e) => {
+  const handle = detailEl.querySelector('.resize-handle') as HTMLElement;
+  handle.addEventListener('mousedown', (e: MouseEvent) => {
     e.preventDefault();
     handle.classList.add('dragging');
     const startX = e.clientX;
     const startWidth = detailEl.offsetWidth;
-    function onMove(e) {
-      const newWidth = startWidth - (e.clientX - startX);
+    function onMove(ev: MouseEvent) {
+      const newWidth = startWidth - (ev.clientX - startX);
       detailEl.style.width = Math.max(200, newWidth) + 'px';
     }
     function onUp() {
@@ -391,25 +483,26 @@ async function showDetail(node, detailEl) {
     document.addEventListener('mouseup', onUp);
   });
 
-  detailEl.querySelector('.detail-pin').addEventListener('click', async (e) => {
-    const name = e.target.dataset.name;
-    await togglePin(name, node, e.target);
+  const pinBtn = detailEl.querySelector('.detail-pin') as HTMLButtonElement;
+  pinBtn.addEventListener('click', async () => {
+    const name = pinBtn.dataset.name || '';
+    await togglePin(name, node, pinBtn);
   });
 
-  loadSource(data.qualifiedName || data.name, detailEl);
-  loadDepsAndRefs(data.qualifiedName || data.name, detailEl);
+  const symName = data.qualifiedName || data.name;
+  loadSource(symName, detailEl);
+  loadDepsAndRefs(symName, detailEl);
 }
 
-async function loadSource(name, detailEl) {
-  const codeEl = detailEl.querySelector('#detail-source .detail-code');
+async function loadSource(name: string, detailEl: HTMLElement): Promise<void> {
+  const codeEl = detailEl.querySelector('#detail-source .detail-code') as HTMLPreElement | null;
   if (!codeEl) return;
   try {
     const res = await fetch(`/api/symbols/${encodeURIComponent(name)}/source`);
     if (res.ok) {
       const data = await res.json();
-      // Detect language from file extension
       const ext = (data.filePath || '').split('.').pop() || '';
-      const langMap = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript' };
+      const langMap: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript' };
       const lang = langMap[ext] || 'typescript';
       codeEl.className = 'detail-code language-' + lang;
       codeEl.textContent = data.source;
@@ -424,7 +517,19 @@ async function loadSource(name, detailEl) {
   }
 }
 
-async function loadDepsAndRefs(name, detailEl) {
+interface DepItem {
+  qualifiedName?: string;
+  name?: string;
+}
+
+interface RefItem {
+  from?: string;
+  qualifiedName?: string;
+  name?: string;
+  kind?: string;
+}
+
+async function loadDepsAndRefs(name: string, detailEl: HTMLElement): Promise<void> {
   const encodedName = encodeURIComponent(name);
 
   try {
@@ -433,14 +538,18 @@ async function loadDepsAndRefs(name, detailEl) {
       fetch(`/api/symbols/${encodedName}/references`).catch(() => null),
     ]);
 
-    const depsEl = detailEl.querySelector('#detail-deps .detail-section-list');
-    const refsEl = detailEl.querySelector('#detail-refs .detail-section-list');
+    const depsEl = detailEl.querySelector('#detail-deps .detail-section-list') as HTMLElement;
+    const refsEl = detailEl.querySelector('#detail-refs .detail-section-list') as HTMLElement;
 
     if (depsRes && depsRes.ok) {
       const deps = await depsRes.json();
-      const items = deps.dependencies || deps || [];
+      const items: (string | DepItem)[] = deps.dependencies || deps || [];
       depsEl.innerHTML = items.length
-        ? items.map(d => `<a class="detail-link" data-target="${esc(typeof d === 'string' ? d : d.qualifiedName || d.name)}">${esc(typeof d === 'string' ? d : d.name || d.qualifiedName)}</a>`).join('')
+        ? items.map((d) => {
+            const target = typeof d === 'string' ? d : d.qualifiedName || d.name || '';
+            const label = typeof d === 'string' ? d : d.name || d.qualifiedName || '';
+            return `<a class="detail-link" data-target="${esc(target)}">${esc(label)}</a>`;
+          }).join('')
         : '<span class="detail-empty">None</span>';
     } else {
       depsEl.innerHTML = '<span class="detail-empty">None</span>';
@@ -448,12 +557,13 @@ async function loadDepsAndRefs(name, detailEl) {
 
     if (refsRes && refsRes.ok) {
       const refs = await refsRes.json();
-      const items = refs.references || refs || [];
+      const items: (string | RefItem)[] = refs.references || refs || [];
       refsEl.innerHTML = items.length
-        ? items.map(r => {
-            const id = typeof r === 'string' ? r : r.from || r.qualifiedName || r.name;
-            const label = id.split('.').pop();
-            return `<a class="detail-link" data-target="${esc(id)}">${esc(label)} <span style="opacity:0.5">${esc(r.kind || '')}</span></a>`;
+        ? items.map((r) => {
+            const id = typeof r === 'string' ? r : r.from || r.qualifiedName || r.name || '';
+            const label = id.split('.').pop() || id;
+            const kind = typeof r === 'string' ? '' : r.kind || '';
+            return `<a class="detail-link" data-target="${esc(id)}">${esc(label)} <span style="opacity:0.5">${esc(kind)}</span></a>`;
           }).join('')
         : '<span class="detail-empty">None</span>';
     } else {
@@ -461,17 +571,18 @@ async function loadDepsAndRefs(name, detailEl) {
     }
 
     // Clicking a dep/ref link adds it to the graph and navigates
-    detailEl.querySelectorAll('.detail-link').forEach(link => {
+    detailEl.querySelectorAll('.detail-link').forEach((link) => {
       link.addEventListener('click', () => {
-        const target = link.dataset.target;
+        const target = (link as HTMLElement).dataset.target || '';
         addNodeAndNeighbors(target);
         connectExistingNodes();
         runLayout();
-        const node = cy.getElementById(target);
-        if (node.length) {
-          cy.animate({ center: { eles: node }, zoom: 1.5 }, { duration: 300 });
-          node.flashClass('highlighted', 1000);
-          showDetail(node, detailEl);
+        if (!cy) return;
+        const targetNode = cy.getElementById(target);
+        if (targetNode.length) {
+          cy.animate({ center: { eles: targetNode }, zoom: 1.5 }, { duration: 300 });
+          targetNode.flashClass('highlighted', 1000);
+          showDetail(targetNode, detailEl);
         }
       });
     });
@@ -480,7 +591,7 @@ async function loadDepsAndRefs(name, detailEl) {
   }
 }
 
-async function togglePin(name, node, btnEl) {
+async function togglePin(name: string, node: CyCollection, btnEl: HTMLButtonElement): Promise<void> {
   const wasPinned = pinnedNames.has(name);
 
   try {
@@ -507,44 +618,43 @@ async function togglePin(name, node, btnEl) {
   }
 }
 
-// ── Toolbar ──
+// -- Toolbar --
 
-function setupToolbar() {
-  const searchInput = document.getElementById('graph-search');
-  const fitBtn = document.getElementById('graph-fit');
-  const relayoutBtn = document.getElementById('graph-relayout');
-  const clearBtn = document.getElementById('graph-clear');
+function setupToolbar(): void {
+  const searchInput = document.getElementById('graph-search') as HTMLInputElement;
+  const fitBtn = document.getElementById('graph-fit') as HTMLButtonElement;
+  const relayoutBtn = document.getElementById('graph-relayout') as HTMLButtonElement;
+  const clearBtn = document.getElementById('graph-clear') as HTMLButtonElement;
 
-  // Search: show dropdown of matching symbol names
-  let searchTimeout;
-  let dropdown = document.createElement('div');
+  let searchTimeout: ReturnType<typeof setTimeout>;
+  const dropdown = document.createElement('div');
   dropdown.className = 'search-dropdown hidden';
-  searchInput.parentNode.style.position = 'relative';
-  searchInput.parentNode.appendChild(dropdown);
+  (searchInput.parentNode as HTMLElement).style.position = 'relative';
+  searchInput.parentNode!.appendChild(dropdown);
 
   // Rank symbols: exported first, then alphabetical by short name
   const rankedSymbols = allSymbolNames.slice().sort((a, b) => {
     const nodeA = graphNodes.get(a);
     const nodeB = graphNodes.get(b);
-    const expA = nodeA ? nodeA.exported : false;
-    const expB = nodeB ? nodeB.exported : false;
+    const expA = nodeA ? !!nodeA.exported : false;
+    const expB = nodeB ? !!nodeB.exported : false;
     if (expA !== expB) return expA ? -1 : 1;
-    const nameA = a.split('.').pop().toLowerCase();
-    const nameB = b.split('.').pop().toLowerCase();
+    const nameA = (a.split('.').pop() || '').toLowerCase();
+    const nameB = (b.split('.').pop() || '').toLowerCase();
     return nameA.localeCompare(nameB);
   });
 
-  function showDropdownResults(matches) {
+  function showDropdownResults(matches: string[]): void {
     if (matches.length === 0) {
       dropdown.classList.add('hidden');
       return;
     }
 
-    dropdown.innerHTML = matches.map(name => {
+    dropdown.innerHTML = matches.map((name) => {
       const node = graphNodes.get(name);
       const kind = node ? (node.kind || '').toLowerCase() : '';
-      const shortName = name.split('.').pop();
-      const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind].border : '#565f89';
+      const shortName = name.split('.').pop() || name;
+      const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind]!.border : '#565f89';
       return `<div class="search-result" data-id="${esc(name)}">
         <span class="search-result-name">${esc(shortName)}</span>
         <span class="search-result-kind" style="color:${kindColor}">${kind}</span>
@@ -553,27 +663,27 @@ function setupToolbar() {
 
     dropdown.classList.remove('hidden');
 
-    dropdown.querySelectorAll('.search-result').forEach(el => {
+    dropdown.querySelectorAll('.search-result').forEach((el) => {
       el.addEventListener('click', () => {
-        const id = el.dataset.id;
+        const id = (el as HTMLElement).dataset.id || '';
         addNodeAndNeighbors(id);
         connectExistingNodes();
         runLayout();
         searchInput.value = '';
         dropdown.classList.add('hidden');
 
-        const node = cy.getElementById(id);
-        if (node.length) {
+        if (!cy) return;
+        const targetNode = cy.getElementById(id);
+        if (targetNode.length) {
           setTimeout(() => {
-            cy.animate({ center: { eles: node }, zoom: 1.2 }, { duration: 300 });
-            node.flashClass('highlighted', 1500);
+            cy!.animate({ center: { eles: targetNode }, zoom: 1.2 }, { duration: 300 });
+            targetNode.flashClass('highlighted', 1500);
           }, 350);
         }
       });
     });
   }
 
-  // Show top-ranked symbols on focus
   searchInput.addEventListener('focus', () => {
     if (searchInput.value.trim().length < 2) {
       showDropdownResults(rankedSymbols.slice(0, 20));
@@ -589,8 +699,8 @@ function setupToolbar() {
         return;
       }
 
-      const matches = rankedSymbols.filter(name => {
-        const shortName = name.split('.').pop().toLowerCase();
+      const matches = rankedSymbols.filter((name) => {
+        const shortName = (name.split('.').pop() || '').toLowerCase();
         return shortName.includes(query) || name.toLowerCase().includes(query);
       }).slice(0, 15);
 
@@ -598,41 +708,38 @@ function setupToolbar() {
     }, 150);
   });
 
-  // Close dropdown on escape or outside click
-  searchInput.addEventListener('keydown', (e) => {
+  searchInput.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       searchInput.value = '';
       dropdown.classList.add('hidden');
     }
   });
-  document.addEventListener('click', (e) => {
-    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+  document.addEventListener('click', (e: Event) => {
+    if (!searchInput.contains(e.target as Node) && !dropdown.contains(e.target as Node)) {
       dropdown.classList.add('hidden');
     }
   });
 
-  // Fit
   fitBtn.addEventListener('click', () => {
-    if (cy.nodes().length > 0) {
+    if (cy && cy.nodes().length > 0) {
       cy.fit(40);
     }
   });
 
-  // Re-layout
   relayoutBtn.addEventListener('click', () => {
     runLayout();
   });
 
-  // Clear
   clearBtn.addEventListener('click', () => {
+    if (!cy) return;
     cy.elements().remove();
-    document.getElementById('symbol-detail').classList.add('hidden');
+    document.getElementById('symbol-detail')!.classList.add('hidden');
   });
 }
 
-// ── Helpers ──
+// -- Helpers --
 
-function esc(str) {
+function esc(str: string): string {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
