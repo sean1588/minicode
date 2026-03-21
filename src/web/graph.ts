@@ -71,17 +71,6 @@ interface RawEdge {
   type?: string;
 }
 
-interface IndexedSymbol {
-  qualifiedName?: string;
-  name?: string;
-  kind?: string;
-  filePath?: string;
-  startLine?: number;
-  endLine?: number;
-  exported?: boolean;
-  signature?: string;
-}
-
 interface KindColor {
   border: string;
   bg: string;
@@ -95,7 +84,6 @@ interface EdgeStyle {
 }
 
 let cy: CyInstance | null = null;
-const symbolMap = new Map<string, IndexedSymbol>();
 const graphNodes = new Map<string, GraphNode>();
 let graphEdges: GraphEdge[] = [];
 // Adjacency index: node id → edges touching that node (O(1) neighbor lookup)
@@ -158,7 +146,6 @@ export async function initGraph(): Promise<void> {
     }
 
     const graphData = await graphRes.json();
-    const symbolsData = await symbolsRes.json();
     const focusData = focusRes.ok ? await focusRes.json() : { pinned: [] };
 
     if (!graphData.nodes || graphData.nodes.length === 0) {
@@ -178,13 +165,6 @@ export async function initGraph(): Promise<void> {
     }));
     buildEdgeIndex();
 
-    // Build symbol map for detail panel
-    const symbols = symbolsData.symbols || symbolsData;
-    if (Array.isArray(symbols)) {
-      for (const s of symbols as IndexedSymbol[]) {
-        symbolMap.set(s.qualifiedName || s.name || '', s);
-      }
-    }
     allSymbolNames = Array.from(graphNodes.keys()).sort();
 
     // Track pinned
@@ -476,7 +456,6 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
     file: node.data('file') as string,
     startLine: node.data('startLine') as number | undefined,
   };
-  const sym = symbolMap.get(data.qualifiedName) || symbolMap.get(data.name) || {};
   const isPinned = pinnedNames.has(data.qualifiedName);
   const kind = data.kind || 'unknown';
   const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind]!.border : '#565f89';
