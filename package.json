@@ -29,7 +29,7 @@
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",
     "lint": "eslint \"src/**/*.ts\" \"src/**/*.tsx\" \"tests/**/*.ts\" --max-warnings=0",
-    "pretest": "npm run build --workspace=packages/agent-sdk",
+    "pretest": "npm run build --workspace=packages/agent-sdk && node scripts/build-web.mjs",
     "test": "node --test --import tsx \"tests/**/*.test.ts\"",
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts"
   },
