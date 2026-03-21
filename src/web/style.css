@@ -461,23 +461,44 @@ main::-webkit-scrollbar-thumb {
   border-color: var(--accent);
 }
 
-#graph-filter-kind {
+/* Search dropdown */
+.search-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 300px;
+  max-height: 320px;
+  overflow-y: auto;
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  padding: 5px 8px;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  margin-top: 4px;
 }
 
-#graph-exported-label {
-  font-size: 12px;
-  color: var(--text-dim);
+.search-result {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+  padding: 6px 10px;
   cursor: pointer;
+  font-size: 12px;
+  transition: background 0.1s;
+}
+
+.search-result:hover {
+  background: var(--bg-hover);
+}
+
+.search-result-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.search-result-kind {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 #cy {
@@ -503,6 +524,8 @@ main::-webkit-scrollbar-thumb {
   top: 0;
   right: 0;
   width: 320px;
+  min-width: 200px;
+  max-width: 80%;
   height: 100%;
   background: var(--bg-surface);
   border-left: 1px solid var(--border);
@@ -510,6 +533,22 @@ main::-webkit-scrollbar-thumb {
   padding: 16px;
   z-index: 50;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
+}
+
+#symbol-detail .resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 51;
+}
+
+#symbol-detail .resize-handle:hover,
+#symbol-detail .resize-handle.dragging {
+  background: var(--accent-dim);
 }
 
 .detail-header {
@@ -551,6 +590,22 @@ main::-webkit-scrollbar-thumb {
   white-space: pre-wrap;
   margin-bottom: 12px;
   font-family: var(--font-mono);
+}
+
+.detail-code {
+  background: var(--bg) !important;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px !important;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow: auto;
+  max-height: 300px;
+  white-space: pre;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  tab-size: 2;
 }
 
 .detail-pin {

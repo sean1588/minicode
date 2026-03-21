@@ -1,9 +1,13 @@
-// graph.js — Cytoscape-based dependency graph visualization
-// Consumes /api/graph, /api/symbols, /api/focus endpoints
+// graph.js — Interactive dependency graph: search → seed → expand by clicking
+// Start empty. User searches for a symbol, selects it to seed the graph.
+// Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
 let cy = null;
-let symbolMap = new Map();
+let symbolMap = new Map();       // qualifiedName → symbol detail
+let graphNodes = new Map();      // id → node element data (from /api/graph)
+let graphEdges = [];             // all edges from /api/graph
 let pinnedNames = new Set();
+let allSymbolNames = [];         // for search autocomplete
 let initialized = false;
 
 const KIND_COLORS = {
@@ -24,14 +28,18 @@ const EDGE_STYLES = {
 };
 
 const LAYOUT_OPTIONS = {
-  name: 'fcose',
-  nodeSeparation: 80,
-  idealEdgeLength: 120,
+  name: 'cose',
+  nodeRepulsion: function () { return 4000; },
+  idealEdgeLength: function () { return 80; },
+  edgeElasticity: function () { return 100; },
   animate: true,
-  animationDuration: 400,
-  randomize: true,
-  quality: 'default',
+  animationDuration: 300,
+  randomize: false,
   nodeDimensionsIncludeLabels: true,
+  gravity: 0.5,
+  numIter: 300,
+  fit: true,
+  padding: 50,
 };
 
 // ── Public API ──
@@ -57,178 +65,171 @@ window.initGraph = async function initGraph() {
 
     const graphData = await graphRes.json();
     const symbolsData = await symbolsRes.json();
-    const focusData = focusRes.ok ? await focusRes.json() : { focused: [] };
+    const focusData = focusRes.ok ? await focusRes.json() : { pinned: [] };
 
     if (!graphData.nodes || graphData.nodes.length === 0) {
       cyEl.innerHTML = '<div class="graph-empty">No index available. Run minicode with a project to generate the code graph.</div>';
       return;
     }
 
-    // Build symbol map
+    // Build lookup maps from full graph data
+    for (const node of graphData.nodes) {
+      const id = node.qualifiedName || node.id || node.name;
+      graphNodes.set(id, node);
+    }
+    graphEdges = (graphData.edges || []).map(e => ({
+      source: e.source || e.from,
+      target: e.target || e.to,
+      kind: (e.kind || e.type || 'references').toLowerCase(),
+    }));
+
+    // Build symbol map for detail panel
     const symbols = symbolsData.symbols || symbolsData;
     if (Array.isArray(symbols)) {
       for (const s of symbols) {
         symbolMap.set(s.qualifiedName || s.name, s);
       }
     }
+    allSymbolNames = Array.from(graphNodes.keys()).sort();
 
-    // Track pinned/focused
-    if (focusData.focused) {
-      for (const f of focusData.focused) {
-        pinnedNames.add(typeof f === 'string' ? f : f.name || f.qualifiedName);
-      }
+    // Track pinned
+    const pinned = focusData.pinned || [];
+    for (const f of pinned) {
+      pinnedNames.add(typeof f === 'string' ? f : f.name || f.qualifiedName);
     }
 
-    // Build elements
-    const elements = buildElements(graphData);
-
-    // Auto-enable exported filter for large graphs
-    const totalNodes = graphData.nodes.length;
-    if (totalNodes > 200) {
-      document.getElementById('graph-exported-only').checked = true;
-    }
-
+    // Create empty cytoscape instance
     cy = cytoscape({
       container: cyEl,
-      elements: elements,
+      elements: [],
       style: buildStylesheet(),
-      layout: LAYOUT_OPTIONS,
-      minZoom: 0.1,
-      maxZoom: 4,
-      textureOnViewport: totalNodes > 200,
+      minZoom: 0.2,
+      maxZoom: 3,
     });
-
-    // Apply exported filter if checked on init
-    if (document.getElementById('graph-exported-only').checked) {
-      applyFilters();
-    }
+    window.cy = cy;
 
     setupInteractions(cy, detailEl);
-    setupToolbar(cy);
-    setupZoomLabelToggle(cy);
+    setupToolbar();
+
+    // If there are pinned symbols, seed with those
+    if (pinnedNames.size > 0) {
+      for (const name of pinnedNames) {
+        addNodeAndNeighbors(name);
+      }
+      runLayout();
+    }
 
   } catch (err) {
     console.error('Graph init failed:', err);
-    cyEl.innerHTML = '<div class="graph-empty">Failed to load graph data.</div>';
+    cyEl.innerHTML = `<div class="graph-empty">Failed to load graph: ${err.message || err}</div>`;
   }
 };
 
 window.highlightAgentActivity = function highlightAgentActivity(symbolName) {
   if (!cy) return;
-  const node = cy.nodes().filter(n => {
-    const name = n.data('name') || '';
-    const qname = n.data('qualifiedName') || '';
-    return name === symbolName || qname === symbolName || qname.endsWith('.' + symbolName);
-  });
-  if (node.length === 0) return;
-
-  node.addClass('agent-pulse');
-  setTimeout(() => node.removeClass('agent-pulse'), 2000);
+  // If node is already in graph, pulse it
+  const node = findNode(symbolName);
+  if (node) {
+    node.addClass('agent-pulse');
+    setTimeout(() => node.removeClass('agent-pulse'), 2000);
+    return;
+  }
+  // Otherwise, add it to the graph with neighbors
+  addNodeAndNeighbors(symbolName);
+  runLayout();
+  const added = findNode(symbolName);
+  if (added) {
+    added.addClass('agent-pulse');
+    setTimeout(() => added.removeClass('agent-pulse'), 2000);
+  }
 };
 
-// ── Element building ──
+// ── Graph building (incremental) ──
 
-function buildElements(graphData) {
-  const elements = [];
-  const fileGroups = new Map();
+function addNodeAndNeighbors(symbolId) {
+  // Add the center node
+  addNodeToGraph(symbolId);
 
-  // Group nodes by file
-  for (const node of graphData.nodes) {
-    const file = node.file || node.filePath || '';
-    if (!fileGroups.has(file)) fileGroups.set(file, []);
-    fileGroups.get(file).push(node);
-  }
-
-  // Create compound parent nodes for files with >1 symbol
-  for (const [file, nodes] of fileGroups) {
-    if (nodes.length > 1 && file) {
-      elements.push({
-        data: {
-          id: 'file:' + file,
-          label: shortPath(file),
-          isFileGroup: true,
-        },
-      });
+  // Find all edges involving this node and add neighbors
+  for (const edge of graphEdges) {
+    if (edge.source === symbolId) {
+      addNodeToGraph(edge.target);
+      addEdgeToGraph(edge);
+    } else if (edge.target === symbolId) {
+      addNodeToGraph(edge.source);
+      addEdgeToGraph(edge);
     }
   }
-
-  // Create symbol nodes
-  for (const node of graphData.nodes) {
-    const id = node.qualifiedName || node.name || node.id;
-    const file = node.file || node.filePath || '';
-    const fileNodes = fileGroups.get(file) || [];
-    const parent = (fileNodes.length > 1 && file) ? 'file:' + file : undefined;
-    const kind = (node.kind || 'function').toLowerCase();
-
-    elements.push({
-      data: {
-        id: id,
-        label: node.name || id.split('.').pop(),
-        name: node.name,
-        qualifiedName: id,
-        kind: kind,
-        file: file,
-        exported: !!node.exported,
-        parent: parent,
-        startLine: node.startLine,
-        endLine: node.endLine,
-      },
-      classes: [kind, pinnedNames.has(id) ? 'pinned' : ''].filter(Boolean).join(' '),
-    });
-  }
-
-  // Create edges
-  if (graphData.edges) {
-    for (const edge of graphData.edges) {
-      const source = edge.source || edge.from;
-      const target = edge.target || edge.to;
-      const kind = (edge.kind || edge.type || 'references').toLowerCase();
-      elements.push({
-        data: {
-          id: `${source}->${target}:${kind}`,
-          source: source,
-          target: target,
-          kind: kind,
-        },
-        classes: kind,
-      });
-    }
-  }
-
-  return elements;
 }
 
-function shortPath(filePath) {
-  const parts = filePath.split('/');
-  return parts.length > 2
-    ? '.../' + parts.slice(-2).join('/')
-    : filePath;
+function addNodeToGraph(id) {
+  // Skip if already in graph
+  if (cy.getElementById(id).length > 0) return;
+
+  const nodeData = graphNodes.get(id);
+  if (!nodeData) return;
+
+  const kind = (nodeData.kind || 'function').toLowerCase();
+  const name = nodeData.name || id.split('.').pop();
+  const file = nodeData.filePath || nodeData.file || '';
+
+  cy.add({
+    data: {
+      id: id,
+      label: name,
+      name: name,
+      qualifiedName: id,
+      kind: kind,
+      file: file,
+      exported: !!nodeData.exported,
+      startLine: nodeData.startLine,
+      endLine: nodeData.endLine,
+    },
+    classes: [kind, pinnedNames.has(id) ? 'pinned' : ''].filter(Boolean).join(' '),
+  });
+}
+
+function addEdgeToGraph(edge) {
+  const edgeId = `${edge.source}->${edge.target}:${edge.kind}`;
+  if (cy.getElementById(edgeId).length > 0) return;
+  // Only add if both endpoints exist in graph
+  if (cy.getElementById(edge.source).length === 0) return;
+  if (cy.getElementById(edge.target).length === 0) return;
+
+  cy.add({
+    data: {
+      id: edgeId,
+      source: edge.source,
+      target: edge.target,
+      kind: edge.kind,
+    },
+    classes: edge.kind,
+  });
+}
+
+function runLayout() {
+  if (!cy || cy.nodes().length === 0) return;
+  cy.layout(LAYOUT_OPTIONS).run();
+}
+
+function findNode(name) {
+  const node = cy.getElementById(name);
+  if (node.length > 0) return node;
+  // Try matching by short name
+  const match = cy.nodes().filter(n => {
+    const nName = n.data('name') || '';
+    const qName = n.data('qualifiedName') || '';
+    return nName === name || qName.endsWith('.' + name);
+  });
+  return match.length > 0 ? match : null;
 }
 
 // ── Stylesheet ──
 
 function buildStylesheet() {
   const styles = [
-    // File group (compound) nodes
     {
-      selector: ':parent',
-      style: {
-        'background-color': 'rgba(34,35,54,0.6)',
-        'border-color': '#33354a',
-        'border-width': 1,
-        'label': 'data(label)',
-        'font-size': 10,
-        'color': '#565f89',
-        'text-valign': 'top',
-        'text-halign': 'center',
-        'padding': '12px',
-        'shape': 'roundrectangle',
-        'font-family': "'JetBrains Mono', monospace",
-      },
-    },
-    // Default node style
-    {
-      selector: 'node[!isFileGroup]',
+      selector: 'node',
       style: {
         'label': 'data(label)',
         'font-size': 11,
@@ -246,7 +247,6 @@ function buildStylesheet() {
         'text-wrap': 'none',
       },
     },
-    // Default edge style
     {
       selector: 'edge',
       style: {
@@ -261,7 +261,6 @@ function buildStylesheet() {
     },
   ];
 
-  // Kind-specific node styles
   for (const [kind, colors] of Object.entries(KIND_COLORS)) {
     styles.push({
       selector: `node.${kind}`,
@@ -272,7 +271,6 @@ function buildStylesheet() {
     });
   }
 
-  // Kind-specific edge styles
   for (const [kind, s] of Object.entries(EDGE_STYLES)) {
     styles.push({
       selector: `edge.${kind}`,
@@ -286,60 +284,14 @@ function buildStylesheet() {
     });
   }
 
-  // Pinned nodes
-  styles.push({
-    selector: 'node.pinned',
-    style: {
-      'border-color': '#e0af68',
-      'border-width': 3,
-    },
-  });
-
-  // Faded state (for hover highlight)
-  styles.push({
-    selector: 'node.faded',
-    style: { 'opacity': 0.15 },
-  });
-  styles.push({
-    selector: 'edge.faded',
-    style: { 'opacity': 0.05 },
-  });
-
-  // Highlighted state
-  styles.push({
-    selector: 'node.highlighted',
-    style: {
-      'border-width': 2.5,
-      'z-index': 10,
-    },
-  });
-  styles.push({
-    selector: 'edge.highlighted',
-    style: {
-      'opacity': 0.9,
-      'width': 2,
-      'z-index': 10,
-    },
-  });
-
-  // Agent pulse animation
-  styles.push({
-    selector: 'node.agent-pulse',
-    style: {
-      'border-color': '#ff9e64',
-      'border-width': 4,
-      'background-color': 'rgba(255,158,100,0.25)',
-    },
-  });
-
-  // Search match
-  styles.push({
-    selector: 'node.search-match',
-    style: {
-      'border-color': '#e0af68',
-      'border-width': 2.5,
-    },
-  });
+  styles.push({ selector: 'node.pinned', style: { 'border-color': '#e0af68', 'border-width': 3 } });
+  styles.push({ selector: 'node.faded', style: { 'opacity': 0.15 } });
+  styles.push({ selector: 'edge.faded', style: { 'opacity': 0.05 } });
+  styles.push({ selector: 'node.highlighted', style: { 'border-width': 2.5, 'z-index': 10 } });
+  styles.push({ selector: 'edge.highlighted', style: { 'opacity': 0.9, 'width': 2, 'z-index': 10 } });
+  styles.push({ selector: 'node.agent-pulse', style: { 'border-color': '#ff9e64', 'border-width': 4, 'background-color': 'rgba(255,158,100,0.25)' } });
+  styles.push({ selector: 'node.search-match', style: { 'border-color': '#e0af68', 'border-width': 2.5 } });
+  styles.push({ selector: 'node.expanded', style: { 'border-width': 2.5 } });
 
   return styles;
 }
@@ -347,21 +299,32 @@ function buildStylesheet() {
 // ── Interactions ──
 
 function setupInteractions(cy, detailEl) {
-  // Node click → show detail panel
-  cy.on('tap', 'node[!isFileGroup]', async function (evt) {
+  // Node click → expand neighbors + show detail
+  cy.on('tap', 'node', function (evt) {
     const node = evt.target;
+    const id = node.data('qualifiedName') || node.data('id');
+
+    // Expand 1-hop neighbors if not already expanded
+    if (!node.hasClass('expanded')) {
+      addNodeAndNeighbors(id);
+      node.addClass('expanded');
+      // Also add edges between existing nodes that we may have missed
+      connectExistingNodes();
+      runLayout();
+    }
+
     showDetail(node, detailEl);
   });
 
   // Node hover → highlight neighborhood
-  cy.on('mouseover', 'node[!isFileGroup]', function (evt) {
+  cy.on('mouseover', 'node', function (evt) {
     const node = evt.target;
     const neighborhood = node.closedNeighborhood();
     cy.elements().not(neighborhood).addClass('faded');
     neighborhood.addClass('highlighted');
   });
 
-  cy.on('mouseout', 'node[!isFileGroup]', function () {
+  cy.on('mouseout', 'node', function () {
     cy.elements().removeClass('faded highlighted');
   });
 
@@ -371,6 +334,16 @@ function setupInteractions(cy, detailEl) {
       detailEl.classList.add('hidden');
     }
   });
+}
+
+// Add any edges between nodes already in the graph
+function connectExistingNodes() {
+  const nodeIds = new Set(cy.nodes().map(n => n.id()));
+  for (const edge of graphEdges) {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+      addEdgeToGraph(edge);
+    }
+  }
 }
 
 async function showDetail(node, detailEl) {
@@ -388,27 +361,67 @@ async function showDetail(node, detailEl) {
     <div class="detail-file">${esc(data.file || 'unknown')}${data.startLine ? ':' + data.startLine : ''}</div>
   `;
 
-  if (sym.signature) {
-    html += `<pre class="detail-signature">${esc(sym.signature)}</pre>`;
-  }
+  html += `<div id="detail-source"><div class="detail-section-title">Source</div><pre class="detail-code">Loading...</pre></div>`;
 
   html += `<button class="detail-pin header-btn" data-name="${esc(data.qualifiedName)}">${isPinned ? 'Unpin' : 'Pin to focus'}</button>`;
 
-  // Deps and refs sections (will load async)
   html += '<div class="detail-section" id="detail-deps"><div class="detail-section-title">Dependencies</div><div class="detail-section-list">Loading...</div></div>';
   html += '<div class="detail-section" id="detail-refs"><div class="detail-section-title">References</div><div class="detail-section-list">Loading...</div></div>';
 
-  detailEl.innerHTML = html;
+  detailEl.innerHTML = '<div class="resize-handle"></div>' + html;
   detailEl.classList.remove('hidden');
 
-  // Pin button handler
+  // Setup resize handle drag
+  const handle = detailEl.querySelector('.resize-handle');
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    handle.classList.add('dragging');
+    const startX = e.clientX;
+    const startWidth = detailEl.offsetWidth;
+    function onMove(e) {
+      const newWidth = startWidth - (e.clientX - startX);
+      detailEl.style.width = Math.max(200, newWidth) + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
   detailEl.querySelector('.detail-pin').addEventListener('click', async (e) => {
     const name = e.target.dataset.name;
     await togglePin(name, node, e.target);
   });
 
-  // Load deps and refs
+  loadSource(data.qualifiedName || data.name, detailEl);
   loadDepsAndRefs(data.qualifiedName || data.name, detailEl);
+}
+
+async function loadSource(name, detailEl) {
+  const codeEl = detailEl.querySelector('#detail-source .detail-code');
+  if (!codeEl) return;
+  try {
+    const res = await fetch(`/api/symbols/${encodeURIComponent(name)}/source`);
+    if (res.ok) {
+      const data = await res.json();
+      // Detect language from file extension
+      const ext = (data.filePath || '').split('.').pop() || '';
+      const langMap = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript' };
+      const lang = langMap[ext] || 'typescript';
+      codeEl.className = 'detail-code language-' + lang;
+      codeEl.textContent = data.source;
+      if (typeof hljs !== 'undefined') {
+        hljs.highlightElement(codeEl);
+      }
+    } else {
+      codeEl.textContent = '(source unavailable)';
+    }
+  } catch {
+    codeEl.textContent = '(source unavailable)';
+  }
 }
 
 async function loadDepsAndRefs(name, detailEl) {
@@ -437,35 +450,33 @@ async function loadDepsAndRefs(name, detailEl) {
       const refs = await refsRes.json();
       const items = refs.references || refs || [];
       refsEl.innerHTML = items.length
-        ? items.map(r => `<a class="detail-link" data-target="${esc(typeof r === 'string' ? r : r.qualifiedName || r.name)}">${esc(typeof r === 'string' ? r : r.name || r.qualifiedName)}</a>`).join('')
+        ? items.map(r => {
+            const id = typeof r === 'string' ? r : r.from || r.qualifiedName || r.name;
+            const label = id.split('.').pop();
+            return `<a class="detail-link" data-target="${esc(id)}">${esc(label)} <span style="opacity:0.5">${esc(r.kind || '')}</span></a>`;
+          }).join('')
         : '<span class="detail-empty">None</span>';
     } else {
       refsEl.innerHTML = '<span class="detail-empty">None</span>';
     }
 
-    // Make dep/ref links navigable
+    // Clicking a dep/ref link adds it to the graph and navigates
     detailEl.querySelectorAll('.detail-link').forEach(link => {
       link.addEventListener('click', () => {
         const target = link.dataset.target;
-        navigateToNode(target);
+        addNodeAndNeighbors(target);
+        connectExistingNodes();
+        runLayout();
+        const node = cy.getElementById(target);
+        if (node.length) {
+          cy.animate({ center: { eles: node }, zoom: 1.5 }, { duration: 300 });
+          node.flashClass('highlighted', 1000);
+          showDetail(node, detailEl);
+        }
       });
     });
   } catch {
-    // Silently fail — sections just show "None"
-  }
-}
-
-function navigateToNode(name) {
-  if (!cy) return;
-  const node = cy.nodes().filter(n =>
-    n.data('qualifiedName') === name || n.data('name') === name
-  );
-  if (node.length) {
-    cy.animate({ center: { eles: node }, zoom: 1.5 }, { duration: 300 });
-    node.flashClass('highlighted', 1000);
-    // Also show detail
-    const detailEl = document.getElementById('symbol-detail');
-    showDetail(node[0], detailEl);
+    // Silently fail
   }
 }
 
@@ -476,10 +487,10 @@ async function togglePin(name, node, btnEl) {
     await fetch('/api/focus', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(wasPinned
-        ? { remove: [name] }
-        : { add: [name] }
-      ),
+      body: JSON.stringify({
+        action: wasPinned ? 'unpin' : 'pin',
+        symbol: name,
+      }),
     });
 
     if (wasPinned) {
@@ -500,106 +511,122 @@ async function togglePin(name, node, btnEl) {
 
 function setupToolbar() {
   const searchInput = document.getElementById('graph-search');
-  const kindFilter = document.getElementById('graph-filter-kind');
-  const exportedOnly = document.getElementById('graph-exported-only');
   const fitBtn = document.getElementById('graph-fit');
   const relayoutBtn = document.getElementById('graph-relayout');
+  const clearBtn = document.getElementById('graph-clear');
 
-  // Debounced search
+  // Search: show dropdown of matching symbol names
   let searchTimeout;
+  let dropdown = document.createElement('div');
+  dropdown.className = 'search-dropdown hidden';
+  searchInput.parentNode.style.position = 'relative';
+  searchInput.parentNode.appendChild(dropdown);
+
+  // Rank symbols: exported first, then alphabetical by short name
+  const rankedSymbols = allSymbolNames.slice().sort((a, b) => {
+    const nodeA = graphNodes.get(a);
+    const nodeB = graphNodes.get(b);
+    const expA = nodeA ? nodeA.exported : false;
+    const expB = nodeB ? nodeB.exported : false;
+    if (expA !== expB) return expA ? -1 : 1;
+    const nameA = a.split('.').pop().toLowerCase();
+    const nameB = b.split('.').pop().toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+
+  function showDropdownResults(matches) {
+    if (matches.length === 0) {
+      dropdown.classList.add('hidden');
+      return;
+    }
+
+    dropdown.innerHTML = matches.map(name => {
+      const node = graphNodes.get(name);
+      const kind = node ? (node.kind || '').toLowerCase() : '';
+      const shortName = name.split('.').pop();
+      const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind].border : '#565f89';
+      return `<div class="search-result" data-id="${esc(name)}">
+        <span class="search-result-name">${esc(shortName)}</span>
+        <span class="search-result-kind" style="color:${kindColor}">${kind}</span>
+      </div>`;
+    }).join('');
+
+    dropdown.classList.remove('hidden');
+
+    dropdown.querySelectorAll('.search-result').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.id;
+        addNodeAndNeighbors(id);
+        connectExistingNodes();
+        runLayout();
+        searchInput.value = '';
+        dropdown.classList.add('hidden');
+
+        const node = cy.getElementById(id);
+        if (node.length) {
+          setTimeout(() => {
+            cy.animate({ center: { eles: node }, zoom: 1.2 }, { duration: 300 });
+            node.flashClass('highlighted', 1500);
+          }, 350);
+        }
+      });
+    });
+  }
+
+  // Show top-ranked symbols on focus
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length < 2) {
+      showDropdownResults(rankedSymbols.slice(0, 20));
+    }
+  });
+
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       const query = searchInput.value.trim().toLowerCase();
-      cy.nodes('[!isFileGroup]').removeClass('search-match faded');
-
-      if (!query) return;
-
-      const matches = cy.nodes('[!isFileGroup]').filter(n => {
-        const label = (n.data('label') || '').toLowerCase();
-        const qname = (n.data('qualifiedName') || '').toLowerCase();
-        return label.includes(query) || qname.includes(query);
-      });
-
-      if (matches.length) {
-        cy.elements().addClass('faded');
-        matches.removeClass('faded').addClass('search-match');
-        matches.connectedEdges().removeClass('faded');
-        cy.animate({ center: { eles: matches[0] }, zoom: 1.2 }, { duration: 300 });
+      if (query.length < 2) {
+        showDropdownResults(rankedSymbols.slice(0, 20));
+        return;
       }
-    }, 200);
+
+      const matches = rankedSymbols.filter(name => {
+        const shortName = name.split('.').pop().toLowerCase();
+        return shortName.includes(query) || name.toLowerCase().includes(query);
+      }).slice(0, 15);
+
+      showDropdownResults(matches);
+    }, 150);
   });
 
-  // Clear search fading on empty
+  // Close dropdown on escape or outside click
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       searchInput.value = '';
-      cy.elements().removeClass('faded search-match');
+      dropdown.classList.add('hidden');
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.add('hidden');
     }
   });
 
-  // Kind filter and exported-only
-  kindFilter.addEventListener('change', applyFilters);
-  exportedOnly.addEventListener('change', applyFilters);
-
   // Fit
   fitBtn.addEventListener('click', () => {
-    cy.animate({ fit: { padding: 40 } }, { duration: 300 });
+    if (cy.nodes().length > 0) {
+      cy.fit(40);
+    }
   });
 
   // Re-layout
   relayoutBtn.addEventListener('click', () => {
-    cy.layout(LAYOUT_OPTIONS).run();
-  });
-}
-
-function applyFilters() {
-  if (!cy) return;
-  const kind = document.getElementById('graph-filter-kind').value;
-  const exportedOnly = document.getElementById('graph-exported-only').checked;
-
-  cy.nodes('[!isFileGroup]').forEach(node => {
-    const data = node.data();
-    let visible = true;
-
-    if (kind !== 'all' && data.kind !== kind) visible = false;
-    if (exportedOnly && !data.exported) visible = false;
-
-    if (visible) {
-      node.style('display', 'element');
-    } else {
-      node.style('display', 'none');
-    }
+    runLayout();
   });
 
-  // Hide edges connected to hidden nodes
-  cy.edges().forEach(edge => {
-    const srcVisible = edge.source().style('display') !== 'none';
-    const tgtVisible = edge.target().style('display') !== 'none';
-    edge.style('display', (srcVisible && tgtVisible) ? 'element' : 'none');
-  });
-
-  // Hide empty file groups
-  cy.nodes(':parent').forEach(parent => {
-    const visibleChildren = parent.children().filter(c => c.style('display') !== 'none');
-    parent.style('display', visibleChildren.length > 0 ? 'element' : 'none');
-  });
-
-  // Re-run layout on visible elements
-  cy.elements().filter(e => e.style('display') !== 'none').layout({
-    ...LAYOUT_OPTIONS,
-    animate: true,
-    animationDuration: 300,
-  }).run();
-}
-
-// ── Zoom-dependent label visibility ──
-
-function setupZoomLabelToggle(cy) {
-  cy.on('zoom', () => {
-    const zoom = cy.zoom();
-    const fontSize = zoom < 0.5 ? 0 : 11;
-    cy.nodes('[!isFileGroup]').style('font-size', fontSize);
+  // Clear
+  clearBtn.addEventListener('click', () => {
+    cy.elements().remove();
+    document.getElementById('symbol-detail').classList.add('hidden');
   });
 }
 

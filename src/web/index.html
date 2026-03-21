@@ -6,7 +6,9 @@
   <title>minicode</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
-  <script src="https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/styles/tokyo-night-dark.min.css">
+  <script src="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/highlight.min.js"></script>
+  <script src="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/languages/typescript.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -47,19 +49,10 @@
     </footer>
     <div id="graph-view" class="hidden">
       <div id="graph-toolbar">
-        <input id="graph-search" type="text" placeholder="Search symbols..." />
-        <select id="graph-filter-kind">
-          <option value="all">All kinds</option>
-          <option value="function">Functions</option>
-          <option value="class">Classes</option>
-          <option value="interface">Interfaces</option>
-          <option value="type">Types</option>
-          <option value="variable">Variables</option>
-          <option value="method">Methods</option>
-        </select>
-        <label id="graph-exported-label"><input type="checkbox" id="graph-exported-only" /> Exported only</label>
+        <input id="graph-search" type="text" placeholder="Search symbols..." autocomplete="off" />
         <button id="graph-fit" class="header-btn">Fit</button>
         <button id="graph-relayout" class="header-btn">Re-layout</button>
+        <button id="graph-clear" class="header-btn">Clear</button>
       </div>
       <div id="cy"></div>
       <div id="symbol-detail" class="hidden"></div>

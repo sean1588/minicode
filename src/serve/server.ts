@@ -155,6 +155,26 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/source") && method === "GET") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/source".length));
+        const sym = bridge.getSymbol(name);
+        if (!sym) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found` });
+          return;
+        }
+        try {
+          const fileContent = await readFile(path.resolve(config.workspaceRoot, sym.filePath), "utf8");
+          const lines = fileContent.split(/\r?\n/);
+          const start = Math.max(0, sym.startLine - 1);
+          const end = Math.min(lines.length, sym.endLine);
+          const source = lines.slice(start, end).join("\n");
+          sendJson(res, 200, { symbol: name, filePath: sym.filePath, startLine: sym.startLine, endLine: sym.endLine, source });
+        } catch {
+          sendJson(res, 500, { error: `Could not read file: ${sym.filePath}` });
+        }
+        return;
+      }
+
       if (pathname === "/api/code-map" && method === "GET") {
         const budgetParam = url.searchParams.get("budget");
         const budget = budgetParam ? Number(budgetParam) : undefined;

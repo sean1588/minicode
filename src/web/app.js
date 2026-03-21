@@ -14,6 +14,7 @@ const saveLabelInput = document.getElementById("save-label");
 let ws;
 let currentAssistantEl = null;
 let assistantText = "";
+let hadToolCalls = false;
 
 // Max chars to show in expanded tool result
 const TOOL_RESULT_MAX = 500;
@@ -68,12 +69,23 @@ function handleServerMessage(msg) {
   switch (msg.type) {
     case "turn_start":
       assistantText = "";
+      hadToolCalls = false;
       currentAssistantEl = addMessage("", "assistant");
       currentAssistantEl.classList.add("streaming-cursor");
       setBusy(true);
       break;
 
     case "streaming_chunk":
+      // After tool calls, create a new assistant element below them
+      if (hadToolCalls) {
+        if (currentAssistantEl) {
+          currentAssistantEl.classList.remove("streaming-cursor");
+        }
+        assistantText = "";
+        hadToolCalls = false;
+        currentAssistantEl = addMessage("", "assistant");
+        currentAssistantEl.classList.add("streaming-cursor");
+      }
       assistantText += msg.content;
       if (currentAssistantEl) {
         currentAssistantEl.textContent = assistantText;
@@ -90,6 +102,7 @@ function handleServerMessage(msg) {
       break;
 
     case "tool_call_start":
+      hadToolCalls = true;
       addToolCall(msg.name, msg.input);
       // Forward symbol-related tool calls to graph for highlighting
       if (graphMode && typeof window.highlightAgentActivity === 'function') {
@@ -106,7 +119,13 @@ function handleServerMessage(msg) {
       break;
 
     case "turn_end":
-      if (currentAssistantEl) {
+      // If tool calls happened and no streaming followed, show the final text in a new element
+      if (hadToolCalls && msg.text) {
+        if (currentAssistantEl) {
+          currentAssistantEl.classList.remove("streaming-cursor");
+        }
+        currentAssistantEl = addMessage(msg.text, "assistant");
+      } else if (currentAssistantEl) {
         currentAssistantEl.classList.remove("streaming-cursor");
         if (!assistantText && msg.text) {
           currentAssistantEl.textContent = msg.text;
@@ -114,6 +133,7 @@ function handleServerMessage(msg) {
       }
       currentAssistantEl = null;
       assistantText = "";
+      hadToolCalls = false;
       setBusy(false);
       if (msg.usage) {
         addUsageInfo(msg.usage);
@@ -375,6 +395,10 @@ viewToggle.addEventListener('click', () => {
     // Lazy init graph on first switch
     if (typeof window.initGraph === 'function') {
       window.initGraph();
+    }
+    // Resize cytoscape if already initialized (container dimensions changed)
+    if (window.cy) {
+      setTimeout(() => { window.cy.resize(); window.cy.fit(40); }, 100);
     }
   } else {
     chatMain.classList.remove('hidden');
