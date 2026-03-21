@@ -259,6 +259,24 @@ h1 {
   position: relative;
 }
 
+/* Chat-only mode: hide graph, expand chat full-width */
+#workspace.chat-only #graph-pane,
+#workspace.chat-only #pane-divider {
+  display: none;
+}
+
+#workspace.chat-only #chat-pane {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+#graph-toggle.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
 /* Messages */
 main {
   flex: 1;

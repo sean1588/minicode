@@ -407,6 +407,23 @@ divider.addEventListener('mousedown', (e: MouseEvent) => {
   document.addEventListener('mouseup', onUp);
 });
 
+// -- Graph toggle --
+
+const workspace = document.getElementById('workspace')!;
+const graphToggle = document.getElementById('graph-toggle')!;
+
+graphToggle.classList.add('active');
+
+graphToggle.addEventListener('click', () => {
+  const isChatOnly = workspace.classList.toggle('chat-only');
+  graphToggle.classList.toggle('active', !isChatOnly);
+  if (!isChatOnly) {
+    // Restore inline width so the 33% CSS rule applies again
+    chatPane.style.width = '';
+    resizeGraph();
+  }
+});
+
 // -- Init --
 
 connect();
