@@ -324,11 +324,11 @@ function buildStylesheet(): unknown[] {
         'label': 'data(label)',
         'font-size': 11,
         'color': '#c0caf5',
-        'text-valign': 'center',
+        'text-valign': 'bottom',
         'text-halign': 'center',
-        'width': 'label',
-        'height': 28,
-        'padding': '8px',
+        'text-margin-y': 5,
+        'width': 20,
+        'height': 20,
         'shape': 'roundrectangle',
         'border-width': 1.5,
         'border-color': '#565f89',
@@ -355,6 +355,7 @@ function buildStylesheet(): unknown[] {
     styles.push({
       selector: `node.${kind}`,
       style: {
+        'color': colors.border,
         'border-color': colors.border,
         'background-color': colors.bg,
       },
