@@ -1,24 +1,49 @@
-const messagesEl = document.getElementById("messages");
-const chatForm = document.getElementById("chat-form");
-const chatInput = document.getElementById("chat-input");
-const sendBtn = document.getElementById("send-btn");
-const cancelBtn = document.getElementById("cancel-btn");
-const statusBadge = document.getElementById("status-badge");
-const modelInfo = document.getElementById("model-info");
-const sessionBtn = document.getElementById("session-btn");
-const sessionDropdown = document.getElementById("session-dropdown");
-const sessionList = document.getElementById("session-list");
-const saveBtn = document.getElementById("save-btn");
-const saveLabelInput = document.getElementById("save-label");
+import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
+import { escapeHtml } from './utils.ts';
 
-let ws;
-let currentAssistantEl = null;
+interface ServerMessage {
+  type: string;
+  content?: string;
+  text?: string;
+  message?: string;
+  name?: string;
+  input?: Record<string, string>;
+  result?: string;
+  elapsedMs?: number;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+interface StatusResponse {
+  model: string;
+  provider: string;
+}
+
+interface SessionMeta {
+  label: string;
+  messageCount: number;
+}
+
+const messagesEl = document.getElementById("messages")!;
+const chatForm = document.getElementById("chat-form") as HTMLFormElement;
+const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
+const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
+const cancelBtn = document.getElementById("cancel-btn") as HTMLButtonElement;
+const statusBadge = document.getElementById("status-badge")!;
+const modelInfo = document.getElementById("model-info")!;
+const sessionBtn = document.getElementById("session-btn")!;
+const sessionDropdown = document.getElementById("session-dropdown")!;
+const sessionList = document.getElementById("session-list")!;
+const saveBtn = document.getElementById("save-btn")!;
+const saveLabelInput = document.getElementById("save-label") as HTMLInputElement;
+
+let ws: WebSocket;
+let currentAssistantEl: HTMLElement | null = null;
 let assistantText = "";
+let hadToolCalls = false;
 
-// Max chars to show in expanded tool result
 const TOOL_RESULT_MAX = 500;
 
-function connect() {
+function connect(): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${protocol}//${location.host}`);
 
@@ -32,18 +57,18 @@ function connect() {
     setTimeout(connect, 2000);
   };
 
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
+  ws.onmessage = (event: MessageEvent) => {
+    const msg = JSON.parse(event.data as string) as ServerMessage;
     handleServerMessage(msg);
   };
 }
 
-function setStatus(state) {
+function setStatus(state: string): void {
   statusBadge.textContent = state;
   statusBadge.className = `badge ${state}`;
 }
 
-function setBusy(busy) {
+function setBusy(busy: boolean): void {
   sendBtn.disabled = busy;
   sendBtn.classList.toggle("hidden", busy);
   cancelBtn.classList.toggle("hidden", !busy);
@@ -54,27 +79,37 @@ function setBusy(busy) {
   }
 }
 
-async function fetchStatus() {
+async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
-    const data = await res.json();
+    const data = await res.json() as StatusResponse;
     modelInfo.textContent = `${data.model} · ${data.provider}`;
   } catch {
     // ignore
   }
 }
 
-function handleServerMessage(msg) {
+function handleServerMessage(msg: ServerMessage): void {
   switch (msg.type) {
     case "turn_start":
       assistantText = "";
+      hadToolCalls = false;
       currentAssistantEl = addMessage("", "assistant");
       currentAssistantEl.classList.add("streaming-cursor");
       setBusy(true);
       break;
 
     case "streaming_chunk":
-      assistantText += msg.content;
+      if (hadToolCalls) {
+        if (currentAssistantEl) {
+          currentAssistantEl.classList.remove("streaming-cursor");
+        }
+        assistantText = "";
+        hadToolCalls = false;
+        currentAssistantEl = addMessage("", "assistant");
+        currentAssistantEl.classList.add("streaming-cursor");
+      }
+      assistantText += msg.content || '';
       if (currentAssistantEl) {
         currentAssistantEl.textContent = assistantText;
         scrollToBottom();
@@ -82,23 +117,35 @@ function handleServerMessage(msg) {
       break;
 
     case "thinking":
-      addMessage(msg.content, "thinking");
+      addMessage(msg.content || '', "thinking");
       break;
 
     case "step":
-      // Intentionally not shown — tool calls provide enough context
       break;
 
     case "tool_call_start":
-      addToolCall(msg.name, msg.input);
+      hadToolCalls = true;
+      addToolCall(msg.name || '', msg.input || {});
+      {
+        const symbolTools = ['read_symbol', 'get_dependencies', 'find_references'];
+        if (symbolTools.includes(msg.name || '')) {
+          const symName = msg.input?.name || msg.input?.symbol || msg.input?.qualifiedName;
+          if (symName) highlightAgentActivity(symName);
+        }
+      }
       break;
 
     case "tool_call_end":
-      finalizeToolCall(msg.name, msg.result, msg.elapsedMs);
+      finalizeToolCall(msg.name || '', msg.result || '', msg.elapsedMs || 0);
       break;
 
     case "turn_end":
-      if (currentAssistantEl) {
+      if (hadToolCalls && msg.text) {
+        if (currentAssistantEl) {
+          currentAssistantEl.classList.remove("streaming-cursor");
+        }
+        currentAssistantEl = addMessage(msg.text, "assistant");
+      } else if (currentAssistantEl) {
         currentAssistantEl.classList.remove("streaming-cursor");
         if (!assistantText && msg.text) {
           currentAssistantEl.textContent = msg.text;
@@ -106,6 +153,7 @@ function handleServerMessage(msg) {
       }
       currentAssistantEl = null;
       assistantText = "";
+      hadToolCalls = false;
       setBusy(false);
       if (msg.usage) {
         addUsageInfo(msg.usage);
@@ -113,7 +161,7 @@ function handleServerMessage(msg) {
       break;
 
     case "error":
-      addMessage(`Error: ${msg.message}`, "error");
+      addMessage(`Error: ${msg.message || ''}`, "error");
       if (currentAssistantEl) {
         currentAssistantEl.classList.remove("streaming-cursor");
       }
@@ -128,7 +176,7 @@ function handleServerMessage(msg) {
   }
 }
 
-function addMessage(text, type) {
+function addMessage(text: string, type: string): HTMLElement {
   const el = document.createElement("div");
   el.className = `message ${type}`;
   el.textContent = text;
@@ -137,12 +185,7 @@ function addMessage(text, type) {
   return el;
 }
 
-/**
- * Extract the most meaningful short arg from tool input.
- * e.g. for read_file → the path, for search → the query, for run_command → the command.
- */
-function summarizeToolInput(name, input) {
-  // Priority keys by tool type
+function summarizeToolInput(name: string, input: Record<string, string>): string {
   const key =
     input.path ?? input.file_path ?? input.command ?? input.query ??
     input.pattern ?? input.name ?? input.old_string;
@@ -151,7 +194,6 @@ function summarizeToolInput(name, input) {
     return key.length > 60 ? key.slice(0, 57) + "..." : key;
   }
 
-  // Fallback: first string value, truncated
   for (const v of Object.values(input)) {
     if (typeof v === "string" && v.length > 0) {
       return v.length > 60 ? v.slice(0, 57) + "..." : v;
@@ -160,10 +202,10 @@ function summarizeToolInput(name, input) {
   return "";
 }
 
-function getOrCreateToolGroup() {
+function getOrCreateToolGroup(): HTMLElement {
   const last = messagesEl.lastElementChild;
   if (last && last.classList.contains("tool-group")) {
-    return last;
+    return last as HTMLElement;
   }
   const group = document.createElement("div");
   group.className = "tool-group";
@@ -171,7 +213,7 @@ function getOrCreateToolGroup() {
   return group;
 }
 
-function addToolCall(name, input) {
+function addToolCall(name: string, input: Record<string, string>): void {
   const group = getOrCreateToolGroup();
 
   const el = document.createElement("div");
@@ -193,9 +235,9 @@ function addToolCall(name, input) {
   scrollToBottom();
 }
 
-function finalizeToolCall(name, result, elapsedMs) {
+function finalizeToolCall(name: string, result: string, elapsedMs: number): void {
   const toolEls = messagesEl.querySelectorAll(`.tool-call[data-tool-name="${name}"]`);
-  const el = toolEls[toolEls.length - 1];
+  const el = toolEls[toolEls.length - 1] as HTMLElement | undefined;
   if (!el) return;
 
   const timeEl = el.querySelector(".tool-time");
@@ -212,25 +254,19 @@ function finalizeToolCall(name, result, elapsedMs) {
   }
 }
 
-function addUsageInfo(usage) {
+function addUsageInfo(usage: { inputTokens: number; outputTokens: number }): void {
   const el = document.createElement("div");
   el.className = "usage-info";
   el.textContent = `${usage.inputTokens} in / ${usage.outputTokens} out`;
   messagesEl.appendChild(el);
 }
 
-function scrollToBottom() {
+function scrollToBottom(): void {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // Form handling
-chatForm.addEventListener("submit", (e) => {
+chatForm.addEventListener("submit", (e: Event) => {
   e.preventDefault();
   const message = chatInput.value.trim();
   if (!message) return;
@@ -245,23 +281,21 @@ cancelBtn.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "cancel" }));
 });
 
-// Auto-resize textarea
 chatInput.addEventListener("input", () => {
   chatInput.style.height = "auto";
   chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + "px";
 });
 
-// Submit on Enter (Shift+Enter for newline)
-chatInput.addEventListener("keydown", (e) => {
+chatInput.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     chatForm.dispatchEvent(new Event("submit"));
   }
 });
 
-// ── Session management ──
+// -- Session management --
 
-sessionBtn.addEventListener("click", (e) => {
+sessionBtn.addEventListener("click", (e: Event) => {
   e.stopPropagation();
   const isOpen = !sessionDropdown.classList.contains("hidden");
   sessionDropdown.classList.toggle("hidden");
@@ -270,9 +304,8 @@ sessionBtn.addEventListener("click", (e) => {
   }
 });
 
-// Close dropdown on outside click
-document.addEventListener("click", (e) => {
-  if (!sessionDropdown.contains(e.target) && e.target !== sessionBtn) {
+document.addEventListener("click", (e: Event) => {
+  if (!sessionDropdown.contains(e.target as Node) && e.target !== sessionBtn) {
     sessionDropdown.classList.add("hidden");
   }
 });
@@ -286,7 +319,7 @@ saveBtn.addEventListener("click", async () => {
       body: JSON.stringify({ label }),
     });
     if (res.ok) {
-      const data = await res.json();
+      const data = await res.json() as { label: string };
       saveLabelInput.value = "";
       addMessage(`Session saved: "${data.label}"`, "thinking");
       refreshSessionList();
@@ -296,17 +329,17 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
-saveLabelInput.addEventListener("keydown", (e) => {
+saveLabelInput.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    saveBtn.click();
+    (saveBtn as HTMLButtonElement).click();
   }
 });
 
-async function refreshSessionList() {
+async function refreshSessionList(): Promise<void> {
   try {
     const res = await fetch("/api/sessions");
-    const data = await res.json();
+    const data = await res.json() as { sessions: SessionMeta[] };
     const sessions = data.sessions;
 
     if (!sessions || sessions.length === 0) {
@@ -329,7 +362,7 @@ async function refreshSessionList() {
   }
 }
 
-async function loadSession(label) {
+async function loadSession(label: string): Promise<void> {
   try {
     const res = await fetch("/api/sessions/load", {
       method: "POST",
@@ -346,5 +379,52 @@ async function loadSession(label) {
   }
 }
 
-// Start connection
+// -- Resizable pane divider --
+
+const chatPane = document.getElementById('chat-pane')!;
+const divider = document.getElementById('pane-divider')!;
+
+divider.addEventListener('mousedown', (e: MouseEvent) => {
+  e.preventDefault();
+  divider.classList.add('dragging');
+  const startX = e.clientX;
+  const startWidth = chatPane.offsetWidth;
+
+  function onMove(ev: MouseEvent): void {
+    const newWidth = startWidth + (ev.clientX - startX);
+    const clamped = Math.max(280, Math.min(newWidth, window.innerWidth - 300));
+    chatPane.style.width = clamped + 'px';
+  }
+
+  function onUp(): void {
+    divider.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    resizeGraph();
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+});
+
+// -- Graph toggle --
+
+const workspace = document.getElementById('workspace')!;
+const graphToggle = document.getElementById('graph-toggle')!;
+
+graphToggle.classList.add('active');
+
+graphToggle.addEventListener('click', () => {
+  const isChatOnly = workspace.classList.toggle('chat-only');
+  graphToggle.classList.toggle('active', !isChatOnly);
+  if (!isChatOnly) {
+    // Restore inline width so the 33% CSS rule applies again
+    chatPane.style.width = '';
+    resizeGraph();
+  }
+});
+
+// -- Init --
+
 connect();
+initGraph();

@@ -22,13 +22,14 @@
     "@minicode/agent-sdk"
   ],
   "scripts": {
-    "dev": "node --env-file=.env --import tsx src/index.ts",
+    "build:web": "node scripts/build-web.mjs",
+    "dev": "node scripts/build-web.mjs && node --env-file=.env --import tsx src/index.ts",
     "dev:ink": "CLI_UI_MODE=ink node --env-file=.env --import tsx src/index.ts",
-    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && cp -r src/web dist/src/web && chmod +x dist/src/index.js",
+    "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && node scripts/build-web.mjs && chmod +x dist/src/index.js",
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",
     "lint": "eslint \"src/**/*.ts\" \"src/**/*.tsx\" \"tests/**/*.ts\" --max-warnings=0",
-    "pretest": "npm run build --workspace=packages/agent-sdk",
+    "pretest": "npm run build --workspace=packages/agent-sdk && node scripts/build-web.mjs",
     "test": "node --test --import tsx \"tests/**/*.test.ts\"",
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts"
   },
@@ -47,6 +48,7 @@
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.14",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.27.4",
     "eslint": "^10.0.0",
     "tsx": "^4.21.0",
     "typescript-eslint": "^8.56.0"

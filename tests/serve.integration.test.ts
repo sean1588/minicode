@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test, afterEach } from "node:test";
 import type { Server } from "node:http";
 import { createServer } from "node:http";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { createRequestHandler } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import type { ServerMessage } from "../src/serve/types.js";
@@ -658,4 +659,53 @@ test("POST /api/focus returns 400 for invalid action", async () => {
     body: JSON.stringify({ action: "toggle", symbol: "foo" }),
   });
   assert.equal(res.status, 400);
+});
+
+// ── Symbol source endpoint tests ──
+
+test("GET /api/symbols/:name/source returns source code for known symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  // Create a temp file matching the mock symbol's filePath
+  const wsRoot = "/tmp/test-workspace";
+  mkdirSync(`${wsRoot}/src`, { recursive: true });
+  writeFileSync(`${wsRoot}/src/foo.ts`, "line1\nfunction foo(): void {\n  return;\n}\nline5\n");
+
+  try {
+    const res = await fetch(`${base}/api/symbols/foo/source`);
+    assert.equal(res.status, 200);
+
+    const body = (await res.json()) as { symbol: string; filePath: string; startLine: number; endLine: number; source: string };
+    assert.equal(body.symbol, "foo");
+    assert.equal(body.filePath, "src/foo.ts");
+    assert.equal(body.startLine, 1);
+    assert.equal(body.endLine, 5);
+    assert.ok(body.source.includes("line1"));
+  } finally {
+    rmSync(wsRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/symbols/:name/source returns 404 for unknown symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/nonexistent/source`);
+  assert.equal(res.status, 404);
+
+  const body = (await res.json()) as { error: string };
+  assert.ok(body.error.includes("nonexistent"));
+});
+
+test("GET /api/symbols/:name/source returns 500 when file is missing", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  // Don't create the file — let it fail with a read error
+  const res = await fetch(`${base}/api/symbols/foo/source`);
+  assert.equal(res.status, 500);
+
+  const body = (await res.json()) as { error: string };
+  assert.ok(body.error.includes("src/foo.ts"));
 });

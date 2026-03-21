@@ -11,10 +11,12 @@ import type { ServerMessage } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Resolve web dir: works in both dev (src/serve/) and dist (dist/src/serve/)
+// Resolve web dir: always serve from dist/src/web (built by scripts/build-web.mjs)
+// In dev (tsx): __dirname = src/serve → go up to project root, then dist/src/web
+// In prod (dist): __dirname = dist/src/serve → sibling dir dist/src/web
 const webDir = __dirname.includes(`${path.sep}dist${path.sep}`)
-  ? path.resolve(__dirname, "../../src/web")
-  : path.resolve(__dirname, "../web");
+  ? path.resolve(__dirname, "../web")
+  : path.resolve(__dirname, "../../dist/src/web");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -152,6 +154,26 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
           return;
         }
         sendJson(res, 200, { symbol: name, references: result });
+        return;
+      }
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/source") && method === "GET") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/source".length));
+        const sym = bridge.getSymbol(name);
+        if (!sym) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found` });
+          return;
+        }
+        try {
+          const fileContent = await readFile(path.resolve(config.workspaceRoot, sym.filePath), "utf8");
+          const lines = fileContent.split(/\r?\n/);
+          const start = Math.max(0, sym.startLine - 1);
+          const end = Math.min(lines.length, sym.endLine);
+          const source = lines.slice(start, end).join("\n");
+          sendJson(res, 200, { symbol: name, filePath: sym.filePath, startLine: sym.startLine, endLine: sym.endLine, source });
+        } catch {
+          sendJson(res, 500, { error: `Could not read file: ${sym.filePath}` });
+        }
         return;
       }
 

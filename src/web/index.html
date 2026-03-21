@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>minicode</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/styles/tokyo-night-dark.min.css">
+  <script src="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/highlight.min.js"></script>
+  <script src="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/languages/typescript.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -15,6 +19,7 @@
       </div>
       <div class="header-right">
         <span id="model-info"></span>
+        <button id="graph-toggle" class="header-btn" title="Toggle graph pane">Graph</button>
         <div class="session-menu">
           <button id="session-btn" class="header-btn" title="Sessions">Sessions</button>
           <div id="session-dropdown" class="dropdown hidden">
@@ -33,15 +38,29 @@
       </div>
     </header>
 
-    <main id="messages"></main>
-
-    <footer>
-      <form id="chat-form">
-        <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
-        <button type="submit" id="send-btn">Send</button>
-        <button type="button" id="cancel-btn" class="hidden">Cancel</button>
-      </form>
-    </footer>
+    <div id="workspace">
+      <div id="chat-pane">
+        <main id="messages"></main>
+        <footer>
+          <form id="chat-form">
+            <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
+            <button type="submit" id="send-btn">Send</button>
+            <button type="button" id="cancel-btn" class="hidden">Cancel</button>
+          </form>
+        </footer>
+      </div>
+      <div id="pane-divider"></div>
+      <div id="graph-pane">
+        <div id="graph-toolbar">
+          <input id="graph-search" type="text" placeholder="Search symbols..." autocomplete="off" />
+          <button id="graph-fit" class="header-btn">Fit</button>
+          <button id="graph-relayout" class="header-btn">Re-layout</button>
+          <button id="graph-clear" class="header-btn">Clear</button>
+        </div>
+        <div id="cy"></div>
+        <div id="symbol-detail" class="hidden"></div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="app.js"></script>
