@@ -111,6 +111,8 @@ export async function runInkCli(
         ? {
             onProgress: (msg: string) =>
               store.addItem({ type: "system", content: msg }),
+            onVerbose: (msg: string) =>
+              store.addItem({ type: "system", content: msg }),
           }
         : {}),
       onUiUpdate: createUiUpdateHandler(),
