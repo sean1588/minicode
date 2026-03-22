@@ -161,6 +161,7 @@ export class CodingAgent {
   private readonly verbose: boolean;
   private readonly onProgress: ((message: string) => void) | undefined;
   private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
+  private readonly getSystemPromptSuffix: (() => string | undefined) | undefined;
 
   /**
    * Tracks symbol names the user/agent has been working with.
@@ -186,6 +187,7 @@ export class CodingAgent {
     verbose?: boolean;
     onProgress?: (message: string) => void;
     onUiUpdate?: (event: UiUpdate) => void;
+    getSystemPromptSuffix?: () => string | undefined;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
@@ -195,6 +197,7 @@ export class CodingAgent {
     this.verbose = params.verbose ?? false;
     this.onProgress = params.onProgress;
     this.onUiUpdate = params.onUiUpdate;
+    this.getSystemPromptSuffix = params.getSystemPromptSuffix;
   }
 
   getSession(): Session {
@@ -329,11 +332,13 @@ export class CodingAgent {
       // Rebuild system prompt each step with the latest focus set,
       // so the code map dynamically adapts as the agent explores symbols.
       const codeMapResult = this.getCodeMap?.(this.getFocusSet());
-      const systemPrompt = buildSystemPrompt(
+      const basePrompt = buildSystemPrompt(
         this.config,
         toolSchemas,
         codeMapResult,
       );
+      const suffix = this.getSystemPromptSuffix?.();
+      const systemPrompt = suffix ? basePrompt + "\n\n" + suffix : basePrompt;
 
       const messages = this.session.getMessages();
       if (this.verbose) {

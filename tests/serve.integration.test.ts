@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { createRequestHandler } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
+import type { UiUpdate } from "@minicode/agent-sdk";
 import type { ServerMessage } from "../src/serve/types.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
@@ -145,6 +146,55 @@ class MockBridge extends AgentBridge {
   override unpinSymbol(name: string) {
     this._pinned.delete(name);
     return true;
+  }
+
+  // Annotation state for testing
+  private _annotations = new Map<string, string[]>();
+
+  override getAnnotations() {
+    return Object.fromEntries(this._annotations);
+  }
+
+  override getAnnotationsForSymbol(name: string) {
+    // Resolve symbol name to qualifiedName
+    const sym = this.getSymbol(name);
+    const key = sym ? (sym as unknown as { qualifiedName: string }).qualifiedName : name;
+    return this._annotations.get(key) ?? [];
+  }
+
+  override addAnnotation(name: string, text: string) {
+    const sym = this.getSymbol(name);
+    if (!sym) return false;
+    const trimmed = text.slice(0, 500).trim();
+    if (trimmed.length === 0) return false;
+    const key = (sym as unknown as { qualifiedName: string }).qualifiedName;
+    const existing = this._annotations.get(key) ?? [];
+    existing.push(trimmed);
+    this._annotations.set(key, existing);
+    return true;
+  }
+
+  override removeAnnotation(name: string, index: number) {
+    const notes = this._annotations.get(name);
+    if (!notes || index < 0 || index >= notes.length) return false;
+    notes.splice(index, 1);
+    if (notes.length === 0) this._annotations.delete(name);
+    return true;
+  }
+
+  override clearAnnotations(name: string) {
+    this._annotations.delete(name);
+  }
+
+  override async explainSymbol(
+    name: string,
+    onEvent: (event: UiUpdate) => void,
+    _signal?: AbortSignal,
+  ): Promise<string> {
+    const sym = this.getSymbol(name);
+    if (!sym) throw new Error(`Symbol "${name}" not found`);
+    onEvent({ type: "streaming_chunk", content: `Explaining ${name}...` } as UiUpdate);
+    return `Explaining ${name}...`;
   }
 }
 
@@ -708,4 +758,180 @@ test("GET /api/symbols/:name/source returns 500 when file is missing", async () 
 
   const body = (await res.json()) as { error: string };
   assert.ok(body.error.includes("src/foo.ts"));
+});
+
+// ── Annotations API tests ──
+
+test("GET /api/annotations returns empty annotations initially", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/annotations`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { annotations: Record<string, string[]> };
+  assert.deepEqual(body.annotations, {});
+});
+
+test("POST /api/symbols/:name/annotations adds annotation", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "don't modify, stable API" }),
+  });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { symbol: string; annotations: string[] };
+  assert.equal(body.symbol, "foo");
+  assert.equal(body.annotations.length, 1);
+  assert.equal(body.annotations[0], "don't modify, stable API");
+});
+
+test("GET /api/symbols/:name/annotations returns annotations for symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  // Add one first
+  await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "note 1" }),
+  });
+
+  const res = await fetch(`${base}/api/symbols/foo/annotations`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { symbol: string; annotations: string[] };
+  assert.equal(body.annotations.length, 1);
+  assert.equal(body.annotations[0], "note 1");
+});
+
+test("POST /api/symbols/:name/annotations returns 404 for unknown symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/nonexistent/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "hello" }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test("POST /api/symbols/:name/annotations returns 400 for missing text", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("DELETE /api/symbols/:name/annotations/:index removes annotation", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  // Add two annotations
+  await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "first" }),
+  });
+  await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "second" }),
+  });
+
+  // Remove first
+  const res = await fetch(`${base}/api/symbols/foo/annotations/0`, {
+    method: "DELETE",
+  });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { annotations: string[] };
+  assert.equal(body.annotations.length, 1);
+  assert.equal(body.annotations[0], "second");
+});
+
+test("DELETE /api/symbols/:name/annotations/:index returns 404 for invalid index", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/foo/annotations/99`, {
+    method: "DELETE",
+  });
+  assert.equal(res.status, 404);
+});
+
+test("DELETE /api/symbols/:name/annotations clears all annotations", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  // Add annotations
+  await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "note" }),
+  });
+
+  // Clear all
+  const res = await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "DELETE",
+  });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { annotations: string[] };
+  assert.deepEqual(body.annotations, []);
+});
+
+test("GET /api/annotations returns all annotations after adding", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  await fetch(`${base}/api/symbols/foo/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "foo note" }),
+  });
+  await fetch(`${base}/api/symbols/Bar/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "bar note" }),
+  });
+
+  const res = await fetch(`${base}/api/annotations`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { annotations: Record<string, string[]> };
+  assert.ok(Object.keys(body.annotations).length >= 2);
+});
+
+test("GET /api/symbols/:name/explain returns SSE stream", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/foo/explain`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "text/event-stream");
+
+  const text = await res.text();
+  assert.ok(text.includes("data: "));
+  assert.ok(text.includes("[DONE]"));
+});
+
+test("GET /api/symbols/:name/explain returns error for unknown symbol", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/nonexistent/explain`);
+  assert.equal(res.status, 200); // SSE always starts 200
+  const text = await res.text();
+  assert.ok(text.includes("error"));
 });

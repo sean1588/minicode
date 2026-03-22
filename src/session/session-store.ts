@@ -16,6 +16,7 @@ interface SavedSessionFile {
   label: string;
   savedAt: string;
   session: SessionSnapshot;
+  annotations?: Record<string, string[]>;
 }
 
 let sessionsDir = path.join(os.homedir(), ".minicode", "sessions");
@@ -28,6 +29,7 @@ export function setSessionsDir(dir: string): void {
 export async function saveSession(
   session: Session,
   label?: string,
+  annotations?: Record<string, string[]>,
 ): Promise<SavedSessionMeta> {
   await mkdir(sessionsDir, { recursive: true });
 
@@ -42,6 +44,7 @@ export async function saveSession(
     label: resolvedLabel,
     savedAt,
     session: snapshot,
+    ...(annotations && Object.keys(annotations).length > 0 ? { annotations } : {}),
   };
 
   const filePath = path.join(sessionsDir, `${snapshot.id}.json`);
@@ -88,7 +91,7 @@ export async function listSessions(): Promise<SavedSessionMeta[]> {
 
 export async function loadSession(
   sessionId: string,
-): Promise<{ session: Session; label: string } | undefined> {
+): Promise<{ session: Session; label: string; annotations?: Record<string, string[]> } | undefined> {
   const filePath = path.join(sessionsDir, `${sessionId}.json`);
   try {
     const raw = await readFile(filePath, "utf8");
@@ -96,6 +99,7 @@ export async function loadSession(
     return {
       session: Session.fromJSON(data.session),
       label: data.label,
+      ...(data.annotations ? { annotations: data.annotations } : {}),
     };
   } catch {
     return undefined;
@@ -104,7 +108,7 @@ export async function loadSession(
 
 export async function loadSessionByLabel(
   label: string,
-): Promise<{ session: Session; label: string } | undefined> {
+): Promise<{ session: Session; label: string; annotations?: Record<string, string[]> } | undefined> {
   const sessions = await listSessions();
   const match = sessions.find(
     (s) => s.label.toLowerCase() === label.toLowerCase(),
