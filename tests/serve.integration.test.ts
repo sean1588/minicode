@@ -189,7 +189,6 @@ class MockBridge extends AgentBridge {
   override async explainSymbol(
     name: string,
     onEvent: (event: UiUpdate) => void,
-    _signal?: AbortSignal,
   ): Promise<string> {
     const sym = this.getSymbol(name);
     if (!sym) throw new Error(`Symbol "${name}" not found`);
