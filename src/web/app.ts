@@ -1,5 +1,5 @@
 import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
-import { escapeHtml } from './utils.ts';
+import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
 interface ServerMessage {
   type: string;
@@ -111,7 +111,7 @@ function handleServerMessage(msg: ServerMessage): void {
       }
       assistantText += msg.content || '';
       if (currentAssistantEl) {
-        currentAssistantEl.textContent = assistantText;
+        renderMarkdownInto(currentAssistantEl, assistantText);
         scrollToBottom();
       }
       break;
@@ -144,11 +144,11 @@ function handleServerMessage(msg: ServerMessage): void {
         if (currentAssistantEl) {
           currentAssistantEl.classList.remove("streaming-cursor");
         }
-        currentAssistantEl = addMessage(msg.text, "assistant");
+        currentAssistantEl = addMessage(msg.text, "assistant", true);
       } else if (currentAssistantEl) {
         currentAssistantEl.classList.remove("streaming-cursor");
         if (!assistantText && msg.text) {
-          currentAssistantEl.textContent = msg.text;
+          renderMarkdownInto(currentAssistantEl, msg.text);
         }
       }
       currentAssistantEl = null;
@@ -176,10 +176,14 @@ function handleServerMessage(msg: ServerMessage): void {
   }
 }
 
-function addMessage(text: string, type: string): HTMLElement {
+function addMessage(text: string, type: string, markdown = false): HTMLElement {
   const el = document.createElement("div");
   el.className = `message ${type}`;
-  el.textContent = text;
+  if (markdown && type === "assistant") {
+    renderMarkdownInto(el, text);
+  } else {
+    el.textContent = text;
+  }
   messagesEl.appendChild(el);
   scrollToBottom();
   return el;

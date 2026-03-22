@@ -2,7 +2,7 @@
 // Start empty. User searches for a symbol, selects it to seed the graph.
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
-import { escapeHtml } from './utils.ts';
+import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
 declare const cytoscape: (opts: unknown) => CyInstance;
 declare const hljs: { highlightElement(el: HTMLElement): void };
@@ -692,6 +692,7 @@ async function explainSymbol(name: string, detailEl: HTMLElement): Promise<void>
   content.innerHTML = '<span class="explain-status"><span class="explain-spinner"></span> Researching...</span>';
 
   let streaming = false;
+  let rawText = '';
 
   function showToolStatus(toolName: string, input: Record<string, unknown>): void {
     if (streaming) return;
@@ -702,7 +703,14 @@ async function explainSymbol(name: string, detailEl: HTMLElement): Promise<void>
   function startStreaming(): void {
     if (streaming) return;
     streaming = true;
+    rawText = '';
     content.textContent = '';
+  }
+
+  function finalize(): void {
+    if (rawText) {
+      renderMarkdownInto(content, rawText);
+    }
   }
 
   try {
@@ -724,27 +732,32 @@ async function explainSymbol(name: string, detailEl: HTMLElement): Promise<void>
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6);
-        if (payload === '[DONE]') return;
+        if (payload === '[DONE]') { finalize(); return; }
         try {
           const event = JSON.parse(payload);
           if (event.type === 'tool_call_start') {
             showToolStatus(event.name, event.input || {});
           } else if (event.type === 'streaming_chunk' && event.content) {
             startStreaming();
-            content.textContent += event.content;
+            rawText += event.content;
+            content.textContent = rawText;
             content.scrollTop = content.scrollHeight;
           } else if (event.type === 'error') {
             startStreaming();
-            content.textContent += `\n[Error: ${event.message}]`;
+            rawText += `\n[Error: ${event.message}]`;
+            content.textContent = rawText;
           }
         } catch {
           // skip unparseable lines
         }
       }
     }
+    finalize();
   } catch {
     if (!streaming) {
       content.textContent = '(explain failed)';
+    } else {
+      finalize();
     }
   }
 }

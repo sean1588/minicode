@@ -307,6 +307,85 @@ main {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 8px 8px 8px 2px;
+  white-space: normal;
+}
+
+/* Markdown content inside assistant messages and explain */
+.message.assistant p,
+.detail-explain-content p {
+  margin: 0 0 8px 0;
+}
+
+.message.assistant p:last-child,
+.detail-explain-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant pre,
+.detail-explain-content pre {
+  background: var(--bg) !important;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px !important;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.message.assistant code,
+.detail-explain-content code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.message.assistant :not(pre) > code,
+.detail-explain-content :not(pre) > code {
+  background: rgba(122, 162, 247, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.message.assistant ul,
+.message.assistant ol,
+.detail-explain-content ul,
+.detail-explain-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.message.assistant li,
+.detail-explain-content li {
+  margin-bottom: 3px;
+}
+
+.message.assistant h1,
+.message.assistant h2,
+.message.assistant h3,
+.detail-explain-content h1,
+.detail-explain-content h2,
+.detail-explain-content h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 4px 0;
+  color: var(--text);
+}
+
+.message.assistant h1 { font-size: 15px; }
+.message.assistant h2 { font-size: 14px; }
+
+.message.assistant strong,
+.detail-explain-content strong {
+  color: var(--text);
+}
+
+.message.assistant blockquote,
+.detail-explain-content blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--text-dim);
 }
 
 .message.error {
