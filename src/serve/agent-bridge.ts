@@ -24,13 +24,14 @@ export class AgentBridge {
   private agent!: CodingAgent;
   private config!: Awaited<ReturnType<typeof loadAgentConfig>>;
   private projectIndex: ProjectIndex | undefined;
-  private buildAgent!: (session?: Session) => CodingAgent;
+  private buildAgent!: (session?: Session, onUiUpdate?: (event: UiUpdate) => void) => CodingAgent;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
   private verbose: boolean;
   private readonly listeners = new Set<UiListener>();
   private readonly pinnedSymbols = new Set<string>();
+  private readonly annotations = new Map<string, string[]>();
 
   constructor(broadcast: (msg: ServerMessage) => void, verbose: boolean) {
     this.broadcast = broadcast;
@@ -72,10 +73,18 @@ export class AgentBridge {
     }
 
     const toolRegistry = createToolRegistry(config, projectIndex);
+
+    // Wrap tool registry execute to inject annotations into tool results
+    const originalExecute = toolRegistry.execute.bind(toolRegistry);
+    toolRegistry.execute = async (name: string, input: unknown) => {
+      const result = await originalExecute(name, input);
+      return this.appendAnnotationsToResult(name, input, result);
+    };
+
     this.config = config;
     this.projectIndex = projectIndex;
 
-    this.buildAgent = (session?: Session): CodingAgent => {
+    this.buildAgent = (session?: Session, onUiUpdate?: (event: UiUpdate) => void): CodingAgent => {
       return new CodingAgent({
         config,
         modelClient,
@@ -85,9 +94,10 @@ export class AgentBridge {
         ...(projectIndex !== undefined
           ? { getCodeMap: (focusSymbols?: Set<string>) => projectIndex.getCodeMap(undefined, focusSymbols) }
           : {}),
-        onUiUpdate: (event: UiUpdate) => {
+        onUiUpdate: onUiUpdate ?? ((event: UiUpdate) => {
           this.emit(event as ServerMessage);
-        },
+        }),
+        getSystemPromptSuffix: () => this.buildAnnotationSuffix(),
       });
     };
 
@@ -148,7 +158,10 @@ export class AgentBridge {
 
   // Session operations
   async saveSess(label?: string) {
-    return saveSession(this.agent.getSession(), label);
+    const annotationsObj = this.annotations.size > 0
+      ? Object.fromEntries(this.annotations)
+      : undefined;
+    return saveSession(this.agent.getSession(), label, annotationsObj);
   }
 
   async loadSess(label: string) {
@@ -156,6 +169,13 @@ export class AgentBridge {
       (await loadSessionByLabel(label)) ?? (await loadSession(label));
     if (!result) return null;
     this.agent = this.buildAgent(result.session);
+    // Restore annotations from saved session
+    this.annotations.clear();
+    if (result.annotations) {
+      for (const [name, notes] of Object.entries(result.annotations)) {
+        this.annotations.set(name, notes);
+      }
+    }
     return result;
   }
 
@@ -275,5 +295,116 @@ export class AgentBridge {
     if (!sym) return false;
     this.pinnedSymbols.delete(sym.qualifiedName);
     return true;
+  }
+
+  // ── Annotations ──
+
+  getAnnotations(): Record<string, string[]> {
+    this.evictStaleAnnotations();
+    return Object.fromEntries(this.annotations);
+  }
+
+  getAnnotationsForSymbol(name: string): string[] {
+    return this.annotations.get(name) ?? [];
+  }
+
+  addAnnotation(name: string, text: string): boolean {
+    if (!this.projectIndex) return false;
+    const sym = this.projectIndex.getSymbol(name);
+    if (!sym) return false;
+    const trimmed = text.slice(0, 500).trim();
+    if (trimmed.length === 0) return false;
+    const key = sym.qualifiedName;
+    const existing = this.annotations.get(key) ?? [];
+    existing.push(trimmed);
+    this.annotations.set(key, existing);
+    return true;
+  }
+
+  removeAnnotation(name: string, index: number): boolean {
+    const notes = this.annotations.get(name);
+    if (!notes || index < 0 || index >= notes.length) return false;
+    notes.splice(index, 1);
+    if (notes.length === 0) {
+      this.annotations.delete(name);
+    }
+    return true;
+  }
+
+  clearAnnotations(name: string): void {
+    this.annotations.delete(name);
+  }
+
+  private evictStaleAnnotations(): void {
+    if (!this.projectIndex) return;
+    for (const name of [...this.annotations.keys()]) {
+      if (!this.projectIndex.getSymbol(name)) {
+        this.annotations.delete(name);
+      }
+    }
+  }
+
+  private buildAnnotationSuffix(): string | undefined {
+    this.evictStaleAnnotations();
+    if (this.annotations.size === 0) return undefined;
+    return `[Annotated symbols: ${[...this.annotations.keys()].join(", ")}]`;
+  }
+
+  private appendAnnotationsToResult(toolName: string, input: unknown, result: string): string {
+    if (this.annotations.size === 0) return result;
+    const inp = input as Record<string, unknown>;
+
+    if (toolName === "read_symbol" || toolName === "find_references" || toolName === "get_dependencies") {
+      const symName = (inp.name ?? inp.symbol ?? inp.query) as string | undefined;
+      if (!symName) return result;
+      // Try direct match, then resolve via index
+      let notes = this.annotations.get(symName);
+      if (!notes && this.projectIndex) {
+        const sym = this.projectIndex.getSymbol(symName);
+        if (sym) notes = this.annotations.get(sym.qualifiedName);
+      }
+      if (notes && notes.length > 0) {
+        return result + `\n[User annotation: ${notes.join("; ")}]`;
+      }
+    }
+
+    if (toolName === "read_file") {
+      const filePath = inp.path as string | undefined;
+      if (!filePath) return result;
+      const fileAnnotations: string[] = [];
+      for (const [name, notes] of this.annotations) {
+        if (!this.projectIndex) continue;
+        const sym = this.projectIndex.getSymbol(name);
+        if (sym && (sym.filePath === filePath || filePath.endsWith(sym.filePath))) {
+          fileAnnotations.push(`- ${sym.name}: ${notes.join("; ")}`);
+        }
+      }
+      if (fileAnnotations.length > 0) {
+        return result + `\n[User annotations for symbols in this file:]\n${fileAnnotations.join("\n")}`;
+      }
+    }
+
+    return result;
+  }
+
+  // ── Explain ──
+
+  async explainSymbol(
+    name: string,
+    onEvent: (event: UiUpdate) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (!this.projectIndex) throw new Error("No project index");
+    const sym = this.projectIndex.getSymbol(name);
+    if (!sym) throw new Error(`Symbol "${name}" not found`);
+
+    const explainAgent = this.buildAgent(undefined, onEvent);
+    const prompt = `Explain "${sym.name}" (${sym.kind} in ${sym.filePath}).
+Use read_symbol, get_dependencies, find_references to gather context.
+Explain what it does, how it works, what depends on it, and key design decisions.
+Be concise but thorough.`;
+    const opts = signal ? { signal } : undefined;
+    const result = await explainAgent.runTurn(prompt, opts);
+    return result.text;
   }
 }

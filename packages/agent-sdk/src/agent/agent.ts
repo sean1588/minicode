@@ -161,6 +161,8 @@ export class CodingAgent {
   private readonly verbose: boolean;
   private readonly onProgress: ((message: string) => void) | undefined;
   private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
+  private readonly onVerbose: ((message: string) => void) | undefined;
+  private readonly getSystemPromptSuffix: (() => string | undefined) | undefined;
 
   /**
    * Tracks symbol names the user/agent has been working with.
@@ -186,6 +188,8 @@ export class CodingAgent {
     verbose?: boolean;
     onProgress?: (message: string) => void;
     onUiUpdate?: (event: UiUpdate) => void;
+    onVerbose?: (message: string) => void;
+    getSystemPromptSuffix?: () => string | undefined;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
@@ -195,6 +199,17 @@ export class CodingAgent {
     this.verbose = params.verbose ?? false;
     this.onProgress = params.onProgress;
     this.onUiUpdate = params.onUiUpdate;
+    this.onVerbose = params.onVerbose;
+    this.getSystemPromptSuffix = params.getSystemPromptSuffix;
+  }
+
+  private verboseLog(...args: unknown[]): void {
+    const msg = args.map((a) => typeof a === "string" ? a : JSON.stringify(a, null, 2)).join(" ");
+    if (this.onVerbose) {
+      this.onVerbose(msg);
+    } else {
+      console.error(msg);
+    }
   }
 
   getSession(): Session {
@@ -329,20 +344,22 @@ export class CodingAgent {
       // Rebuild system prompt each step with the latest focus set,
       // so the code map dynamically adapts as the agent explores symbols.
       const codeMapResult = this.getCodeMap?.(this.getFocusSet());
-      const systemPrompt = buildSystemPrompt(
+      const basePrompt = buildSystemPrompt(
         this.config,
         toolSchemas,
         codeMapResult,
       );
+      const suffix = this.getSystemPromptSuffix?.();
+      const systemPrompt = suffix ? basePrompt + "\n\n" + suffix : basePrompt;
 
       const messages = this.session.getMessages();
       if (this.verbose) {
-        console.error(`\n${VERBOSE_SEP}`);
-        console.error(`[verbose] Request (step ${step})`);
-        console.error(`${VERBOSE_SEP}`);
-        console.error("\n[System Prompt]\n", systemPrompt);
-        console.error("\n[Messages]\n", JSON.stringify(messages, null, 2));
-        console.error(VERBOSE_SEP);
+        this.verboseLog(`\n${VERBOSE_SEP}`);
+        this.verboseLog(`[verbose] Request (step ${step})`);
+        this.verboseLog(VERBOSE_SEP);
+        this.verboseLog("\n[System Prompt]\n", systemPrompt);
+        this.verboseLog("\n[Messages]\n", JSON.stringify(messages, null, 2));
+        this.verboseLog(VERBOSE_SEP);
       }
 
       const response = await this.modelClient.chat({
@@ -365,19 +382,19 @@ export class CodingAgent {
       totalOutputTokens += response.usage.outputTokens;
 
       if (this.verbose) {
-        console.error(`\n${VERBOSE_SEP}`);
-        console.error("[verbose] Response");
-        console.error(`${VERBOSE_SEP}`);
-        console.error("Text:", response.text);
-        console.error("Tool calls:", response.toolCalls.length);
+        this.verboseLog(`\n${VERBOSE_SEP}`);
+        this.verboseLog("[verbose] Response");
+        this.verboseLog(VERBOSE_SEP);
+        this.verboseLog("Text:", response.text);
+        this.verboseLog("Tool calls:", response.toolCalls.length);
         if (response.toolCalls.length > 0) {
-          console.error(
+          this.verboseLog(
             "Tools:",
             response.toolCalls.map((t) => `${t.name}(${JSON.stringify(t.input)})`).join(", "),
           );
         }
-        console.error("Usage:", response.usage);
-        console.error(VERBOSE_SEP);
+        this.verboseLog("Usage:", response.usage);
+        this.verboseLog(VERBOSE_SEP);
       }
 
       if (response.toolCalls.length === 0) {
@@ -470,9 +487,9 @@ export class CodingAgent {
           });
         }
         if (this.verbose) {
-          console.error(`\n${VERBOSE_SEP}`);
-          console.error(`[verbose] Tool: ${toolCall.name}`);
-          console.error("Arguments:", JSON.stringify(toolCall.input, null, 2));
+          this.verboseLog(`\n${VERBOSE_SEP}`);
+          this.verboseLog(`[verbose] Tool: ${toolCall.name}`);
+          this.verboseLog("Arguments:", JSON.stringify(toolCall.input, null, 2));
         }
         let toolResult: string;
         const toolStartMs = Date.now();
@@ -522,8 +539,8 @@ export class CodingAgent {
           });
         }
         if (this.verbose) {
-          console.error("Output:", toolResult);
-          console.error(VERBOSE_SEP);
+          this.verboseLog("Output:", toolResult);
+          this.verboseLog(VERBOSE_SEP);
         }
         this.session.addMessage({
           role: "tool",

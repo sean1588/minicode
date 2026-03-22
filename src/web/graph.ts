@@ -2,7 +2,7 @@
 // Start empty. User searches for a symbol, selects it to seed the graph.
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
-import { escapeHtml } from './utils.ts';
+import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
 declare const cytoscape: (opts: unknown) => CyInstance;
 declare const hljs: { highlightElement(el: HTMLElement): void };
@@ -468,8 +468,28 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
     <div class="detail-file">${escapeHtml(data.file || 'unknown')}${data.startLine ? ':' + data.startLine : ''}</div>
   `;
 
-  html += `<div id="detail-source"><div class="detail-section-title">Source</div><pre class="detail-code">Loading...</pre></div>`;
+  // Action buttons row
+  html += `<div class="detail-actions">`;
   html += `<button class="detail-pin header-btn" data-name="${escapeHtml(data.qualifiedName)}">${isPinned ? 'Unpin' : 'Pin to focus'}</button>`;
+  html += `<button class="detail-explain-btn header-btn" data-name="${escapeHtml(data.qualifiedName)}">Explain</button>`;
+  html += `</div>`;
+
+  // Source
+  html += `<div id="detail-source"><div class="detail-section-title">Source</div><pre class="detail-code">Loading...</pre></div>`;
+
+  // Annotations section
+  html += `<div class="detail-section" id="detail-annotations">`;
+  html += `<div class="detail-section-title">Annotations</div>`;
+  html += `<div class="detail-annotation-list"></div>`;
+  html += `<div class="detail-annotation-input">`;
+  html += `<textarea class="detail-annotation-textarea" placeholder="Add a note..." rows="1"></textarea>`;
+  html += `<button class="dropdown-action detail-annotation-add">Add</button>`;
+  html += `</div></div>`;
+
+  // Explain section (hidden until clicked)
+  html += `<div class="detail-section hidden" id="detail-explain"><div class="detail-section-title">Explanation</div><div class="detail-explain-content"></div></div>`;
+
+  // Dependencies & References
   html += '<div class="detail-section" id="detail-deps"><div class="detail-section-title">Dependencies</div><div class="detail-section-list">Loading...</div></div>';
   html += '<div class="detail-section" id="detail-refs"><div class="detail-section-title">References</div><div class="detail-section-list">Loading...</div></div>';
 
@@ -502,8 +522,33 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
     await togglePin(name, node, pinBtn);
   });
 
+  // Explain button
+  const explainBtn = detailEl.querySelector('.detail-explain-btn') as HTMLButtonElement;
+  explainBtn.addEventListener('click', () => {
+    const name = explainBtn.dataset.name || '';
+    explainSymbol(name, detailEl);
+  });
+
+  // Annotation add
   const symName = data.qualifiedName || data.name;
+  const addBtn = detailEl.querySelector('.detail-annotation-add') as HTMLButtonElement;
+  const textarea = detailEl.querySelector('.detail-annotation-textarea') as HTMLTextAreaElement;
+  addBtn.addEventListener('click', async () => {
+    const text = textarea.value.trim();
+    if (!text) return;
+    await addAnnotation(symName, text);
+    textarea.value = '';
+    loadAnnotations(symName, detailEl);
+  });
+  textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addBtn.click();
+    }
+  });
+
   loadSource(symName, detailEl);
+  loadAnnotations(symName, detailEl);
   loadDepsAndRefs(symName, detailEl);
 }
 
@@ -599,6 +644,121 @@ async function loadDepsAndRefs(name: string, detailEl: HTMLElement): Promise<voi
     });
   } catch {
     // Silently fail
+  }
+}
+
+async function loadAnnotations(name: string, detailEl: HTMLElement): Promise<void> {
+  const listEl = detailEl.querySelector('.detail-annotation-list') as HTMLElement;
+  if (!listEl) return;
+  try {
+    const res = await fetch(`/api/symbols/${encodeURIComponent(name)}/annotations`);
+    if (!res.ok) { listEl.innerHTML = ''; return; }
+    const data = await res.json();
+    const notes: string[] = data.annotations || [];
+    if (notes.length === 0) {
+      listEl.innerHTML = '<span class="detail-empty">No annotations</span>';
+      return;
+    }
+    listEl.innerHTML = notes.map((text: string, i: number) =>
+      `<div class="detail-annotation-item">
+        <span class="annotation-text">${escapeHtml(text)}</span>
+        <button class="annotation-remove" data-index="${i}" title="Remove">&times;</button>
+      </div>`
+    ).join('');
+    listEl.querySelectorAll('.annotation-remove').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idx = Number((btn as HTMLElement).dataset.index);
+        await fetch(`/api/symbols/${encodeURIComponent(name)}/annotations/${idx}`, { method: 'DELETE' });
+        loadAnnotations(name, detailEl);
+      });
+    });
+  } catch {
+    listEl.innerHTML = '';
+  }
+}
+
+async function addAnnotation(name: string, text: string): Promise<void> {
+  await fetch(`/api/symbols/${encodeURIComponent(name)}/annotations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+}
+
+async function explainSymbol(name: string, detailEl: HTMLElement): Promise<void> {
+  const section = detailEl.querySelector('#detail-explain') as HTMLElement;
+  const content = section.querySelector('.detail-explain-content') as HTMLElement;
+  section.classList.remove('hidden');
+  content.innerHTML = '<span class="explain-status"><span class="explain-spinner"></span> Researching...</span>';
+
+  let streaming = false;
+  let rawText = '';
+
+  function showToolStatus(toolName: string, input: Record<string, unknown>): void {
+    if (streaming) return;
+    const arg = input.name || input.path || input.symbol || input.query || '';
+    content.innerHTML = `<span class="explain-status"><span class="explain-spinner"></span> ${escapeHtml(toolName)}(${escapeHtml(String(arg))})</span>`;
+  }
+
+  function startStreaming(): void {
+    if (streaming) return;
+    streaming = true;
+    rawText = '';
+    content.textContent = '';
+  }
+
+  function finalize(): void {
+    if (rawText) {
+      renderMarkdownInto(content, rawText);
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/symbols/${encodeURIComponent(name)}/explain`);
+    if (!res.ok || !res.body) {
+      content.textContent = '(explain unavailable)';
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6);
+        if (payload === '[DONE]') { finalize(); return; }
+        try {
+          const event = JSON.parse(payload);
+          if (event.type === 'tool_call_start') {
+            showToolStatus(event.name, event.input || {});
+          } else if (event.type === 'streaming_chunk' && event.content) {
+            startStreaming();
+            rawText += event.content;
+            content.textContent = rawText;
+            content.scrollTop = content.scrollHeight;
+          } else if (event.type === 'error') {
+            startStreaming();
+            rawText += `\n[Error: ${event.message}]`;
+            content.textContent = rawText;
+          }
+        } catch {
+          // skip unparseable lines
+        }
+      }
+    }
+    finalize();
+  } catch {
+    if (!streaming) {
+      content.textContent = '(explain failed)';
+    } else {
+      finalize();
+    }
   }
 }
 

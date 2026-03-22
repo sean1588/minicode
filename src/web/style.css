@@ -307,6 +307,85 @@ main {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 8px 8px 8px 2px;
+  white-space: normal;
+}
+
+/* Markdown content inside assistant messages and explain */
+.message.assistant p,
+.detail-explain-content p {
+  margin: 0 0 8px 0;
+}
+
+.message.assistant p:last-child,
+.detail-explain-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant pre,
+.detail-explain-content pre {
+  background: var(--bg) !important;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px !important;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.message.assistant code,
+.detail-explain-content code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.message.assistant :not(pre) > code,
+.detail-explain-content :not(pre) > code {
+  background: rgba(122, 162, 247, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.message.assistant ul,
+.message.assistant ol,
+.detail-explain-content ul,
+.detail-explain-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.message.assistant li,
+.detail-explain-content li {
+  margin-bottom: 3px;
+}
+
+.message.assistant h1,
+.message.assistant h2,
+.message.assistant h3,
+.detail-explain-content h1,
+.detail-explain-content h2,
+.detail-explain-content h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 4px 0;
+  color: var(--text);
+}
+
+.message.assistant h1 { font-size: 15px; }
+.message.assistant h2 { font-size: 14px; }
+
+.message.assistant strong,
+.detail-explain-content strong {
+  color: var(--text);
+}
+
+.message.assistant blockquote,
+.detail-explain-content blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--text-dim);
 }
 
 .message.error {
@@ -663,10 +742,15 @@ main::-webkit-scrollbar-thumb {
   tab-size: 2;
 }
 
-.detail-pin {
-  width: 100%;
-  text-align: center;
+.detail-actions {
+  display: flex;
+  gap: 8px;
   margin-bottom: 16px;
+}
+
+.detail-actions .header-btn {
+  flex: 1;
+  text-align: center;
 }
 
 .detail-section {
@@ -723,4 +807,116 @@ main::-webkit-scrollbar-thumb {
 #symbol-detail::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
+}
+
+/* Annotation items */
+.detail-annotation-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  margin-bottom: 4px;
+}
+
+.detail-annotation-item .annotation-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.detail-annotation-item .annotation-remove {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.detail-annotation-item .annotation-remove:hover {
+  color: var(--red);
+}
+
+.detail-annotation-input {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.detail-annotation-textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 5px 8px;
+  resize: none;
+  min-height: 28px;
+  max-height: 80px;
+}
+
+.detail-annotation-textarea:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+.detail-annotation-input .dropdown-action {
+  align-self: flex-end;
+}
+
+/* Explain output area */
+.detail-explain-content {
+  white-space: pre-wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+}
+
+.detail-explain-content::-webkit-scrollbar {
+  width: 5px;
+}
+
+.detail-explain-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.detail-explain-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.explain-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.explain-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

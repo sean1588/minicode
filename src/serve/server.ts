@@ -228,6 +228,96 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      // ── Annotations API ──
+
+      if (pathname === "/api/annotations" && method === "GET") {
+        sendJson(res, 200, { annotations: bridge.getAnnotations() });
+        return;
+      }
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/annotations") && method === "GET") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/annotations".length));
+        const notes = bridge.getAnnotationsForSymbol(name);
+        sendJson(res, 200, { symbol: name, annotations: notes });
+        return;
+      }
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/annotations") && method === "POST") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/annotations".length));
+        const body = JSON.parse(await readBody(req)) as { text?: string };
+        if (!body.text) {
+          sendJson(res, 400, { error: "text is required" });
+          return;
+        }
+        const ok = bridge.addAnnotation(name, body.text);
+        if (!ok) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found or text empty` });
+          return;
+        }
+        sendJson(res, 200, { symbol: name, annotations: bridge.getAnnotationsForSymbol(name) });
+        return;
+      }
+
+      // DELETE /api/symbols/:name/annotations/:index
+      {
+        const annoDeleteMatch = pathname.match(/^\/api\/symbols\/(.+)\/annotations\/(\d+)$/);
+        if (annoDeleteMatch && method === "DELETE") {
+          const name = decodeURIComponent(annoDeleteMatch[1]!);
+          const index = Number(annoDeleteMatch[2]);
+          const ok = bridge.removeAnnotation(name, index);
+          if (!ok) {
+            sendJson(res, 404, { error: "Annotation not found" });
+            return;
+          }
+          sendJson(res, 200, { symbol: name, annotations: bridge.getAnnotationsForSymbol(name) });
+          return;
+        }
+      }
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/annotations") && method === "DELETE") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/annotations".length));
+        bridge.clearAnnotations(name);
+        sendJson(res, 200, { symbol: name, annotations: [] });
+        return;
+      }
+
+      // ── Explain SSE ──
+
+      if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/explain") && method === "GET") {
+        const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/explain".length));
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+
+        const abortController = new AbortController();
+        req.on("close", () => abortController.abort());
+
+        try {
+          await bridge.explainSymbol(
+            name,
+            (event) => {
+              if (!res.writableEnded) {
+                res.write(`data: ${JSON.stringify(event)}\n\n`);
+              }
+            },
+            abortController.signal,
+          );
+        } catch (error) {
+          if (!res.writableEnded) {
+            const msg = error instanceof Error ? error.message : "Unknown error";
+            res.write(`data: ${JSON.stringify({ type: "error", message: msg })}\n\n`);
+          }
+        }
+
+        if (!res.writableEnded) {
+          res.write("data: [DONE]\n\n");
+          res.end();
+        }
+        return;
+      }
+
       if (pathname === "/api/chat" && method === "POST") {
         const body = JSON.parse(await readBody(req)) as { message: string };
         if (!body.message) {
