@@ -313,3 +313,24 @@ test("TypeScript plugin indexes exported class expressions", () => {
   assert.ok(names.includes("Service.start"));
   assert.ok(names.includes("Service.stop"));
 });
+
+test("resolveDependencies tracks new expressions as calls edges", () => {
+  const code = `
+class Logger {
+  log(msg) {}
+}
+
+function setup() {
+  const logger = new Logger();
+  logger.log("ready");
+}
+`;
+  const symbols = typescriptPlugin.indexFile("new-expr.js", code);
+  const projectFiles = new Map([["new-expr.js", code]]);
+  const edges = typescriptPlugin.resolveDependencies!(symbols, projectFiles);
+
+  const newCallEdge = edges.find(
+    (e) => e.from === "setup" && e.to === "Logger" && e.kind === "calls",
+  );
+  assert.ok(newCallEdge, "new Logger() should produce a calls edge from setup to Logger");
+});

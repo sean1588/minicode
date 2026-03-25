@@ -309,10 +309,12 @@ function createPlugin(): LanguagePlugin {
           const expr = node.expression;
           if (ts.isIdentifier(expr)) {
             addEdge(from, expr.getText(), "calls");
-          } else if (ts.isNewExpression(expr) && expr.expression) {
-            if (ts.isIdentifier(expr.expression)) {
-              addEdge(from, expr.expression.getText(), "calls");
-            }
+          }
+        }
+        if (ts.isNewExpression(node)) {
+          const expr = node.expression;
+          if (ts.isIdentifier(expr)) {
+            addEdge(from, expr.getText(), "calls");
           }
         }
         ts.forEachChild(node, (n) => collectCalls(n, from));

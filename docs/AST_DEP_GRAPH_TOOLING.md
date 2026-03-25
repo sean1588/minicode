@@ -89,9 +89,7 @@ A recursive walk over declaration nodes captures `ts.isTypeReferenceNode` and em
 
 #### C) Call edges
 
-A recursive walk captures `ts.isCallExpression` and emits `calls` when the callee is an identifier.
-
-> Note: the current code also contains a `ts.isNewExpression` branch nested under call-expression handling; practically, constructor calls are represented when parseable through the call traversal logic, but this branch is structurally conservative and may not catch every `new` form.
+A recursive walk captures `ts.isCallExpression` and `ts.isNewExpression` and emits `calls` when the callee is an identifier. This covers both `foo()` function calls and `new Foo()` constructor calls.
 
 ### 3.3 Cone traversal API
 
