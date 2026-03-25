@@ -19,7 +19,8 @@ function formatSymbol(
 }
 
 function isEntryPointFile(filePath: string): boolean {
-  return filePath === "src/index.ts" || filePath.endsWith("/index.ts");
+  const name = filePath.replace(/\\/g, "/");
+  return /(?:^|\/)index\.[jt]sx?$/.test(name);
 }
 
 /**
