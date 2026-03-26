@@ -1,9 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { generateCodeMap, type CodeMapResult } from "./code-map.js";
+import { generateCodeMap } from "./code-map.js";
 import { getPluginForFile, loadPlugins } from "./plugin-loader.js";
 import type {
+  CodeMapResult,
   DependencyEdge,
   IndexedSymbol,
   LanguagePlugin,

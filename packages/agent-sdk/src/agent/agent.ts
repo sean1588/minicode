@@ -1,5 +1,5 @@
 import { buildSystemPrompt } from "../prompt/system-prompt.js";
-import type { CodeMapResult } from "../prompt/system-prompt.js";
+import type { CodeMapResult } from "../indexer/types.js";
 import { ensureStepWithinLimit } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
 import type { CompactionResult } from "../session/session.js";

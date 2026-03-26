@@ -159,7 +159,7 @@ interface DependencyEdge {
 mkdir my-minicode-plugin
 cd my-minicode-plugin
 npm init -y
-npm install minicode  # or add as peer dependency
+npm install @minicode/agent-sdk  # or add as peer dependency
 ```
 
 ### 2. Implement the plugin
@@ -167,7 +167,7 @@ npm install minicode  # or add as peer dependency
 Create `src/index.ts` (or `index.js`):
 
 ```typescript
-import type { IndexedSymbol, LanguagePlugin } from "minicode";
+import type { IndexedSymbol, LanguagePlugin } from "@minicode/agent-sdk";
 
 const plugin: LanguagePlugin = {
   name: "my-language",
@@ -202,7 +202,7 @@ Your package must export the plugin. In `package.json`:
     ".": "./dist/index.js"
   },
   "peerDependencies": {
-    "minicode": "*"
+    "@minicode/agent-sdk": "*"
   }
 }
 ```

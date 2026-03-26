@@ -68,5 +68,15 @@ export {
 // System prompt
 export {
   buildSystemPrompt,
-  type CodeMapResult,
 } from "./prompt/system-prompt.js";
+
+// Indexer / plugin types
+export type {
+  CodeMapResult,
+  DependencyEdge,
+  DependencyEdgeKind,
+  IndexedSymbol,
+  LanguagePlugin,
+  ProjectIndex,
+  SymbolKind,
+} from "./indexer/types.js";
