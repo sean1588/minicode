@@ -1,4 +1,4 @@
-import type { DependencyEdge, IndexedSymbol } from "./types.js";
+import type { CodeMapResult, DependencyEdge, IndexedSymbol } from "./types.js";
 
 const DEFAULT_TOKEN_BUDGET = 1500;
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -19,7 +19,8 @@ function formatSymbol(
 }
 
 function isEntryPointFile(filePath: string): boolean {
-  return filePath === "src/index.ts" || filePath.endsWith("/index.ts");
+  const name = filePath.replace(/\\/g, "/");
+  return /(?:^|\/)index\.[jt]sx?$/.test(name);
 }
 
 /**
@@ -77,11 +78,7 @@ function createSymbolRanker(
   };
 }
 
-export interface CodeMapResult {
-  text: string;
-  shownCount: number;
-  totalCount: number;
-}
+export type { CodeMapResult };
 
 /**
  * Generate a compact code map from symbols grouped by file.

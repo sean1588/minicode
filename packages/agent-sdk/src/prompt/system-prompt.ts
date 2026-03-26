@@ -2,12 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentConfig, ToolSchema } from "../agent/types.js";
-
-export interface CodeMapResult {
-  text: string;
-  shownCount: number;
-  totalCount: number;
-}
+import type { CodeMapResult } from "../indexer/types.js";
 
 function detectProjectType(workspaceRoot: string): string {
   const checks: Array<{ file: string; type: string }> = [

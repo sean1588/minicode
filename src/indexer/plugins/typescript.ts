@@ -34,7 +34,7 @@ function extractSignature(
     if (ts.isArrowFunction(node) && ts.isBlock(node.body)) {
       return node.body.getStart(sourceFile);
     }
-    if (ts.isClassDeclaration(node)) {
+    if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
       const text = sourceText.slice(node.getStart(), node.getEnd());
       const braceIdx = text.indexOf("{");
       return braceIdx >= 0 ? node.getStart() + braceIdx : null;
@@ -115,7 +115,10 @@ function createPlugin(): LanguagePlugin {
           return;
         }
 
-        if (ts.isClassDeclaration(node) && node.name) {
+        if (
+          (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
+          node.name
+        ) {
           const name = node.name.getText(sourceFile);
           const prevClass = currentClass;
           currentClass = name;
@@ -128,7 +131,7 @@ function createPlugin(): LanguagePlugin {
             startLine: getLine(sourceFile, node.getStart(sourceFile)),
             endLine: getLine(sourceFile, node.getEnd()),
             signature: extractSignature(node, sourceFile),
-            exported: isExported(node),
+            exported: ts.isClassDeclaration(node) ? isExported(node) : false,
             dependencies: [],
             ...(doc && { docComment: doc }),
           });
@@ -223,11 +226,9 @@ function createPlugin(): LanguagePlugin {
           const doc = extractJSDoc(node, sourceFile);
           for (const decl of node.declarationList.declarations) {
             const init = decl.initializer;
-            if (
-              ts.isIdentifier(decl.name) &&
-              init &&
-              (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-            ) {
+            if (!ts.isIdentifier(decl.name) || !init) continue;
+
+            if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
               const name = decl.name.getText(sourceFile);
               symbols.push({
                 name,
@@ -241,6 +242,24 @@ function createPlugin(): LanguagePlugin {
                 dependencies: [],
                 ...(doc && { docComment: doc }),
               });
+            } else if (ts.isClassExpression(init)) {
+              const name = decl.name.getText(sourceFile);
+              const prevClass = currentClass;
+              currentClass = name;
+              symbols.push({
+                name,
+                qualifiedName: name,
+                kind: "class",
+                filePath,
+                startLine: getLine(sourceFile, decl.getStart(sourceFile)),
+                endLine: getLine(sourceFile, decl.getEnd()),
+                signature: extractSignature(init, sourceFile),
+                exported,
+                dependencies: [],
+                ...(doc && { docComment: doc }),
+              });
+              ts.forEachChild(init, visit);
+              currentClass = prevClass;
             }
           }
           return;
@@ -290,10 +309,12 @@ function createPlugin(): LanguagePlugin {
           const expr = node.expression;
           if (ts.isIdentifier(expr)) {
             addEdge(from, expr.getText(), "calls");
-          } else if (ts.isNewExpression(expr) && expr.expression) {
-            if (ts.isIdentifier(expr.expression)) {
-              addEdge(from, expr.expression.getText(), "calls");
-            }
+          }
+        }
+        if (ts.isNewExpression(node)) {
+          const expr = node.expression;
+          if (ts.isIdentifier(expr)) {
+            addEdge(from, expr.getText(), "calls");
           }
         }
         ts.forEachChild(node, (n) => collectCalls(n, from));
@@ -310,33 +331,43 @@ function createPlugin(): LanguagePlugin {
 
         let currentClass: string | null = null;
 
-        function visit(node: ts.Node): void {
-          if (ts.isClassDeclaration(node) && node.name) {
-            const name = node.name.getText(sourceFile);
-            const prevClass = currentClass;
-            currentClass = name;
+        function visitClassNode(
+          node: ts.ClassDeclaration | ts.ClassExpression,
+          name: string,
+        ): void {
+          const prevClass = currentClass;
+          currentClass = name;
 
-            if (symbolSet.has(name)) {
-              for (const clause of node.heritageClauses ?? []) {
-                for (const type of clause.types) {
-                  const expr = type.expression;
-                  const target =
-                    ts.isIdentifier(expr)
-                      ? expr.getText()
-                      : ts.isPropertyAccessExpression(expr)
-                        ? expr.expression.getText()
-                        : expr.getText();
-                  const kind: DependencyEdgeKind =
-                    clause.token === ts.SyntaxKind.ExtendsKeyword
-                      ? "extends"
-                      : "implements";
-                  addEdge(name, target, kind);
-                }
+          if (symbolSet.has(name)) {
+            for (const clause of node.heritageClauses ?? []) {
+              for (const type of clause.types) {
+                const expr = type.expression;
+                const target =
+                  ts.isIdentifier(expr)
+                    ? expr.getText()
+                    : ts.isPropertyAccessExpression(expr)
+                      ? expr.expression.getText()
+                      : expr.getText();
+                const kind: DependencyEdgeKind =
+                  clause.token === ts.SyntaxKind.ExtendsKeyword
+                    ? "extends"
+                    : "implements";
+                addEdge(name, target, kind);
               }
             }
+          }
 
-            ts.forEachChild(node, visit);
-            currentClass = prevClass;
+          ts.forEachChild(node, visit);
+          currentClass = prevClass;
+        }
+
+        function visit(node: ts.Node): void {
+          if (
+            (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
+            node.name
+          ) {
+            const name = node.name.getText(sourceFile);
+            visitClassNode(node, name);
             return;
           }
 
@@ -375,16 +406,17 @@ function createPlugin(): LanguagePlugin {
           if (ts.isVariableStatement(node)) {
             for (const decl of node.declarationList.declarations) {
               const init = decl.initializer;
-              if (
-                ts.isIdentifier(decl.name) &&
-                init &&
-                (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-              ) {
+              if (!ts.isIdentifier(decl.name) || !init) continue;
+
+              if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
                 const name = decl.name.getText(sourceFile);
                 if (symbolSet.has(name)) {
                   collectTypeRefs(decl, name);
                   collectCalls(decl, name);
                 }
+              } else if (ts.isClassExpression(init)) {
+                const name = decl.name.getText(sourceFile);
+                visitClassNode(init, name);
               }
             }
             return;

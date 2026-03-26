@@ -259,3 +259,78 @@ test("reindexFile updates symbols and code map after file change", async () => {
   const codeMap = index.getCodeMap();
   assert.ok(codeMap.text.includes("title?: string"), "code map should reflect new signature");
 });
+
+test("TypeScript plugin indexes class expressions assigned to variables", () => {
+  const code = `const MyClass = class MyClass {
+  constructor(name) {
+    this.name = name;
+  }
+
+  greet() {
+    return "hello " + this.name;
+  }
+};`;
+  const symbols = typescriptPlugin.indexFile("class-expr.js", code);
+  const names = symbols.map((s) => s.qualifiedName);
+
+  assert.ok(names.includes("MyClass"), "should extract class expression MyClass");
+  assert.ok(names.includes("MyClass.constructor"), "should extract constructor");
+  assert.ok(names.includes("MyClass.greet"), "should extract method greet");
+
+  const cls = symbols.find((s) => s.qualifiedName === "MyClass");
+  assert.equal(cls!.kind, "class");
+});
+
+test("TypeScript plugin indexes anonymous class expressions using variable name", () => {
+  const code = `const Widget = class {
+  render() {
+    return "<div/>";
+  }
+};`;
+  const symbols = typescriptPlugin.indexFile("anon-class.js", code);
+  const names = symbols.map((s) => s.qualifiedName);
+
+  assert.ok(names.includes("Widget"), "should extract anonymous class as Widget");
+  assert.ok(names.includes("Widget.render"), "should extract method with class prefix");
+
+  const cls = symbols.find((s) => s.qualifiedName === "Widget");
+  assert.equal(cls!.kind, "class");
+});
+
+test("TypeScript plugin indexes exported class expressions", () => {
+  const code = `export const Service = class Service {
+  start() {}
+  stop() {}
+};`;
+  const symbols = typescriptPlugin.indexFile("service.js", code);
+
+  const cls = symbols.find((s) => s.qualifiedName === "Service");
+  assert.ok(cls, "should extract exported class expression");
+  assert.equal(cls!.exported, true, "should mark as exported");
+  assert.equal(cls!.kind, "class");
+
+  const names = symbols.map((s) => s.qualifiedName);
+  assert.ok(names.includes("Service.start"));
+  assert.ok(names.includes("Service.stop"));
+});
+
+test("resolveDependencies tracks new expressions as calls edges", () => {
+  const code = `
+class Logger {
+  log(msg) {}
+}
+
+function setup() {
+  const logger = new Logger();
+  logger.log("ready");
+}
+`;
+  const symbols = typescriptPlugin.indexFile("new-expr.js", code);
+  const projectFiles = new Map([["new-expr.js", code]]);
+  const edges = typescriptPlugin.resolveDependencies!(symbols, projectFiles);
+
+  const newCallEdge = edges.find(
+    (e) => e.from === "setup" && e.to === "Logger" && e.kind === "calls",
+  );
+  assert.ok(newCallEdge, "new Logger() should produce a calls edge from setup to Logger");
+});
