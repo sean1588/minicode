@@ -46,6 +46,7 @@ async function collectSourceFiles(
   dir: string,
   root: string,
   files: string[],
+  validExtensions: Set<string>,
 ): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
 
@@ -54,14 +55,14 @@ async function collectSourceFiles(
 
     if (entry.isDirectory()) {
       if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
-        await collectSourceFiles(fullPath, root, files);
+        await collectSourceFiles(fullPath, root, files, validExtensions);
       }
       continue;
     }
 
     if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
+      if (validExtensions.has(ext)) {
         files.push(path.relative(root, fullPath));
       }
     }
@@ -75,8 +76,11 @@ export async function computeFileHashes(
   workspaceRoot: string,
 ): Promise<Map<string, string>> {
   const root = path.resolve(workspaceRoot);
+  const plugins = await loadPlugins(root);
+  const validExtensions = new Set(plugins.flatMap((p) => p.extensions));
+
   const sourceFiles: string[] = [];
-  await collectSourceFiles(root, root, sourceFiles);
+  await collectSourceFiles(root, root, sourceFiles, validExtensions);
 
   const hashes = new Map<string, string>();
   for (const relPath of sourceFiles) {
