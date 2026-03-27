@@ -24,40 +24,60 @@ function isEntryPointFile(filePath: string): boolean {
 }
 
 /**
+ * Build adjacency maps from edges for O(1) lookups per symbol.
+ */
+function buildAdjacencyMaps(edges: DependencyEdge[]): {
+  byFrom: Map<string, DependencyEdge[]>;
+  byTo: Map<string, DependencyEdge[]>;
+} {
+  const byFrom = new Map<string, DependencyEdge[]>();
+  const byTo = new Map<string, DependencyEdge[]>();
+  for (const edge of edges) {
+    const fromList = byFrom.get(edge.from);
+    if (fromList) fromList.push(edge); else byFrom.set(edge.from, [edge]);
+    const toList = byTo.get(edge.to);
+    if (toList) toList.push(edge); else byTo.set(edge.to, [edge]);
+  }
+  return { byFrom, byTo };
+}
+
+/**
  * Build the set of symbols related to focus symbols via dependency edges.
  * Expands 1 hop outbound (what focus symbols depend on) and 1 hop inbound
  * (what depends on focus symbols).
  */
 function expandFocusSet(
   focusSymbols: Set<string>,
-  edges: DependencyEdge[],
+  adjacency: { byFrom: Map<string, DependencyEdge[]>; byTo: Map<string, DependencyEdge[]> },
 ): Set<string> {
   const expanded = new Set(focusSymbols);
-  for (const edge of edges) {
+  for (const sym of focusSymbols) {
     // Outbound: focus symbol depends on something
-    if (focusSymbols.has(edge.from)) {
-      expanded.add(edge.to);
+    const outEdges = adjacency.byFrom.get(sym);
+    if (outEdges) {
+      for (const edge of outEdges) expanded.add(edge.to);
     }
     // Inbound: something depends on focus symbol
-    if (focusSymbols.has(edge.to)) {
-      expanded.add(edge.from);
+    const inEdges = adjacency.byTo.get(sym);
+    if (inEdges) {
+      for (const edge of inEdges) expanded.add(edge.from);
     }
   }
   return expanded;
 }
 
 function createSymbolRanker(
-  edges: DependencyEdge[],
+  adjacency: { byFrom: Map<string, DependencyEdge[]>; byTo: Map<string, DependencyEdge[]> },
   focusSymbols?: Set<string>,
 ) {
   const refCount = new Map<string, number>();
-  for (const e of edges) {
-    refCount.set(e.to, (refCount.get(e.to) ?? 0) + 1);
+  for (const [target, edges] of adjacency.byTo) {
+    refCount.set(target, edges.length);
   }
 
   // Expand focus set to include 1-hop neighbors in the dependency graph
   const boosted = focusSymbols?.size
-    ? expandFocusSet(focusSymbols, edges)
+    ? expandFocusSet(focusSymbols, adjacency)
     : undefined;
 
   return (a: IndexedSymbol, b: IndexedSymbol): number => {
@@ -101,8 +121,11 @@ export function generateCodeMap(
   );
 
   const lines: string[] = ["# Project Code Map", ""];
+  const adjacency = dependencyEdges
+    ? buildAdjacencyMaps(dependencyEdges)
+    : { byFrom: new Map<string, DependencyEdge[]>(), byTo: new Map<string, DependencyEdge[]>() };
   const rank = dependencyEdges
-    ? createSymbolRanker(dependencyEdges, focusSymbols)
+    ? createSymbolRanker(adjacency, focusSymbols)
     : (a: IndexedSymbol, b: IndexedSymbol) =>
         (a.exported === b.exported ? 0 : a.exported ? -1 : 1);
 
@@ -114,7 +137,7 @@ export function generateCodeMap(
   // When we have focus symbols, sort files so that files containing
   // focused symbols come first in the code map.
   const boosted = focusSymbols?.size && dependencyEdges
-    ? expandFocusSet(focusSymbols, dependencyEdges)
+    ? expandFocusSet(focusSymbols, adjacency)
     : undefined;
 
   const sortedFiles = [...symbolsByFile.keys()].sort((a, b) => {
