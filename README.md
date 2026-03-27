@@ -2,7 +2,7 @@
 
 A lightweight coding agent optimized for **local models** — CLI-first with a built-in web UI. Provides AST-based intelligent context for smaller models running on consumer hardware.
 
-_Now with new Web UI interface with dependency graph code visualizer. Updates in real time as agent explores the codebase. Run `minicode serve` to interact over localhost._
+_New Web UI interface with code dependency graph visualizer. Updates in real time as agent explores the codebase. Run `minicode serve` to interact over localhost._
 
 <img width="1723" height="920" alt="Screenshot 2026-03-26 at 6 30 23 PM" src="https://github.com/user-attachments/assets/499c8dc7-cc2b-4125-abd5-32b2fc9795ea" />
 
