@@ -40,6 +40,19 @@ async function collectSourceFiles(
   }
 }
 
+function buildAdjacencyFrom(edges: DependencyEdge[]): Map<string, DependencyEdge[]> {
+  const map = new Map<string, DependencyEdge[]>();
+  for (const edge of edges) {
+    const list = map.get(edge.from);
+    if (list) {
+      list.push(edge);
+    } else {
+      map.set(edge.from, [edge]);
+    }
+  }
+  return map;
+}
+
 export function createProjectIndex(
   symbols: Map<string, IndexedSymbol>,
   files: Map<string, IndexedSymbol[]>,
@@ -48,6 +61,8 @@ export function createProjectIndex(
   projectFiles: Map<string, string>,
   workspaceRoot: string,
 ): ProjectIndex {
+  let adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
+
   return {
     symbols,
     files,
@@ -82,15 +97,15 @@ export function createProjectIndex(
       for (let d = 0; d < depth; d += 1) {
         const next = new Set<string>();
         for (const from of frontier) {
-          for (const edge of dependencyEdges) {
-            if (edge.from === from) {
-              const dep = symbols.get(edge.to) ?? [...symbols.values()].find(
-                (s) => s.qualifiedName === edge.to || s.name === edge.to,
-              );
-              if (dep && !result.has(dep.qualifiedName)) {
-                result.set(dep.qualifiedName, dep);
-                next.add(dep.qualifiedName);
-              }
+          const outEdges = adjacencyFrom.get(from);
+          if (!outEdges) continue;
+          for (const edge of outEdges) {
+            const dep = symbols.get(edge.to) ?? [...symbols.values()].find(
+              (s) => s.qualifiedName === edge.to || s.name === edge.to,
+            );
+            if (dep && !result.has(dep.qualifiedName)) {
+              result.set(dep.qualifiedName, dep);
+              next.add(dep.qualifiedName);
             }
           }
         }
@@ -133,6 +148,7 @@ export function createProjectIndex(
           const allSymbols = [...symbols.values()];
           const edges = p.resolveDependencies(allSymbols, projectFiles);
           dependencyEdges.splice(0, dependencyEdges.length, ...edges);
+          adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
           break;
         }
       }
