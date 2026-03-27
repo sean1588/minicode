@@ -2,6 +2,11 @@
 
 A lightweight coding agent optimized for **local models** — CLI-first with a built-in web UI. Provides AST-based intelligent context for smaller models running on consumer hardware.
 
+_Now with new Web UI interface with dependency graph code visualizer. Updates in real time as agent explores the codebase. Run `minicode serve` to interact over localhost._
+
+<img width="1723" height="920" alt="Screenshot 2026-03-26 at 6 30 23 PM" src="https://github.com/user-attachments/assets/499c8dc7-cc2b-4125-abd5-32b2fc9795ea" />
+
+
 Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
 
 ## Quick Start (LM Studio)
