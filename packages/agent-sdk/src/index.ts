@@ -4,6 +4,7 @@ export type {
   AssistantMessage,
   ModelClient,
   ModelResponse,
+  ReasoningEffort,
   SessionMessage,
   ToolCall,
   ToolDefinition,

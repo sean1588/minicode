@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
 
-import type { AgentConfig } from "@minicode/agent-sdk";
+import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
 
 /** User-level config directory: ~/.minicode */
 export const MINICODE_HOME = path.join(os.homedir(), ".minicode");
@@ -37,6 +37,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "enableToolOutputTruncation: " + (config.enableToolOutputTruncation ?? false),
     "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
     "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
+    "reasoningEffort: " + (config.reasoningEffort ?? "(unset — no reasoning parameters sent)"),
   ];
   return lines.join("\n");
 }
@@ -63,6 +64,16 @@ const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
   /\bchmod\s+-R\s+777\s+\//i,
 ];
 
+const VALID_REASONING_EFFORTS = new Set<ReasoningEffort>([
+  "xhigh", "high", "medium", "low", "minimal", "none",
+]);
+
+function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase() as ReasoningEffort;
+  return VALID_REASONING_EFFORTS.has(normalized) ? normalized : undefined;
+}
+
 interface AgentConfigFile {
   modelProvider?: string;
   model?: string;
@@ -84,6 +95,7 @@ interface AgentConfigFile {
   enableToolOutputTruncation?: boolean;
   compactionThreshold?: number;
   compactionModel?: string;
+  reasoningEffort?: string;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -254,6 +266,12 @@ export async function loadAgentConfig(
     ...(process.env.COMPACTION_MODEL ?? fileConfig.compactionModel
       ? { compactionModel: process.env.COMPACTION_MODEL ?? fileConfig.compactionModel }
       : {}),
+    ...(() => {
+      const effort = parseReasoningEffort(
+        process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort,
+      );
+      return effort ? { reasoningEffort: effort } : {};
+    })(),
   };
 }
 

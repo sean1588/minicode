@@ -3,7 +3,7 @@ import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
-import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient, type ReasoningEffort } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "./agent/config.js";
 import {
   listSessions,
@@ -141,7 +141,7 @@ async function runInteractive(
     }
 
     if (trimmed === "/help") {
-      console.log('Commands: "/help", "/config", "/compact", "/save [label]", "/load [label]", "/sessions", "/exit"');
+      console.log('Commands: "/help", "/config", "/compact", "/reasoning [level]", "/save [label]", "/load [label]", "/sessions", "/exit"');
       console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
       continue;
     }
@@ -163,6 +163,29 @@ async function runInteractive(
         );
       } else {
         console.log(`Nothing to compact (${tokensBefore} tokens, ${session.getMessages().length} messages).`);
+      }
+      continue;
+    }
+
+    if (trimmed === "/reasoning" || trimmed.startsWith("/reasoning ")) {
+      const VALID_LEVELS: ReasoningEffort[] = ["xhigh", "high", "medium", "low", "minimal", "none"];
+      const arg = trimmed.slice("/reasoning".length).trim().toLowerCase();
+      if (arg.length === 0) {
+        const current = agent.getReasoningEffort() ?? "(unset)";
+        console.log(`Current reasoning effort: ${current}`);
+        console.log(`Valid levels: ${VALID_LEVELS.join(", ")}, off`);
+        continue;
+      }
+      if (arg === "off") {
+        agent.setReasoningEffort(undefined);
+        console.log("Reasoning effort disabled.");
+        continue;
+      }
+      if (VALID_LEVELS.includes(arg as ReasoningEffort)) {
+        agent.setReasoningEffort(arg as ReasoningEffort);
+        console.log(`Reasoning effort set to: ${arg}`);
+      } else {
+        console.log(`Invalid reasoning level "${arg}". Valid levels: ${VALID_LEVELS.join(", ")}, off`);
       }
       continue;
     }

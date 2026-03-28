@@ -7,6 +7,7 @@ import type {
   AgentConfig,
   ModelClient,
   ModelResponse,
+  ReasoningEffort,
   SessionMessage,
   ToolCall,
   ToolSchema,
@@ -296,6 +297,18 @@ function normalizeBaseUrl(baseUrl: string): string {
   return trimmed;
 }
 
+/** Map reasoning effort level to a fraction of max_tokens for Anthropic budget_tokens. */
+function effortToBudgetFraction(effort: ReasoningEffort): number {
+  switch (effort) {
+    case "xhigh": return 0.95;
+    case "high": return 0.80;
+    case "medium": return 0.50;
+    case "low": return 0.20;
+    case "minimal": return 0.10;
+    case "none": return 0;
+  }
+}
+
 export class AnthropicModelClient implements ModelClient {
   private readonly client: Anthropic;
 
@@ -315,16 +328,33 @@ export class AnthropicModelClient implements ModelClient {
     messages: SessionMessage[];
     tools: ToolSchema[];
     maxTokens: number;
+    reasoningEffort?: ReasoningEffort;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
   }): Promise<ModelResponse> {
-    const requestParams = {
+    const baseParams = {
       model: params.model,
       max_tokens: params.maxTokens,
       system: params.system,
       messages: toAnthropicMessages(params.messages),
       tools: params.tools as unknown as Anthropic.Messages.ToolUnion[],
     };
+
+    // Build thinking parameter for models that support extended thinking.
+    const thinkingParam =
+      params.reasoningEffort && params.reasoningEffort !== "none"
+        ? {
+            thinking: {
+              type: "enabled" as const,
+              budget_tokens: Math.max(
+                1,
+                Math.round(params.maxTokens * effortToBudgetFraction(params.reasoningEffort)),
+              ),
+            },
+          }
+        : {};
+
+    const requestParams = { ...baseParams, ...thinkingParam };
 
     if (params.onStream) {
       const onStream = params.onStream;
@@ -487,6 +517,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     messages: SessionMessage[];
     tools: ToolSchema[];
     maxTokens: number;
+    reasoningEffort?: ReasoningEffort;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
   }): Promise<ModelResponse> {
@@ -514,18 +545,24 @@ export class OpenAICompatibleModelClient implements ModelClient {
 
     const useStream = params.onStream !== undefined;
 
+    const requestBody: Record<string, unknown> = {
+      model: params.model,
+      messages: toOpenAICompatibleMessages(params.system, params.messages),
+      tools: toOpenAICompatibleTools(params.tools),
+      tool_choice: "auto",
+      max_tokens: params.maxTokens,
+      stream: useStream,
+    };
+
+    if (params.reasoningEffort) {
+      requestBody.reasoning = { effort: params.reasoningEffort };
+    }
+
     const response = await withRetry(async () => {
       const httpResponse = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          model: params.model,
-          messages: toOpenAICompatibleMessages(params.system, params.messages),
-          tools: toOpenAICompatibleTools(params.tools),
-          tool_choice: "auto",
-          max_tokens: params.maxTokens,
-          stream: useStream,
-        }),
+        body: JSON.stringify(requestBody),
         ...(params.signal && { signal: params.signal }),
       });
 
