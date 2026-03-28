@@ -1,0 +1,9 @@
+{
+  "title": "Debug a runtime configuration issue",
+  "prompt": "A user reports that setting MAX_CONTEXT_TOKENS in their .env has no effect. Trace the config loading path and identify where the environment variable is read and converted.",
+  "rubric": {
+    "expectedOutputPatterns": ["MAX_CONTEXT_TOKENS", "config", "env"],
+    "expectedFilesRead": ["config.ts"],
+    "maxToolCalls": 15
+  }
+}

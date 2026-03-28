@@ -1,0 +1,9 @@
+{
+  "title": "Find root cause from symptom description",
+  "prompt": "A user reports that the code map is always empty even though their project has TypeScript files. What could cause buildProjectIndex to return no symbols? Trace the code path.",
+  "rubric": {
+    "expectedOutputPatterns": ["collectSourceFiles", "plugin", "extensions"],
+    "expectedFilesRead": ["project-index.ts"],
+    "maxToolCalls": 15
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Explain the indexing flow",
+  "prompt": "Explain how the project indexing flow works, from buildProjectIndex through plugin loading to symbol extraction. Trace the code path.",
+  "rubric": {
+    "expectedOutputPatterns": ["buildProjectIndex", "plugin", "indexFile", "symbol"],
+    "expectedFilesRead": ["project-index.ts"],
+    "maxToolCalls": 15
+  }
+}

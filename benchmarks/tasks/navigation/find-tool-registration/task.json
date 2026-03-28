@@ -1,0 +1,9 @@
+{
+  "title": "Find where tools are registered",
+  "prompt": "Find where the agent tools (read_file, write_file, etc.) are registered and assembled into a ToolRegistry. Give me the file and the function name.",
+  "rubric": {
+    "expectedOutputPatterns": ["createToolRegistry", "registry"],
+    "expectedFilesRead": ["registry.ts"],
+    "maxToolCalls": 10
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Add input validation to a function",
+  "prompt": "In the read_file tool, add validation that rejects file paths containing '..' path traversal. Return an error message if detected.",
+  "rubric": {
+    "expectedOutputPatterns": ["\\.\\."],
+    "expectedFilesRead": ["read-file.ts"],
+    "maxToolCalls": 15
+  }
+}

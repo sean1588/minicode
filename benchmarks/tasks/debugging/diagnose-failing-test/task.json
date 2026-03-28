@@ -1,0 +1,9 @@
+{
+  "title": "Diagnose a failing test scenario",
+  "prompt": "Look at the agent test file. If the loop detection test was failing because the agent kept running past 3 repeated calls, where would you look to debug this? Identify the loop detection code path.",
+  "rubric": {
+    "expectedOutputPatterns": ["loop", "fingerprint", "detection"],
+    "expectedFilesRead": ["agent.ts"],
+    "maxToolCalls": 15
+  }
+}

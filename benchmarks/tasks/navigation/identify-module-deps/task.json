@@ -1,0 +1,9 @@
+{
+  "title": "Identify dependencies of Session class",
+  "prompt": "What does the Session class depend on? List its imports and any types or modules it references.",
+  "rubric": {
+    "expectedOutputPatterns": ["Session", "session"],
+    "expectedFilesRead": ["session.ts"],
+    "maxToolCalls": 10
+  }
+}

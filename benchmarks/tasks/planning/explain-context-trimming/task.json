@@ -1,0 +1,9 @@
+{
+  "title": "Explain the context trimming strategy",
+  "prompt": "Explain how minicode manages context window limits. Describe the trimming phases, what gets removed first, and how compaction works.",
+  "rubric": {
+    "expectedOutputPatterns": ["trim", "compact", "phase", "token"],
+    "expectedFilesRead": ["session.ts"],
+    "maxToolCalls": 15
+  }
+}

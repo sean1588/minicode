@@ -1,0 +1,9 @@
+{
+  "title": "Identify the serve mode code path",
+  "prompt": "Trace the code path when a user runs 'minicode serve'. How does the HTTP server start? How are API routes registered? How does the WebSocket streaming work?",
+  "rubric": {
+    "expectedOutputPatterns": ["serve", "server", "route", "WebSocket"],
+    "expectedFilesRead": ["server.ts"],
+    "maxToolCalls": 15
+  }
+}

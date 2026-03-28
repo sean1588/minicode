@@ -1,0 +1,9 @@
+{
+  "title": "Fix a missing null check",
+  "prompt": "In the code map generation, what happens if tokenBudget is 0 or negative? Identify the file and add a guard that returns an empty code map for invalid budgets.",
+  "rubric": {
+    "expectedOutputPatterns": ["budget", "code.?map"],
+    "expectedFilesRead": ["code-map.ts"],
+    "maxToolCalls": 15
+  }
+}

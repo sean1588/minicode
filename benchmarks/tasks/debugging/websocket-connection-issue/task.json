@@ -1,0 +1,9 @@
+{
+  "title": "Debug WebSocket connection issue",
+  "prompt": "If the web UI connects but never receives streaming updates, where would you look in the serve code to debug this? Identify the WebSocket message flow.",
+  "rubric": {
+    "expectedOutputPatterns": ["WebSocket", "ws", "stream"],
+    "expectedFilesRead": ["websocket.ts"],
+    "maxToolCalls": 15
+  }
+}

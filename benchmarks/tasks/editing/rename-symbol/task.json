@@ -1,0 +1,9 @@
+{
+  "title": "Safely rename a local variable",
+  "prompt": "In session.ts, find the trim() method. Rename the local variable 'estimate' to 'tokenEstimate' if one exists, or describe what local variables the trim method uses.",
+  "rubric": {
+    "expectedOutputPatterns": ["trim", "session"],
+    "expectedFilesRead": ["session.ts"],
+    "maxToolCalls": 10
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Add a new configuration field",
+  "prompt": "Add a new optional 'enableBenchmarkMode' boolean field to AgentConfig. Show what changes would be needed in the types file.",
+  "rubric": {
+    "expectedOutputPatterns": ["enableBenchmarkMode", "AgentConfig"],
+    "expectedFilesRead": ["types.ts"],
+    "maxToolCalls": 10
+  }
+}

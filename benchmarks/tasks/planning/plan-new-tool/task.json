@@ -1,0 +1,9 @@
+{
+  "title": "Plan adding a new tool to the agent",
+  "prompt": "Plan what would be needed to add a new 'run_tests' tool to minicode. Where would the tool be defined? How would it be registered? What safety considerations apply?",
+  "rubric": {
+    "expectedOutputPatterns": ["ToolDefinition", "registry", "execute"],
+    "expectedFilesRead": ["registry.ts"],
+    "maxToolCalls": 15
+  }
+}

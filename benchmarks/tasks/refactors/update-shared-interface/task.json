@@ -1,0 +1,9 @@
+{
+  "title": "Update a shared interface across files",
+  "prompt": "If we add a 'priority' field to the IndexedSymbol interface, which files would need to be updated? List all files that construct or destructure IndexedSymbol objects.",
+  "rubric": {
+    "expectedOutputPatterns": ["IndexedSymbol"],
+    "expectedSymbols": ["IndexedSymbol"],
+    "maxToolCalls": 15
+  }
+}

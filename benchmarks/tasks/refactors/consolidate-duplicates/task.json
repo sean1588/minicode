@@ -1,0 +1,9 @@
+{
+  "title": "Find and consolidate duplicate logic",
+  "prompt": "Find any duplicated logic between the TypeScript plugin's indexFile and resolveDependencies methods. Are there AST walking patterns that could be shared?",
+  "rubric": {
+    "expectedOutputPatterns": ["typescript", "AST", "plugin"],
+    "expectedFilesRead": ["typescript.ts"],
+    "maxToolCalls": 15
+  }
+}
