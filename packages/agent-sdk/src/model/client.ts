@@ -318,13 +318,33 @@ export class AnthropicModelClient implements ModelClient {
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
   }): Promise<ModelResponse> {
+    const requestParams = {
+      model: params.model,
+      max_tokens: params.maxTokens,
+      system: params.system,
+      messages: toAnthropicMessages(params.messages),
+      tools: params.tools as unknown as Anthropic.Messages.ToolUnion[],
+    };
+
+    if (params.onStream) {
+      const onStream = params.onStream;
+      return withRetry(async () => {
+        const stream = this.client.messages.stream(requestParams);
+        if (params.signal) {
+          params.signal.addEventListener("abort", () => stream.abort(), { once: true });
+        }
+        stream.on("text", (text) => {
+          onStream(text);
+        });
+
+        const finalMessage = await stream.finalMessage();
+        return parseResponse(finalMessage);
+      });
+    }
+
     const response = await withRetry<Anthropic.Messages.Message>(() =>
       this.client.messages.create({
-        model: params.model,
-        max_tokens: params.maxTokens,
-        system: params.system,
-        messages: toAnthropicMessages(params.messages),
-        tools: params.tools as unknown as Anthropic.Messages.ToolUnion[],
+        ...requestParams,
         stream: false,
       }) as Promise<Anthropic.Messages.Message>,
     );
