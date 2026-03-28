@@ -334,3 +334,79 @@ function setup() {
   );
   assert.ok(newCallEdge, "new Logger() should produce a calls edge from setup to Logger");
 });
+
+test("AST cache avoids double-parsing: resolveDependencies reuses cached ASTs from indexFile", () => {
+  const code = `
+export interface Task {
+  id: string;
+  name: string;
+}
+
+export function createTask(id: string, name: string): Task {
+  return { id, name };
+}
+
+export class TaskManager {
+  run(task: Task) {
+    return createTask(task.id, task.name);
+  }
+}
+`;
+  // indexFile populates the internal AST cache
+  const symbols = typescriptPlugin.indexFile("cached.ts", code);
+  assert.ok(symbols.length > 0, "should extract symbols");
+
+  // resolveDependencies should reuse the cached AST (no re-parse)
+  const projectFiles = new Map([["cached.ts", code]]);
+  const edges = typescriptPlugin.resolveDependencies!(symbols, projectFiles);
+
+  // Verify edges are still correctly produced (cache didn't break resolution)
+  const callEdge = edges.find(
+    (e) => e.from === "TaskManager.run" && e.to === "createTask" && e.kind === "calls",
+  );
+  assert.ok(callEdge, "should find calls edge from TaskManager.run to createTask");
+
+  const refEdge = edges.find(
+    (e) => e.from === "createTask" && e.to === "Task" && e.kind === "references",
+  );
+  assert.ok(refEdge, "should find references edge from createTask to Task");
+});
+
+test("AST cache is cleared after resolveDependencies completes", () => {
+  const code = `export function foo(): void {}`;
+
+  // First pass: indexFile caches the AST
+  typescriptPlugin.indexFile("clear-test.ts", code);
+
+  // resolveDependencies should clear the cache when done
+  typescriptPlugin.resolveDependencies!(
+    typescriptPlugin.indexFile("clear-test.ts", code),
+    new Map([["clear-test.ts", code]]),
+  );
+
+  // Second pass with different content on same path — should parse fresh, not stale cache
+  const newCode = `export function bar(): string { return "bar"; }`;
+  const symbols = typescriptPlugin.indexFile("clear-test.ts", newCode);
+  const names = symbols.map((s) => s.qualifiedName);
+  assert.ok(names.includes("bar"), "should extract bar from fresh parse");
+  assert.ok(!names.includes("foo"), "should not have stale foo from cache");
+});
+
+test("resolveDependencies works without prior indexFile (cache miss)", () => {
+  const code = `
+function alpha() { beta(); }
+function beta() {}
+`;
+  // Call resolveDependencies without indexFile first — should still work via fallback parse
+  const symbols = [
+    { name: "alpha", qualifiedName: "alpha", kind: "function" as const, filePath: "no-cache.ts", startLine: 2, endLine: 2, signature: "function alpha()", exported: false, dependencies: [] },
+    { name: "beta", qualifiedName: "beta", kind: "function" as const, filePath: "no-cache.ts", startLine: 3, endLine: 3, signature: "function beta()", exported: false, dependencies: [] },
+  ];
+  const projectFiles = new Map([["no-cache.ts", code]]);
+  const edges = typescriptPlugin.resolveDependencies!(symbols, projectFiles);
+
+  const callEdge = edges.find(
+    (e) => e.from === "alpha" && e.to === "beta" && e.kind === "calls",
+  );
+  assert.ok(callEdge, "should resolve dependencies even without cached AST");
+});

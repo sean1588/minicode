@@ -75,6 +75,8 @@ function extractJSDoc(node: ts.Node, sourceFile: ts.SourceFile): string | undefi
 }
 
 function createPlugin(): LanguagePlugin {
+  const astCache = new Map<string, ts.SourceFile>();
+
   return {
     name: "typescript",
     extensions: EXTENSIONS,
@@ -91,6 +93,7 @@ function createPlugin(): LanguagePlugin {
         ts.ScriptTarget.Latest,
         true,
       );
+      astCache.set(filePath, sourceFile);
 
       const symbols: IndexedSymbol[] = [];
       let currentClass: string | null = null;
@@ -322,7 +325,7 @@ function createPlugin(): LanguagePlugin {
 
       for (const [filePath, content] of projectFiles) {
         const fullPath = path.join(rootDir, filePath);
-        const sourceFile = ts.createSourceFile(
+        const sourceFile = astCache.get(filePath) ?? ts.createSourceFile(
           fullPath,
           content,
           ts.ScriptTarget.Latest,
@@ -428,6 +431,7 @@ function createPlugin(): LanguagePlugin {
         visit(sourceFile);
       }
 
+      astCache.clear();
       return edges;
     },
   };
