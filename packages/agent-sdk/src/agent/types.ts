@@ -24,6 +24,9 @@ export interface ToolResultMessage {
 
 export type SessionMessage = UserMessage | AssistantMessage | ToolResultMessage;
 
+/** Valid reasoning effort levels for models that support reasoning tokens. */
+export type ReasoningEffort = "xhigh" | "high" | "medium" | "low" | "minimal" | "none";
+
 export interface AgentConfig {
   modelProvider: "anthropic" | "openai-compatible";
   model: string;
@@ -51,6 +54,8 @@ export interface AgentConfig {
   compactionThreshold?: number;
   /** Model to use for LLM-based compaction. When set, compaction uses an LLM to summarize instead of mechanical truncation. */
   compactionModel?: string;
+  /** Reasoning effort level for models that support reasoning tokens. When unset, no reasoning parameters are sent. */
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface ToolSchema {
@@ -83,6 +88,7 @@ export interface ModelClient {
     messages: SessionMessage[];
     tools: ToolSchema[];
     maxTokens: number;
+    reasoningEffort?: ReasoningEffort;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
   }): Promise<ModelResponse>;

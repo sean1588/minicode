@@ -1,7 +1,7 @@
 import process from "node:process";
 
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
-import type { UiUpdate } from "@minicode/agent-sdk";
+import type { UiUpdate, ReasoningEffort } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
@@ -150,7 +150,7 @@ export async function runInkCli(
       store.addItem({
         type: "system",
         content:
-          'Commands: "/help", "/config", "/compact", "/save [label]", "/load [label]", "/sessions", "/exit".',
+          'Commands: "/help", "/config", "/compact", "/reasoning [level]", "/save [label]", "/load [label]", "/sessions", "/exit".',
       });
       return;
     }
@@ -179,6 +179,34 @@ export async function runInkCli(
         store.addItem({
           type: "system",
           content: `Nothing to compact (${session.getTokenEstimate()} tokens, ${session.getMessages().length} messages).`,
+        });
+      }
+      return;
+    }
+
+    if (trimmed === "/reasoning" || trimmed.startsWith("/reasoning ")) {
+      const VALID_LEVELS: ReasoningEffort[] = ["xhigh", "high", "medium", "low", "minimal", "none"];
+      const arg = trimmed.slice("/reasoning".length).trim().toLowerCase();
+      if (arg.length === 0) {
+        const current = agent.getReasoningEffort() ?? "(unset)";
+        store.addItem({
+          type: "system",
+          content: `Current reasoning effort: ${current}\nValid levels: ${VALID_LEVELS.join(", ")}, off`,
+        });
+        return;
+      }
+      if (arg === "off") {
+        agent.setReasoningEffort(undefined);
+        store.addItem({ type: "system", content: "Reasoning effort disabled." });
+        return;
+      }
+      if (VALID_LEVELS.includes(arg as ReasoningEffort)) {
+        agent.setReasoningEffort(arg as ReasoningEffort);
+        store.addItem({ type: "system", content: `Reasoning effort set to: ${arg}` });
+      } else {
+        store.addItem({
+          type: "system",
+          content: `Invalid reasoning level "${arg}". Valid levels: ${VALID_LEVELS.join(", ")}, off`,
         });
       }
       return;

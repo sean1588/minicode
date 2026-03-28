@@ -154,7 +154,7 @@ function computeEffectiveKeepRecent(
 
 export class CodingAgent {
   private readonly session: Session;
-  private readonly config: AgentConfig;
+  private config: AgentConfig;
   private readonly modelClient: ModelClient;
   private readonly toolRegistry: ToolRegistry;
   private readonly getCodeMap: ((focusSymbols?: Set<string>) => CodeMapResult | undefined) | undefined;
@@ -214,6 +214,15 @@ export class CodingAgent {
 
   getSession(): Session {
     return this.session;
+  }
+
+  getReasoningEffort(): AgentConfig["reasoningEffort"] {
+    return this.config.reasoningEffort;
+  }
+
+  setReasoningEffort(effort: AgentConfig["reasoningEffort"]): void {
+    const { reasoningEffort: _, ...rest } = this.config;
+    this.config = effort ? { ...rest, reasoningEffort: effort } : { ...rest };
   }
 
   /**
@@ -368,6 +377,9 @@ export class CodingAgent {
         messages,
         tools: toolSchemas,
         maxTokens: this.config.maxTokens,
+        ...(this.config.reasoningEffort
+          ? { reasoningEffort: this.config.reasoningEffort }
+          : {}),
         ...(this.onUiUpdate
           ? {
               onStream: (chunk: string) => {
