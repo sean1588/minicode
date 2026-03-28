@@ -81,6 +81,12 @@ export interface ModelResponse {
   };
 }
 
+/** Describes a model available from the provider. */
+export interface ModelInfo {
+  id: string;
+  name?: string;
+}
+
 export interface ModelClient {
   chat(params: {
     model: string;
@@ -92,4 +98,7 @@ export interface ModelClient {
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
   }): Promise<ModelResponse>;
+
+  /** List models available from the provider. Returns empty array on failure. */
+  listModels?(): Promise<ModelInfo[]>;
 }

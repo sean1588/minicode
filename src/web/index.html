@@ -18,7 +18,14 @@
         <span id="status-badge" class="badge ready">ready</span>
       </div>
       <div class="header-right">
-        <span id="model-info"></span>
+        <div class="model-menu">
+          <button id="model-btn" class="header-btn" title="Switch model"><span id="model-info"></span> ▾</button>
+          <div id="model-dropdown" class="dropdown hidden">
+            <div id="model-list" class="dropdown-section">
+              <div class="dropdown-empty">Loading models...</div>
+            </div>
+          </div>
+        </div>
         <button id="graph-toggle" class="header-btn" title="Toggle graph pane">Graph</button>
         <div class="session-menu">
           <button id="session-btn" class="header-btn" title="Sessions">Sessions</button>

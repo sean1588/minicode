@@ -28,6 +28,13 @@ export function createWebSocketServer(
         });
       } else if (msg.type === "cancel") {
         bridge.cancel();
+      } else if (msg.type === "switch_model") {
+        bridge.switchModel(msg.model);
+        const changed: ServerMessage = { type: "model_changed", model: msg.model };
+        // Broadcast to all clients
+        for (const client of wss.clients) {
+          client.send(JSON.stringify(changed));
+        }
       }
     });
   });

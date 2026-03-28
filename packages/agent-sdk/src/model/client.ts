@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type {
   AgentConfig,
   ModelClient,
+  ModelInfo,
   ModelResponse,
   ReasoningEffort,
   SessionMessage,
@@ -381,6 +382,19 @@ export class AnthropicModelClient implements ModelClient {
 
     return parseResponse(response);
   }
+
+  async listModels(): Promise<ModelInfo[]> {
+    try {
+      const response = await this.client.models.list();
+      const models: ModelInfo[] = [];
+      for await (const model of response) {
+        models.push({ id: model.id, name: model.display_name ?? model.id });
+      }
+      return models;
+    } catch {
+      return [];
+    }
+  }
 }
 
 interface OpenAIStreamChunk {
@@ -586,6 +600,22 @@ export class OpenAICompatibleModelClient implements ModelClient {
     });
 
     return response;
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    const headers: Record<string, string> = {};
+    const apiKey = this.apiKey?.trim();
+    if (apiKey && apiKey.length > 0) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/models`, { headers });
+      if (!response.ok) return [];
+      const payload = (await response.json()) as { data?: Array<{ id: string; name?: string }> };
+      return (payload.data ?? []).map((m) => ({ id: m.id, name: m.name ?? m.id }));
+    } catch {
+      return [];
+    }
   }
 }
 

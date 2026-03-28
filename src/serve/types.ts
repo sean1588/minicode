@@ -11,7 +11,12 @@ export interface ClientCancelMessage {
   type: "cancel";
 }
 
-export type ClientMessage = ClientChatMessage | ClientCancelMessage;
+export interface ClientSwitchModelMessage {
+  type: "switch_model";
+  model: string;
+}
+
+export type ClientMessage = ClientChatMessage | ClientCancelMessage | ClientSwitchModelMessage;
 
 // ── Server → Client ──
 
@@ -63,6 +68,11 @@ export interface ServerBusyMessage {
   type: "busy";
 }
 
+export interface ServerModelChangedMessage {
+  type: "model_changed";
+  model: string;
+}
+
 export type ServerMessage =
   | ServerTurnStartMessage
   | ServerThinkingMessage
@@ -72,4 +82,5 @@ export type ServerMessage =
   | ServerToolCallEndMessage
   | ServerTurnEndMessage
   | ServerErrorMessage
-  | ServerBusyMessage;
+  | ServerBusyMessage
+  | ServerModelChangedMessage;

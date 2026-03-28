@@ -30,6 +30,9 @@ const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const cancelBtn = document.getElementById("cancel-btn") as HTMLButtonElement;
 const statusBadge = document.getElementById("status-badge")!;
 const modelInfo = document.getElementById("model-info")!;
+const modelBtn = document.getElementById("model-btn")!;
+const modelDropdown = document.getElementById("model-dropdown")!;
+const modelList = document.getElementById("model-list")!;
 const sessionBtn = document.getElementById("session-btn")!;
 const sessionDropdown = document.getElementById("session-dropdown")!;
 const sessionList = document.getElementById("session-list")!;
@@ -83,7 +86,8 @@ async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
     const data = await res.json() as StatusResponse;
-    modelInfo.textContent = `${data.model} · ${data.provider}`;
+    modelInfo.textContent = `${data.model}`;
+    activeModel = data.model;
   } catch {
     // ignore
   }
@@ -172,6 +176,10 @@ function handleServerMessage(msg: ServerMessage): void {
 
     case "busy":
       addMessage("Agent is busy. Please wait for the current turn to finish.", "error");
+      break;
+
+    case "model_changed":
+      modelInfo.textContent = (msg as ServerMessage & { model: string }).model;
       break;
   }
 }
@@ -296,6 +304,60 @@ chatInput.addEventListener("keydown", (e: KeyboardEvent) => {
     chatForm.dispatchEvent(new Event("submit"));
   }
 });
+
+// -- Model selection --
+
+let activeModel = "";
+
+modelBtn.addEventListener("click", (e: Event) => {
+  e.stopPropagation();
+  const isOpen = !modelDropdown.classList.contains("hidden");
+  modelDropdown.classList.toggle("hidden");
+  // Close session dropdown if open
+  sessionDropdown.classList.add("hidden");
+  if (!isOpen) {
+    refreshModelList();
+  }
+});
+
+document.addEventListener("click", (e: Event) => {
+  if (!modelDropdown.contains(e.target as Node) && e.target !== modelBtn) {
+    modelDropdown.classList.add("hidden");
+  }
+});
+
+async function refreshModelList(): Promise<void> {
+  try {
+    const res = await fetch("/api/models");
+    const data = await res.json() as { models: Array<{ id: string; name?: string }>; activeModel: string };
+    activeModel = data.activeModel;
+
+    if (!data.models || data.models.length === 0) {
+      modelList.innerHTML = '<div class="dropdown-empty">No models available</div>';
+      return;
+    }
+
+    modelList.innerHTML = "";
+    for (const m of data.models) {
+      const el = document.createElement("div");
+      el.className = "model-item" + (m.id === activeModel ? " active" : "");
+      el.textContent = m.name ?? m.id;
+      el.title = m.id;
+      el.addEventListener("click", () => switchModel(m.id));
+      modelList.appendChild(el);
+    }
+  } catch {
+    modelList.innerHTML = '<div class="dropdown-empty">Failed to load models</div>';
+  }
+}
+
+function switchModel(modelId: string): void {
+  ws.send(JSON.stringify({ type: "switch_model", model: modelId }));
+  modelInfo.textContent = modelId;
+  activeModel = modelId;
+  modelDropdown.classList.add("hidden");
+  addMessage(`Model switched to: ${modelId}`, "thinking");
+}
 
 // -- Session management --
 

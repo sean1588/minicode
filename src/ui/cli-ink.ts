@@ -150,7 +150,7 @@ export async function runInkCli(
       store.addItem({
         type: "system",
         content:
-          'Commands: "/help", "/config", "/compact", "/reasoning [level]", "/save [label]", "/load [label]", "/sessions", "/exit".',
+          'Commands: "/help", "/config", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit".',
       });
       return;
     }
@@ -209,6 +209,42 @@ export async function runInkCli(
           content: `Invalid reasoning level "${arg}". Valid levels: ${VALID_LEVELS.join(", ")}, off`,
         });
       }
+      return;
+    }
+
+    if (trimmed === "/models") {
+      if (modelClient.listModels) {
+        store.addItem({ type: "system", content: "Fetching models..." });
+        const models = await modelClient.listModels();
+        if (models.length === 0) {
+          store.addItem({ type: "system", content: "No models found (provider may not support listing)." });
+        } else {
+          const lines = models.map((m) => {
+            const marker = m.id === config.model ? " (active)" : "";
+            return `  ${m.id}${marker}`;
+          });
+          store.addItem({ type: "system", content: `Available models (${models.length}):\n${lines.join("\n")}` });
+        }
+      } else {
+        store.addItem({ type: "system", content: "Current provider does not support listing models." });
+      }
+      return;
+    }
+
+    if (trimmed.startsWith("/model ")) {
+      const newModel = trimmed.slice("/model ".length).trim();
+      if (newModel.length === 0) {
+        store.addItem({ type: "system", content: `Current model: ${config.model}` });
+        return;
+      }
+      (config as { model: string }).model = newModel;
+      store.setConfig({ model: newModel, workspaceRoot: config.workspaceRoot, maxSteps: config.maxSteps, indexStatus: "" });
+      store.addItem({ type: "system", content: `Model switched to: ${newModel}` });
+      return;
+    }
+
+    if (trimmed === "/model") {
+      store.addItem({ type: "system", content: `Current model: ${config.model}` });
       return;
     }
 
