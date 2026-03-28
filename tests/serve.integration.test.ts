@@ -3,7 +3,7 @@ import { test, afterEach } from "node:test";
 import type { Server } from "node:http";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { createRequestHandler } from "../src/serve/server.js";
+import { createRequestHandler, shutdownServe } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import type { UiUpdate } from "@minicode/agent-sdk";
 import type { ServerMessage } from "../src/serve/types.js";
@@ -933,4 +933,110 @@ test("GET /api/symbols/:name/explain returns error for unknown symbol", async ()
   assert.equal(res.status, 200); // SSE always starts 200
   const text = await res.text();
   assert.ok(text.includes("error"));
+});
+
+// ── Graceful shutdown tests ──
+
+test("shutdownServe terminates WebSocket clients and calls exit(0)", async () => {
+  const bridge = new MockBridge();
+  const handler = createRequestHandler(bridge);
+  const server = createServer(handler);
+
+  const { WebSocketServer, WebSocket } = await import("ws");
+  const wss = new WebSocketServer({ server });
+
+  const openSockets = new Set<import("node:net").Socket>();
+  server.on("connection", (socket) => {
+    openSockets.add(socket);
+    socket.on("close", () => openSockets.delete(socket));
+  });
+
+  // Start server on random port
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const addr = server.address() as import("node:net").AddressInfo;
+
+  // Connect a WebSocket client (simulates browser tab)
+  const ws = new WebSocket(`ws://127.0.0.1:${addr.port}`);
+  await new Promise<void>((resolve) => ws.on("open", resolve));
+
+  assert.ok(wss.clients.size >= 1, "Should have at least 1 WS client connected");
+  assert.ok(openSockets.size >= 1, "Should have at least 1 open socket");
+
+  // Call shutdownServe with a mock exit function
+  let exitCode: number | undefined;
+  shutdownServe(server, wss, openSockets, (code) => {
+    exitCode = code;
+  });
+
+  // Wait a tick for async cleanup to propagate
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(exitCode, 0, "Should have called exit with code 0");
+  assert.equal(openSockets.size, 0, "All sockets should be cleared");
+  assert.equal(wss.clients.size, 0, "All WS clients should be removed");
+});
+
+test("shutdownServe works when no clients are connected", async () => {
+  const bridge = new MockBridge();
+  const handler = createRequestHandler(bridge);
+  const server = createServer(handler);
+
+  const { WebSocketServer } = await import("ws");
+  const wss = new WebSocketServer({ server });
+  const openSockets = new Set<import("node:net").Socket>();
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+
+  let exitCode: number | undefined;
+  shutdownServe(server, wss, openSockets, (code) => {
+    exitCode = code;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(exitCode, 0, "Should exit cleanly with no clients");
+});
+
+test("shutdownServe terminates multiple WebSocket clients", async () => {
+  const bridge = new MockBridge();
+  const handler = createRequestHandler(bridge);
+  const server = createServer(handler);
+
+  const { WebSocketServer, WebSocket } = await import("ws");
+  const wss = new WebSocketServer({ server });
+
+  const openSockets = new Set<import("node:net").Socket>();
+  server.on("connection", (socket) => {
+    openSockets.add(socket);
+    socket.on("close", () => openSockets.delete(socket));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const addr = server.address() as import("node:net").AddressInfo;
+
+  // Connect 3 WebSocket clients
+  const clients: InstanceType<typeof WebSocket>[] = [];
+  for (let i = 0; i < 3; i++) {
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}`);
+    await new Promise<void>((resolve) => ws.on("open", resolve));
+    clients.push(ws);
+  }
+
+  assert.equal(wss.clients.size, 3, "Should have 3 WS clients connected");
+
+  let exitCode: number | undefined;
+  shutdownServe(server, wss, openSockets, (code) => {
+    exitCode = code;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(exitCode, 0, "Should have called exit with code 0");
+  assert.equal(openSockets.size, 0, "All sockets should be cleared");
 });

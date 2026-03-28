@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse, Server } from "node:http";
+import type { Socket } from "node:net";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,7 @@ import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
 import { formatConfigForDisplay } from "../agent/config.js";
 import type { ServerMessage } from "./types.js";
+import type { WebSocketServer } from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -349,6 +351,47 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
   };
 }
 
+/** Force-shutdown timeout in ms. If graceful close hasn't finished, exit anyway. */
+const SHUTDOWN_TIMEOUT_MS = 3_000;
+
+/**
+ * Forcefully shut down the serve process. Terminates all WebSocket clients,
+ * destroys open HTTP sockets, and stops the server. Exported for testing.
+ */
+export function shutdownServe(
+  server: Server,
+  wss: WebSocketServer,
+  openSockets: Set<Socket>,
+  exit: (code: number) => void = (code) => process.exit(code),
+): void {
+  console.log("\nShutting down...");
+
+  // 1. Terminate every connected WebSocket client immediately.
+  //    wss.close() only stops accepting *new* connections — existing clients
+  //    stay open, which keeps the HTTP server alive (the root cause of #39).
+  for (const client of wss.clients) {
+    client.terminate();
+  }
+  wss.close();
+
+  // 2. Destroy all open TCP sockets so server.close() can finish.
+  for (const socket of openSockets) {
+    socket.destroy();
+  }
+  openSockets.clear();
+
+  // 3. Stop accepting new connections and exit once drained.
+  server.close(() => {
+    exit(0);
+  });
+
+  // 4. Safety net: if something still holds the event loop, force-exit.
+  setTimeout(() => {
+    console.error("Shutdown timed out — forcing exit.");
+    exit(1);
+  }, SHUTDOWN_TIMEOUT_MS).unref();
+}
+
 export async function runServe(verbose: boolean, port: number): Promise<void> {
   console.log("Initializing agent...");
 
@@ -376,13 +419,16 @@ export async function runServe(verbose: boolean, port: number): Promise<void> {
     }
   };
 
+  // Track open sockets so we can destroy them on shutdown
+  const openSockets = new Set<Socket>();
+  server.on("connection", (socket) => {
+    openSockets.add(socket);
+    socket.on("close", () => openSockets.delete(socket));
+  });
+
   // Graceful shutdown
   process.on("SIGINT", () => {
-    console.log("\nShutting down...");
-    wss.close();
-    server.close(() => {
-      process.exit(0);
-    });
+    shutdownServe(server, wss, openSockets);
   });
 
   server.listen(port, "127.0.0.1", () => {
