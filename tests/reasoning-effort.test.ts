@@ -4,7 +4,6 @@ import { test } from "node:test";
 import {
   OpenAICompatibleModelClient,
   CodingAgent,
-  Session,
   ToolRegistry,
 } from "@minicode/agent-sdk";
 import type { AgentConfig, ModelResponse, ReasoningEffort } from "@minicode/agent-sdk";

@@ -3,7 +3,7 @@
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
-import { KIND_COLORS, EDGE_STYLES, buildStylesheet } from '../shared/graph-styles.ts';
+import { KIND_COLORS, buildStylesheet } from '../shared/graph-styles.ts';
 
 declare const cytoscape: (opts: unknown) => CyInstance;
 declare const hljs: { highlightElement(el: HTMLElement): void };
