@@ -158,12 +158,14 @@ export async function initGraph(): Promise<void> {
     setupInteractions(cy, detailEl);
     setupToolbar();
 
-    // If there are pinned symbols, seed with those
+    // If there are pinned symbols, seed with those; otherwise show onboarding hint
     if (pinnedNames.size > 0) {
       for (const name of pinnedNames) {
         addNodeAndNeighbors(name);
       }
       runLayout();
+    } else {
+      showOnboardingHint(cyEl);
     }
 
   } catch (err) {
@@ -198,6 +200,22 @@ export function resizeGraph(): void {
 
 // -- Graph building (incremental) --
 
+function showOnboardingHint(container: HTMLElement): void {
+  if (container.querySelector('.graph-onboarding')) return;
+  const hint = document.createElement('div');
+  hint.className = 'graph-onboarding';
+  hint.innerHTML =
+    '<div class="graph-onboarding-icon">&#9670; &#8212; &#9670;</div>' +
+    '<div class="graph-onboarding-title">Code dependency graph</div>' +
+    '<div class="graph-onboarding-subtitle">Search for a symbol above to start exploring.<br/>Nodes expand on click to reveal connections.</div>';
+  container.appendChild(hint);
+}
+
+function removeOnboardingHint(): void {
+  const hint = document.querySelector('.graph-onboarding');
+  if (hint) hint.remove();
+}
+
 function buildEdgeIndex(): void {
   edgeIndex.clear();
   for (const edge of graphEdges) {
@@ -231,6 +249,7 @@ function expandNodeAndLayout(symbolId: string): void {
 function addNodeToGraph(id: string): void {
   if (!cy) return;
   if (cy.getElementById(id).length > 0) return;
+  removeOnboardingHint();
 
   const nodeData = graphNodes.get(id);
   if (!nodeData) return;
@@ -810,5 +829,7 @@ function setupToolbar(): void {
     if (!cy) return;
     cy.elements().remove();
     document.getElementById('symbol-detail')!.classList.add('hidden');
+    const cyEl = document.getElementById('cy');
+    if (cyEl) showOnboardingHint(cyEl);
   });
 }

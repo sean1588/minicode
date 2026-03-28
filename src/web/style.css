@@ -639,6 +639,7 @@ main::-webkit-scrollbar-thumb {
   flex: 1;
   min-height: 0;
   background: var(--bg);
+  position: relative;
 }
 
 .graph-empty {
@@ -650,6 +651,40 @@ main::-webkit-scrollbar-thumb {
   font-size: 14px;
   padding: 40px;
   text-align: center;
+}
+
+.graph-onboarding {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 10;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 40px;
+}
+
+.graph-onboarding-icon {
+  font-size: 28px;
+  opacity: 0.25;
+  letter-spacing: 4px;
+  margin-bottom: 4px;
+}
+
+.graph-onboarding-title {
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.5;
+}
+
+.graph-onboarding-subtitle {
+  font-size: 13px;
+  opacity: 0.4;
+  line-height: 1.5;
 }
 
 /* Symbol detail panel */
