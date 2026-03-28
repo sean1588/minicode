@@ -3,6 +3,7 @@ export type {
   AgentConfig,
   AssistantMessage,
   ModelClient,
+  ModelInfo,
   ModelResponse,
   ReasoningEffort,
   SessionMessage,

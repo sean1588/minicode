@@ -1,5 +1,5 @@
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
-import type { UiUpdate } from "@minicode/agent-sdk";
+import type { ModelInfo, UiUpdate } from "@minicode/agent-sdk";
 import { loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
@@ -23,6 +23,7 @@ export type UiListener = (msg: ServerMessage) => void;
 export class AgentBridge {
   private agent!: CodingAgent;
   private config!: Awaited<ReturnType<typeof loadAgentConfig>>;
+  private modelClient!: ReturnType<typeof createModelClient>;
   private projectIndex: ProjectIndex | undefined;
   private buildAgent!: (session?: Session, onUiUpdate?: (event: UiUpdate) => void) => CodingAgent;
   private busy = false;
@@ -82,6 +83,7 @@ export class AgentBridge {
     };
 
     this.config = config;
+    this.modelClient = modelClient;
     this.projectIndex = projectIndex;
 
     this.buildAgent = (session?: Session, onUiUpdate?: (event: UiUpdate) => void): CodingAgent => {
@@ -385,6 +387,19 @@ export class AgentBridge {
     }
 
     return result;
+  }
+
+  // ── Model selection ──
+
+  async listModels(): Promise<ModelInfo[]> {
+    if (this.modelClient.listModels) {
+      return this.modelClient.listModels();
+    }
+    return [];
+  }
+
+  switchModel(modelId: string): void {
+    (this.config as { model: string }).model = modelId;
   }
 
   // ── Explain ──

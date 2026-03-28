@@ -3,7 +3,7 @@ import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
-import { CodingAgent, Session, createModelClient, type ReasoningEffort } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient, type ModelClient, type ReasoningEffort } from "@minicode/agent-sdk";
 import { formatConfigForDisplay, loadAgentConfig } from "./agent/config.js";
 import {
   listSessions,
@@ -37,6 +37,7 @@ function printBanner(): void {
 interface AgentRuntime {
   agent: CodingAgent;
   config: Awaited<ReturnType<typeof loadAgentConfig>>;
+  modelClient: ModelClient;
   toolRegistry: ReturnType<typeof createToolRegistry>;
   projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   buildAgent: (session?: Session) => CodingAgent;
@@ -78,7 +79,7 @@ async function createAgentRuntime(
     });
   }
 
-  return { agent: buildAgent(), config, toolRegistry, projectIndex, buildAgent };
+  return { agent: buildAgent(), config, modelClient, toolRegistry, projectIndex, buildAgent };
 }
 
 async function runInteractive(
@@ -90,7 +91,7 @@ async function runInteractive(
     (msg) => console.error(`  ${msg}`),
   );
   let { agent } = runtime;
-  const { config, buildAgent } = runtime;
+  const { config, modelClient, buildAgent } = runtime;
 
   printBanner();
   console.log(`Workspace: ${config.workspaceRoot}`);
@@ -141,7 +142,7 @@ async function runInteractive(
     }
 
     if (trimmed === "/help") {
-      console.log('Commands: "/help", "/config", "/compact", "/reasoning [level]", "/save [label]", "/load [label]", "/sessions", "/exit"');
+      console.log('Commands: "/help", "/config", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit"');
       console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
       continue;
     }
@@ -187,6 +188,41 @@ async function runInteractive(
       } else {
         console.log(`Invalid reasoning level "${arg}". Valid levels: ${VALID_LEVELS.join(", ")}, off`);
       }
+      continue;
+    }
+
+    if (trimmed === "/models") {
+      if (modelClient.listModels) {
+        console.log("Fetching models...");
+        const models = await modelClient.listModels();
+        if (models.length === 0) {
+          console.log("No models found (provider may not support listing).");
+        } else {
+          console.log(`Available models (${models.length}):`);
+          for (const m of models) {
+            const marker = m.id === config.model ? " (active)" : "";
+            console.log(`  ${m.id}${marker}`);
+          }
+        }
+      } else {
+        console.log("Current provider does not support listing models.");
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith("/model ")) {
+      const newModel = trimmed.slice("/model ".length).trim();
+      if (newModel.length === 0) {
+        console.log(`Current model: ${config.model}`);
+        continue;
+      }
+      (config as { model: string }).model = newModel;
+      console.log(`Model switched to: ${newModel}`);
+      continue;
+    }
+
+    if (trimmed === "/model") {
+      console.log(`Current model: ${config.model}`);
       continue;
     }
 

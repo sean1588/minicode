@@ -95,6 +95,23 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      if (pathname === "/api/models" && method === "GET") {
+        const models = await bridge.listModels();
+        sendJson(res, 200, { models, activeModel: config.model });
+        return;
+      }
+
+      if (pathname === "/api/model" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { model?: string };
+        if (!body.model || typeof body.model !== "string") {
+          sendJson(res, 400, { error: "model is required" });
+          return;
+        }
+        bridge.switchModel(body.model);
+        sendJson(res, 200, { model: body.model });
+        return;
+      }
+
       if (pathname === "/api/config" && method === "GET") {
         sendJson(res, 200, { config: formatConfigForDisplay(config) });
         return;

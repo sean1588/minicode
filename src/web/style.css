@@ -68,6 +68,47 @@ h1 {
   color: var(--text-dim);
 }
 
+/* Model menu */
+.model-menu {
+  position: relative;
+}
+
+#model-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#model-dropdown {
+  max-height: 320px;
+}
+
+#model-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.model-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-item:hover {
+  background: var(--bg-hover);
+}
+
+.model-item.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* Session menu */
 .session-menu {
   position: relative;
