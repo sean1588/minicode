@@ -537,7 +537,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
   }): Promise<ModelResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/sean1588/minicode",
+      "HTTP-Referer": "https://minicode.seanholung.com",
       "X-Title": "minicode",
     };
     const apiKey = this.apiKey?.trim();
