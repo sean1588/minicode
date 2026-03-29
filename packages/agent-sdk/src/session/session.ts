@@ -325,7 +325,10 @@ export class Session {
         msg?.role === "tool" &&
         !msg.content.startsWith("[summary:")
       ) {
-        (msg as { content: string }).content = summarizeToolResult(msg.content);
+        this.messages[i] = {
+          ...msg,
+          content: summarizeToolResult(msg.content),
+        };
       }
     }
   }
