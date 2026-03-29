@@ -178,6 +178,9 @@ export class CodingAgent {
    */
   private readonly fileReadCache: Map<string, number> = new Map();
 
+  /** Cached system prompt for when dynamic prompts are disabled. */
+  private cachedSystemPrompt: string | undefined;
+
   constructor(params: {
     config: AgentConfig;
     modelClient: ModelClient;
@@ -328,16 +331,27 @@ export class CodingAgent {
         effectiveKeepRecent,
       );
 
-      // Rebuild system prompt each step with the latest focus set,
-      // so the code map dynamically adapts as the agent explores symbols.
-      const codeMapResult = this.getCodeMap?.(this.getFocusSet());
-      const basePrompt = buildSystemPrompt(
-        this.config,
-        toolSchemas,
-        codeMapResult,
-      );
-      const suffix = this.getSystemPromptSuffix?.();
-      const systemPrompt = suffix ? basePrompt + "\n\n" + suffix : basePrompt;
+      // When enableDynamicPrompt is true (default), rebuild the system prompt
+      // each step with the latest focus set so the code map dynamically adapts.
+      // When false, build once and cache — this keeps the prompt prefix stable
+      // across turns, improving KV cache hit rates for local models.
+      const dynamicPrompt = this.config.enableDynamicPrompt !== false;
+      let systemPrompt: string;
+      if (dynamicPrompt || !this.cachedSystemPrompt) {
+        const codeMapResult = this.getCodeMap?.(dynamicPrompt ? this.getFocusSet() : undefined);
+        const basePrompt = buildSystemPrompt(
+          this.config,
+          toolSchemas,
+          codeMapResult,
+        );
+        const suffix = this.getSystemPromptSuffix?.();
+        systemPrompt = suffix ? basePrompt + "\n\n" + suffix : basePrompt;
+        if (!dynamicPrompt) {
+          this.cachedSystemPrompt = systemPrompt;
+        }
+      } else {
+        systemPrompt = this.cachedSystemPrompt;
+      }
 
       const messages = this.session.getMessages();
       if (this.verbose) {

@@ -38,6 +38,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
     "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
     "reasoningEffort: " + (config.reasoningEffort ?? "(unset — no reasoning parameters sent)"),
+    "enableDynamicPrompt: " + (config.enableDynamicPrompt ?? true),
   ];
   return lines.join("\n");
 }
@@ -96,6 +97,7 @@ interface AgentConfigFile {
   compactionThreshold?: number;
   compactionModel?: string;
   reasoningEffort?: string;
+  enableDynamicPrompt?: boolean;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -266,6 +268,10 @@ export async function loadAgentConfig(
     ...(process.env.COMPACTION_MODEL ?? fileConfig.compactionModel
       ? { compactionModel: process.env.COMPACTION_MODEL ?? fileConfig.compactionModel }
       : {}),
+    enableDynamicPrompt: parseBoolean(
+      process.env.ENABLE_DYNAMIC_PROMPT,
+      fileConfig.enableDynamicPrompt ?? true,
+    ),
     ...(() => {
       const effort = parseReasoningEffort(
         process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort,
