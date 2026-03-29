@@ -84,6 +84,12 @@ export interface ProjectIndex {
   getDependencyCone(symbolName: string, depth?: number): IndexedSymbol[];
   getCodeMap(tokenBudget?: number, focusSymbols?: Set<string>): CodeMapResult;
 
+  /** Find the shortest path between two symbols in the dependency graph. Returns the ordered list of symbols along the path, or empty array if no path exists. */
+  findPath(fromSymbol: string, toSymbol: string, maxDepth?: number): IndexedSymbol[];
+
+  /** Trace a symbol back to its entry point(s) — symbols with no inbound edges. Returns paths from the symbol to each reachable entry point. */
+  findPathToEntryPoint(symbolName: string, maxDepth?: number): IndexedSymbol[][];
+
   /** Re-index a file after it has been modified. Updates symbols and dependency edges. */
   reindexFile(filePath: string, content: string): void;
 }

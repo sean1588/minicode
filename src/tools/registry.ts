@@ -12,6 +12,7 @@ import type { ProjectIndex } from "../indexer/types.js";
 import { createFindReferencesTool } from "./find-references.js";
 import { createGetDependenciesTool } from "./get-dependencies.js";
 import { createReadSymbolTool } from "./read-symbol.js";
+import { createFindPathTool } from "./find-path.js";
 import { createSearchCodeMapTool } from "./search-code-map.js";
 
 export { ToolRegistry };
@@ -46,7 +47,8 @@ export function createToolRegistry(
     tools.splice(1, 0, createReadSymbolTool(config, projectIndex));
     tools.splice(2, 0, createFindReferencesTool(projectIndex));
     tools.splice(3, 0, createGetDependenciesTool(projectIndex));
-    tools.splice(4, 0, createSearchCodeMapTool(projectIndex));
+    tools.splice(4, 0, createFindPathTool(projectIndex));
+    tools.splice(5, 0, createSearchCodeMapTool(projectIndex));
   }
 
   return new ToolRegistry(tools);
