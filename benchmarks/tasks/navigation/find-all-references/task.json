@@ -1,0 +1,9 @@
+{
+  "title": "Find all references to buildProjectIndex",
+  "prompt": "Find all files that reference or call buildProjectIndex. List each file path.",
+  "rubric": {
+    "expectedOutputPatterns": ["buildProjectIndex", "project-index"],
+    "expectedSymbols": ["buildProjectIndex"],
+    "maxToolCalls": 10
+  }
+}

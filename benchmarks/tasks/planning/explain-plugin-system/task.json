@@ -1,0 +1,9 @@
+{
+  "title": "Explain how to add a new language plugin",
+  "prompt": "Explain step-by-step how to add a new language plugin to minicode. What interface must be implemented? Where are plugins loaded? How are they discovered?",
+  "rubric": {
+    "expectedOutputPatterns": ["LanguagePlugin", "indexFile", "extensions"],
+    "expectedFilesRead": ["plugin-loader.ts"],
+    "maxToolCalls": 15
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "title": "Propagate a new required argument",
+  "prompt": "If the modelClient.chat() method required a new 'temperature' parameter, which call sites would need to be updated? List every file that calls chat().",
+  "rubric": {
+    "expectedOutputPatterns": ["chat", "agent"],
+    "maxToolCalls": 15
+  }
+}

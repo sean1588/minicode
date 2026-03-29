@@ -1,0 +1,8 @@
+{
+  "title": "Extract a shared helper function",
+  "prompt": "In the codebase, find places where file extension checking is done (checking if a file ends with .ts, .tsx, .js, .jsx). Propose extracting a shared helper function for this.",
+  "rubric": {
+    "expectedOutputPatterns": ["extension", "\\.ts"],
+    "maxToolCalls": 15
+  }
+}

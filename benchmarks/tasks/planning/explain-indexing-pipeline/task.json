@@ -1,0 +1,9 @@
+{
+  "title": "Explain the indexing pipeline architecture",
+  "prompt": "Explain how indexing flows into prompt construction in minicode. Start from buildProjectIndex and trace through to where the code map appears in the system prompt.",
+  "rubric": {
+    "expectedOutputPatterns": ["buildProjectIndex", "code.?map", "system.?prompt"],
+    "expectedFilesRead": ["project-index.ts"],
+    "maxToolCalls": 15
+  }
+}

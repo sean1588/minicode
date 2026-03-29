@@ -1,0 +1,9 @@
+{
+  "title": "Add debug logging to tool execution",
+  "prompt": "In the ToolRegistry class, add a console.error debug log that prints the tool name and execution time whenever a tool is executed. Only log if a verbose flag is passed.",
+  "rubric": {
+    "expectedOutputPatterns": ["ToolRegistry", "execute", "console"],
+    "expectedFilesRead": ["registry.ts"],
+    "maxToolCalls": 15
+  }
+}

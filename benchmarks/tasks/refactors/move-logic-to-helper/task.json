@@ -1,0 +1,9 @@
+{
+  "title": "Move repeated config logic to shared helper",
+  "prompt": "Find where .env file loading happens in the config system. Is the dotenv loading logic repeated anywhere? If so, propose how to consolidate it.",
+  "rubric": {
+    "expectedOutputPatterns": ["config", "env", "dotenv"],
+    "expectedFilesRead": ["config.ts"],
+    "maxToolCalls": 15
+  }
+}
