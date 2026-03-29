@@ -198,6 +198,15 @@ export function resizeGraph(): void {
   if (cy) cy.resize();
 }
 
+/** Clear all nodes/edges from the graph and show the onboarding hint. */
+export function clearGraph(): void {
+  if (!cy) return;
+  cy.elements().remove();
+  document.getElementById('symbol-detail')!.classList.add('hidden');
+  const cyEl = document.getElementById('cy');
+  if (cyEl) showOnboardingHint(cyEl);
+}
+
 // -- Graph building (incremental) --
 
 function showOnboardingHint(container: HTMLElement): void {
@@ -826,10 +835,6 @@ function setupToolbar(): void {
   });
 
   clearBtn.addEventListener('click', () => {
-    if (!cy) return;
-    cy.elements().remove();
-    document.getElementById('symbol-detail')!.classList.add('hidden');
-    const cyEl = document.getElementById('cy');
-    if (cyEl) showOnboardingHint(cyEl);
+    clearGraph();
   });
 }

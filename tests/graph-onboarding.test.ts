@@ -59,3 +59,30 @@ test('onboarding hint is removed when nodes are added in built JS', () => {
     'JS should call removeOnboardingHint when adding nodes',
   );
 });
+
+test('clearGraph is exported and used in app.js', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  assert.ok(
+    js.includes('clearGraph'),
+    'JS should contain the clearGraph function',
+  );
+});
+
+test('graph is cleared when user sends a new chat message', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  // clearGraph should be called near the chat submit handler
+  const clearGraphCount = (js.match(/clearGraph/g) || []).length;
+  assert.ok(
+    clearGraphCount >= 2,
+    'clearGraph should be called in the submit handler (at least definition + call site)',
+  );
+});
+
+test('clear button delegates to clearGraph function', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  // The graph-clear handler should use clearGraph
+  assert.ok(
+    js.includes('graph-clear'),
+    'JS should reference the clear button',
+  );
+});

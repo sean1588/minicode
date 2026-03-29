@@ -1,4 +1,4 @@
-import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
+import { initGraph, highlightAgentActivity, resizeGraph, clearGraph } from './graph.ts';
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
 interface ServerMessage {
@@ -284,6 +284,7 @@ chatForm.addEventListener("submit", (e: Event) => {
   if (!message) return;
 
   addMessage(message, "user");
+  clearGraph();
   ws.send(JSON.stringify({ type: "chat", message }));
   chatInput.value = "";
   chatInput.style.height = "auto";
