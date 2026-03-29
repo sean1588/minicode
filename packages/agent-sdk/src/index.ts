@@ -72,6 +72,9 @@ export {
   buildSystemPrompt,
 } from "./prompt/system-prompt.js";
 
+// Focus tracker
+export { FocusTracker } from "./indexer/focus-tracker.js";
+
 // Indexer / plugin types
 export type {
   CodeMapResult,

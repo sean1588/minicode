@@ -4,6 +4,7 @@ import { ensureStepWithinLimit } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
 import type { CompactionResult } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
+import { FocusTracker } from "../indexer/focus-tracker.js";
 import type { AgentConfig, ModelClient, ToolCall } from "./types.js";
 
 function stableSerialize(value: unknown): string {
@@ -53,7 +54,6 @@ function extractFocusSymbol(toolCall: ToolCall): string | undefined {
 
 const VERBOSE_SEP = "\u2500".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
-const MAX_FOCUS_SYMBOLS = 30;
 
 /**
  * Content-aware truncation for tool outputs.
@@ -169,8 +169,7 @@ export class CodingAgent {
    * Persists across turns so the code map stays focused on the
    * current area of interest.
    */
-  private readonly focusedSymbols: Map<string, number> = new Map();
-  private focusGeneration = 0;
+  private readonly focusTracker = new FocusTracker();
 
   /**
    * Cache of recently read file paths (key: "path:offset:limit") to avoid
@@ -238,30 +237,9 @@ export class CodingAgent {
       : this.session.compact(keepRecent);
   }
 
-  private addFocusSymbol(name: string): void {
-    this.focusGeneration += 1;
-    this.focusedSymbols.set(name, this.focusGeneration);
-
-    // Evict oldest if over limit
-    if (this.focusedSymbols.size > MAX_FOCUS_SYMBOLS) {
-      let oldestKey: string | null = null;
-      let oldestGen = Infinity;
-      for (const [key, gen] of this.focusedSymbols) {
-        if (gen < oldestGen) {
-          oldestGen = gen;
-          oldestKey = key;
-        }
-      }
-      if (oldestKey) {
-        this.focusedSymbols.delete(oldestKey);
-      }
-    }
-  }
-
   private getFocusSet(): Set<string> | undefined {
-    return this.focusedSymbols.size > 0
-      ? new Set(this.focusedSymbols.keys())
-      : undefined;
+    const symbols = this.focusTracker.getFocusedSymbols();
+    return symbols.size > 0 ? symbols : undefined;
   }
 
   /**
@@ -485,7 +463,7 @@ export class CodingAgent {
         // Track symbol focus from symbol-aware tool calls
         const focusSymbol = extractFocusSymbol(toolCall);
         if (focusSymbol) {
-          this.addFocusSymbol(focusSymbol);
+          this.focusTracker.addSymbol(focusSymbol);
         }
 
         if (this.onProgress) {
