@@ -4,11 +4,18 @@ Reusable agent runtime SDK extracted from minicode. Provides everything needed t
 
 ## Installation
 
+This package currently lives as a private workspace package inside the minicode repo:
+
 ```bash
-npm install @minicode/agent-sdk
+git clone https://github.com/sean1588/minicode.git
+cd minicode
+npm install
+npm run build --workspace=packages/agent-sdk
 ```
 
-> **Note:** Requires Node.js >= 22.0.0
+> **Note:** `packages/agent-sdk/package.json` is currently marked `private`, so treat this README as documentation for the in-repo SDK surface rather than a published npm package.
+>
+> **Requires:** Node.js >= 22.0.0
 
 ## Quick Start
 
@@ -28,16 +35,20 @@ const config: AgentConfig = {
   model: "claude-sonnet-4-20250514",
   maxSteps: 20,
   maxTokens: 4096,
-  maxContextTokens: 100_000,
+  maxContextTokens: 40_000,
   workspaceRoot: process.cwd(),
   commandTimeoutMs: 30_000,
   maxFileSizeBytes: 1_000_000,
   commandDenylist: [/rm\s+-rf\s+\//],
   confirmDestructive: true,
-  keepRecentMessages: 10,
-  loopDetectionWindow: 10,
-  maxToolOutputChars: 12_000,
+  keepRecentMessages: 12,
+  loopDetectionWindow: 6,
+  maxToolOutputChars: 8_000,
   openAiBaseUrl: "",
+  enableFileReadDedup: true,
+  enableAdaptiveKeepRecent: true,
+  enableToolOutputTruncation: true,
+  compactionThreshold: 0.8,
 };
 
 // 2. Create the model client, tool registry, and agent
@@ -139,7 +150,15 @@ const agent = new CodingAgent({
 Register your own tools alongside or instead of the built-in ones:
 
 ```typescript
-import { ToolRegistry } from "@minicode/agent-sdk";
+import {
+  ToolRegistry,
+  createReadFileTool,
+  createWriteFileTool,
+  createEditFileTool,
+  createSearchTool,
+  createListFilesTool,
+  createRunCommandTool,
+} from "@minicode/agent-sdk";
 import type { ToolDefinition } from "@minicode/agent-sdk";
 
 const myTool: ToolDefinition = {
@@ -163,12 +182,18 @@ const myTool: ToolDefinition = {
 const registry = new ToolRegistry([myTool]);
 
 // Option B: Built-in tools + custom tools
-const builtIn = ToolRegistry.createDefault(config);
 const combined = new ToolRegistry([
-  ...builtIn.getToolSchemas().map(() => myTool), // just an example
+  createReadFileTool(config),
+  createWriteFileTool(config),
+  createEditFileTool(config),
+  createSearchTool(config),
+  createListFilesTool(config),
+  createRunCommandTool(config),
   myTool,
 ]);
 ```
+
+In practice, the simplest pattern is usually to create the built-in registry and wrap or extend it in your own application code. The SDK does not currently expose a public "appendTool" helper.
 
 ## Tool Hooks (Indexer Integration)
 
@@ -188,6 +213,10 @@ const toolRegistry = ToolRegistry.createDefault(config, {
   },
 });
 ```
+
+## Indexer boundary
+
+The SDK exports indexer and plugin _types_ such as `LanguagePlugin`, `IndexedSymbol`, and `DependencyEdge`, but it does not currently ship the full project indexer implementation that the minicode CLI uses for its TypeScript/JavaScript graph tools. In the current repo layout, the richer indexer lives in the top-level `src/indexer/` directory.
 
 ## Safety Guardrails
 

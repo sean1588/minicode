@@ -54,7 +54,7 @@ The current minicode architecture is well-suited for this:
 - Click on any node in the dependency graph and attach special instructions for the agent
 - Examples: "When you touch this function, be careful about X", "This class is being deprecated, prefer Y instead"
 - Turns the dependency graph into a **shared workspace** between human and agent
-- Annotations persisted per-project (e.g., `.minicode/annotations.json`) to survive across sessions
+- Today annotations are saved and restored with session save/load; longer-lived per-project persistence is still an open design direction
 
 ### Focus Pinning
 - Clicking a node "pins" it as a focus symbol
@@ -110,17 +110,20 @@ All of the above requires a server mode as the foundation.
 ### API Surface (Preliminary)
 
 **REST Endpoints:**
-- `POST /chat` — send a message, get streamed response
-- `GET /sessions` / `POST /sessions` — list, save, load sessions
-- `GET /config` — current agent configuration
-- `GET /status` — health check, project info
-- `GET /symbols` — list all indexed symbols
-- `GET /symbols/:id/dependencies` — dependency cone for a symbol
-- `GET /symbols/:id/references` — references to a symbol
-- `GET /code-map` — current code map (ranked symbols)
-- `GET /graph` — full dependency graph (nodes + edges)
-- `POST /focus` — pin/unpin symbols
-- `POST /annotations` — attach instructions to symbols
+- `POST /api/chat` — send a message, get a non-streaming response
+- `GET /api/sessions`, `POST /api/sessions/save`, `POST /api/sessions/load` — list, save, and load sessions
+- `GET /api/config` — current agent configuration
+- `GET /api/status` — health check, project info
+- `GET /api/models`, `POST /api/model` — list and switch models
+- `GET /api/symbols` — list all indexed symbols
+- `GET /api/symbols/:id/dependencies` — dependency cone for a symbol
+- `GET /api/symbols/:id/references` — references to a symbol
+- `GET /api/symbols/:id/source` — extracted source for one symbol
+- `GET /api/code-map` — current code map (ranked symbols)
+- `GET /api/graph` — full dependency graph (nodes + edges)
+- `GET /api/focus`, `POST /api/focus` — inspect and pin/unpin symbols
+- `GET /api/annotations`, `GET|POST|DELETE /api/symbols/:id/annotations...` — inspect and modify symbol annotations
+- `GET /api/symbols/:id/explain` — SSE stream for symbol explanation
 
 **OpenAI-Compatible API (`/v1/`):**
 - `POST /v1/chat/completions` — standard OpenAI Chat Completions format (streaming SSE + non-streaming)
@@ -135,6 +138,7 @@ All of the above requires a server mode as the foundation.
   - `streaming_chunk` — text response chunks
   - `tool_call_start` / `tool_call_end` — tool activity with timing
   - `step` — step counter
+- `switch_model` client messages and `model_changed` broadcasts for live model switching
 - Code map updates as focus changes
 - Graph updates after file modifications
 - Bidirectional for confirmations (destructive command approval)
@@ -167,8 +171,8 @@ All of the above requires a server mode as the foundation.
 
 1. ~~**API server + OpenAI compat + basic web chat**~~ **(IMPLEMENTED)** — `minicode serve` with REST + WebSocket for chat, sessions, config; OpenAI-compatible `/v1/chat/completions` endpoint for use with OpenWebUI etc.; bundled web chat client with dark theme, streaming responses, compact tool call pills, and session management UI
 2. ~~**Graph data endpoints**~~ **(IMPLEMENTED)** — REST endpoints exposing ProjectIndex data: `/api/symbols`, `/api/symbols/:name/dependencies`, `/api/symbols/:name/references`, `/api/code-map`, `/api/graph`, `/api/focus` (pin/unpin). 35 integration tests covering all endpoints.
-3. **Dependency graph UI** — interactive graph visualization with symbol inspection
+3. ~~**Dependency graph UI**~~ **(IMPLEMENTED)** — interactive graph visualization with symbol inspection, source view, pinning, and explain requests
 4. **Live code map view** — real-time agent perspective, steerable focus
 5. **Symbol prompts** — attach symbols to prompts, symbol bookmarks/workspaces
-6. **Symbol annotations** — click-to-annotate with agent instructions, persisted per-project
+6. ~~**Symbol annotations**~~ **(IMPLEMENTED, session-scoped)** — click-to-annotate with agent instructions, saved with sessions
 7. **Advanced features** — graph diffing, path highlighting, inline diffs, conversation-linked navigation, history replay

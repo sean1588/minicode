@@ -1,5 +1,7 @@
 # Agent Runtime SDK Specification (Draft)
 
+The repo now includes an extracted workspace package at `packages/agent-sdk`, but this document is still the broader design spec for where the packaging and public API could go next.
+
 This document proposes a reusable SDK extracted from minicode's existing runtime so the CLI can become one consumer among many (CLI, web app, CI bot, IDE extension, custom agent service).
 
 ## 1) Goals
@@ -301,10 +303,10 @@ const runtime = new AgentRuntime(
     model: "zai-org/glm-4.7-flash",
     maxSteps: 50,
     maxTokens: 4096,
-    maxContextTokens: 120000,
+    maxContextTokens: 40000,
     keepRecentMessages: 12,
     loopDetectionWindow: 6,
-    maxToolOutputChars: 15000,
+    maxToolOutputChars: 8000,
   },
   {
     modelClient: new OpenAICompatibleModelClient({

@@ -27,6 +27,7 @@ The web UI provides a full chat interface for interacting with the agent:
 - **Thinking indicators** — the agent's intermediate reasoning is shown in dimmed italic text
 - **Markdown rendering** — agent responses render full markdown: code blocks with syntax highlighting, bold, lists, headers, blockquotes, and inline code
 - **Auto-resize input** — the textarea grows as you type, up to a max height
+- **Model picker** — fetch available provider models and switch the active one from the header without restarting the server
 
 ### Session Management
 
@@ -61,6 +62,8 @@ curl http://localhost:4567/v1/chat/completions \
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/status` | Agent status (ready/busy), workspace, model, provider |
+| `GET` | `/api/models` | Available provider models plus the active model |
+| `POST` | `/api/model` | Switch the active model (`{ model: string }`) |
 | `GET` | `/api/config` | Formatted agent configuration |
 | `POST` | `/api/chat` | Send a message, get response (non-streaming) |
 | `GET` | `/api/sessions` | List saved sessions |
@@ -74,6 +77,7 @@ Connect to `ws://localhost:4567` for real-time events during agent turns:
 **Client → Server:**
 - `{ type: "chat", message: "..." }` — send a message
 - `{ type: "cancel" }` — abort the current turn
+- `{ type: "switch_model", model: "..." }` — switch the active model for all connected clients
 
 **Server → Client:**
 - `turn_start` — agent began processing
@@ -85,6 +89,7 @@ Connect to `ws://localhost:4567` for real-time events during agent turns:
 - `turn_end` — agent finished (`text`, `usage`)
 - `error` — error message
 - `busy` — agent is already processing another turn
+- `model_changed` — confirms that the active model changed
 
 ---
 

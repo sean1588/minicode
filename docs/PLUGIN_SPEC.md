@@ -2,6 +2,8 @@
 
 This document describes how to create language plugins for minicode. Plugins enable the agent to index and navigate source code in languages beyond the built-in TypeScript/JavaScript support.
 
+> **Current repo state:** the shared SDK types live in the private workspace package `packages/agent-sdk`. The interfaces below reflect the actual runtime shape, but publishing the SDK as a standalone npm dependency is still a future packaging step.
+
 ---
 
 ## Overview
@@ -159,7 +161,8 @@ interface DependencyEdge {
 mkdir my-minicode-plugin
 cd my-minicode-plugin
 npm init -y
-npm install @minicode/agent-sdk  # or add as peer dependency
+# Today, develop against a local checkout of minicode or copied type definitions
+# from packages/agent-sdk until the SDK is published as a standalone package.
 ```
 
 ### 2. Implement the plugin
@@ -206,6 +209,8 @@ Your package must export the plugin. In `package.json`:
   }
 }
 ```
+
+If you are developing against the current repo state, point this at a local workspace copy instead of assuming the package is published.
 
 For local plugins (`.minicode/plugins/`), export a default or named `LanguagePlugin`:
 
