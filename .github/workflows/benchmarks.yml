@@ -1,0 +1,78 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_provider:
+        description: "Model provider (anthropic or openai-compatible)"
+        required: true
+        default: "anthropic"
+        type: choice
+        options:
+          - anthropic
+          - openai-compatible
+      model:
+        description: "Model name (e.g. claude-sonnet-4-20250514)"
+        required: true
+        default: "claude-sonnet-4-20250514"
+        type: string
+      category:
+        description: "Task category filter (leave empty to run all)"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - navigation
+          - editing
+          - refactors
+          - debugging
+          - planning
+      variant:
+        description: "Variant label for the report"
+        required: false
+        default: "ci"
+        type: string
+
+jobs:
+  run-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK
+        run: npm run build --workspace=packages/agent-sdk
+
+      - name: Run benchmarks
+        env:
+          MODEL_PROVIDER: ${{ inputs.model_provider }}
+          MODEL: ${{ inputs.model }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+        run: |
+          ARGS="--variant ${{ inputs.variant }} --out benchmark-report.json"
+          if [ -n "${{ inputs.category }}" ]; then
+            ARGS="$ARGS --category ${{ inputs.category }}"
+          fi
+          node --import tsx scripts/run-benchmarks.ts $ARGS
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-${{ inputs.variant }}-${{ github.run_number }}
+          path: benchmark-report.json
+          retention-days: 90
