@@ -1,13 +1,13 @@
 # minicode
 
-A lightweight coding agent optimized for **local models** — CLI-first with a built-in web UI. Provides AST-based intelligent context for smaller models running on consumer hardware.
+A graph-native coding agent and code exploration environment built around structural context optimization. It started as a way to make local models viable under tighter context budgets, and it now also works well with hosted frontier models through the same runtime, web UI, and OpenAI-compatible serve mode.
 
-_New Web UI interface with code dependency graph visualizer. Updates in real time as agent explores the codebase. Run `minicode serve` to interact over localhost._
+_Run `minicode serve` to get the web UI on localhost: chat, tool activity, session controls, model switching, symbol focus, annotations, and a live dependency graph._
 
 <img width="1723" height="920" alt="Screenshot 2026-03-26 at 6 30 23 PM" src="https://github.com/user-attachments/assets/499c8dc7-cc2b-4125-abd5-32b2fc9795ea" />
 
 
-Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages** — indexing your project at startup with language plugins (TypeScript/JavaScript built-in) and injecting a compact **code map** (signatures only) into the system prompt, plus symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This keeps prompts lean enough for smaller models in the 20B range, with faster inference and better attention over the relevant code.
+Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup with language plugins, injects a compact **code map** (signatures only) into the system prompt, and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. The deepest built-in indexing path today is for TypeScript and JavaScript, with plugins leaving room for more languages over time.
 
 ## Quick Start (LM Studio)
 
@@ -97,7 +97,7 @@ npm run install:global
 - **Web UI** — `minicode serve` starts an HTTP + WebSocket server with a bundled chat client, real-time streaming, session management, and project graph data endpoints
 - **OpenAI-compatible API** — any client that speaks the OpenAI protocol can use minicode as a backend at `/v1/chat/completions`
 - **Context optimization:** Code map in system prompt, `read_symbol`, `find_references`, `get_dependencies`
-- **Plugin system:** Extensible language support (TypeScript built-in)
+- **Plugin system:** Extensible language support (TypeScript/JavaScript built in today)
 
 ## Context Optimization
 
@@ -110,9 +110,9 @@ For the proposed reusable package architecture and public interfaces for a stand
 minicode reduces token usage by indexing your project and providing targeted tools:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
-- `**read_symbol`** — Read a specific function or class by name, with referenced types.
-- `**find_references**` — Find all symbols that reference a given symbol.
-- `**get_dependencies**` — Get the dependency cone of a symbol.
+- `read_symbol` — Read a specific function or class by name, with referenced types.
+- `find_references` — Find all symbols that reference a given symbol.
+- `get_dependencies` — Get the dependency cone of a symbol.
 
 The index is cached in `~/.minicode/cache/<workspace-hash>/` for faster startup on subsequent runs. Caches are global and keyed by workspace path, so nothing is stored inside your project directories.
 
@@ -175,9 +175,9 @@ See [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) for the full specification. Quick
 
 Configuration can come from (later sources override earlier):
 
-1. `**~/.minicode/.env`** — User-level defaults (API keys, model, etc.)
-2. `**~/.minicode/agent.config.json**` — User-level JSON config
-3. **Project `.env`** and `**agent.config.json**` in workspace root
+1. `~/.minicode/.env` — User-level defaults (API keys, model, etc.)
+2. `~/.minicode/agent.config.json` — User-level JSON config
+3. Project `.env` and `agent.config.json` in workspace root
 4. Environment variables (highest precedence)
 
 Nothing is written inside your workspace; config and cache live under `~/.minicode/`.
@@ -192,18 +192,23 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `ANTHROPIC_API_KEY`     | Yes (Anthropic) | none                       | Required when `MODEL_PROVIDER=anthropic`                                                                                              |
 | `OPENAI_BASE_URL`       | No              | `http://localhost:1234/v1` | Base URL for OpenAI-compatible API (LM Studio, etc.)                                                                                  |
 | `OPENAI_API_KEY`        | No              | none                       | Optional for local servers; required if your endpoint enforces auth                                                                   |
+| `OPENROUTER_API_KEY`    | No              | none                       | Preferred key when `OPENAI_BASE_URL` points at OpenRouter; falls back to `OPENAI_API_KEY` if unset                                  |
 | `MAX_STEPS`             | No              | `50`                       | Max agent loop iterations per user turn                                                                                               |
 | `MAX_TOKENS`            | No              | `4096`                     | Max model output tokens per model call                                                                                                |
-| `MAX_CONTEXT_TOKENS`    | No              | `120000`                   | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
-| `MAX_TOOL_OUTPUT_CHARS` | No              | `15000`                    | Max chars per tool result before truncation. Set to `0` to disable.                                                                   |
+| `MAX_CONTEXT_TOKENS`    | No              | `40000`                    | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
+| `MAX_TOOL_OUTPUT_CHARS` | No              | `8000`                     | Max chars per tool result before truncation. Set to `0` to disable.                                                                   |
 | `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access                                                                                            |
 | `COMMAND_TIMEOUT_MS`    | No              | `30000`                    | Timeout for shell/search commands                                                                                                     |
 | `MAX_FILE_SIZE_BYTES`   | No              | `1000000`                  | Read limit for `read_file`                                                                                                            |
 | `CONFIRM_DESTRUCTIVE`   | No              | `true`                     | If `true`, blocks destructive shell commands unless confirmed                                                                         |
 | `KEEP_RECENT_MESSAGES`  | No              | `12`                       | Minimum number of latest messages kept during trimming                                                                                |
 | `LOOP_DETECTION_WINDOW` | No              | `6`                        | Window for repeated tool-call loop detection                                                                                          |
+| `ENABLE_FILE_READ_DEDUP` | No             | `true`                     | Reuses earlier `read_file` results within a turn when the same file slice is still in context                                        |
+| `ENABLE_ADAPTIVE_KEEP_RECENT` | No        | `true`                     | Scales `keepRecentMessages` down as context fills so trimming gets more aggressive when needed                                       |
+| `ENABLE_TOOL_OUTPUT_TRUNCATION` | No      | `true`                     | Enables content-aware truncation strategies for tool output instead of simple head-only clipping                                     |
 | `COMPACTION_THRESHOLD`  | No              | `0.8`                      | Context fullness ratio (0–1) at which auto-compaction triggers                                                                        |
 | `COMPACTION_MODEL`      | No              | none                       | Model for LLM-based compaction summaries. When set, `/compact` and auto-compaction use this model instead of mechanical truncation. Use a small, fast model (e.g. your local model). |
+| `REASONING_EFFORT`      | No              | unset                      | Reasoning level for providers that support it. Valid values: `xhigh`, `high`, `medium`, `low`, `minimal`, `none`                   |
 
 
 ### `agent.config.json`
@@ -216,7 +221,8 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
   "model": "zai-org/glm-4.7-flash",
   "maxSteps": 50,
   "maxTokens": 4096,
-  "maxContextTokens": 120000,
+  "maxContextTokens": 40000,
+  "maxToolOutputChars": 8000,
   "workspaceRoot": ".",
   "commandTimeout": 30000,
   "commandDenylist": [],
@@ -226,7 +232,10 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
   "loopDetectionWindow": 6,
   "openAiBaseUrl": "http://localhost:1234/v1",
   "openAiApiKey": "",
-  "compactionModel": ""
+  "enableFileReadDedup": true,
+  "enableAdaptiveKeepRecent": true,
+  "enableToolOutputTruncation": true,
+  "compactionThreshold": 0.8
 }
 ```
 
@@ -245,9 +254,14 @@ Field mapping:
 - `keepRecentMessages` ↔ `KEEP_RECENT_MESSAGES`
 - `loopDetectionWindow` ↔ `LOOP_DETECTION_WINDOW`
 - `openAiBaseUrl` ↔ `OPENAI_BASE_URL`
-- `openAiApiKey` ↔ `OPENAI_API_KEY`
+- `openAiApiKey` ↔ `OPENAI_API_KEY` / `OPENROUTER_API_KEY` (when using OpenRouter)
+- `maxToolOutputChars` ↔ `MAX_TOOL_OUTPUT_CHARS`
+- `enableFileReadDedup` ↔ `ENABLE_FILE_READ_DEDUP`
+- `enableAdaptiveKeepRecent` ↔ `ENABLE_ADAPTIVE_KEEP_RECENT`
+- `enableToolOutputTruncation` ↔ `ENABLE_TOOL_OUTPUT_TRUNCATION`
 - `compactionThreshold` ↔ `COMPACTION_THRESHOLD`
 - `compactionModel` ↔ `COMPACTION_MODEL`
+- `reasoningEffort` ↔ `REASONING_EFFORT`
 
 ## Usage
 
@@ -278,6 +292,19 @@ npm run dev -- --oneshot --json "Summarize TODOs"
 npm run dev -- --oneshot --out result.txt "Draft changelog"
 ```
 
+Interactive slash commands:
+
+- `/help`
+- `/config`
+- `/compact`
+- `/reasoning [level]`
+- `/models`
+- `/model [name]`
+- `/save [label]`
+- `/load [label]`
+- `/sessions`
+- `/exit`
+
 ### Exit codes
 
 - `0`: Success
@@ -289,7 +316,9 @@ npm run dev -- --oneshot --out result.txt "Draft changelog"
 - `npm run dev` - start the CLI in TypeScript mode
 - `npm run dev:ink` - start with Ink UI (same as `dev` when in a TTY; use to override `CLI_UI_MODE=legacy`)
 - `npm run build` - compile TypeScript to `dist/`
+- `npm run build:web` - build the bundled web client used by `minicode serve`
 - `npm start` - run compiled CLI
+- `npm run install:global` - build and `npm link` the CLI locally
 - `npm run lint` - run ESLint on TypeScript source and tests
 - `npm test` - run Node test suite
-
+- `npm run verify-index` - run the TypeScript index verification harness

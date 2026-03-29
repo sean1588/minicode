@@ -6,31 +6,36 @@ This document describes how the minicode agent runtime works end-to-end, from a 
 
 The runtime is primarily composed of:
 
-- `CodingAgent` (`src/agent/agent.ts`) — orchestrates one user turn over one or more model/tool steps.
-- `Session` (`src/session/session.ts`) — stores conversation history and handles context trimming.
-- `ToolRegistry` (`src/tools/registry.ts`) — exposes tool schemas and executes tool calls safely.
-- `ModelClient` implementations (`src/model/client.ts`) — transport for Anthropic or OpenAI-compatible providers.
-- Prompt builder (`src/prompt/system-prompt.ts`) — builds the system prompt from config, tools, and code map.
+- `CodingAgent` (`packages/agent-sdk/src/agent/agent.ts`) — orchestrates one user turn over one or more model/tool steps.
+- `Session` (`packages/agent-sdk/src/session/session.ts`) — stores conversation history and handles trimming and compaction.
+- SDK `ToolRegistry` (`packages/agent-sdk/src/tools/registry.ts`) — exposes the core file/shell tools and executes them safely.
+- minicode `createToolRegistry` (`src/tools/registry.ts`) — layers graph-aware tools on top of the SDK registry when a project index is available.
+- `ModelClient` implementations (`packages/agent-sdk/src/model/client.ts`) — transport for Anthropic or OpenAI-compatible providers.
+- Prompt builder (`packages/agent-sdk/src/prompt/system-prompt.ts`) — builds the system prompt from config, tools, and code map.
+- Config and indexing adapters (`src/agent/config.ts`, `src/indexer/project-index.ts`) — load runtime config and prepare the project index used by the CLI and serve mode.
 
 ## 2) Turn lifecycle (`CodingAgent.runTurn`)
 
 A single turn follows this sequence:
 
 1. Append user message to session.
-2. Build tool schemas from `ToolRegistry`.
-3. Build optional code map from project index.
-4. Build a system prompt that includes workspace context, available tools, and guidance.
-5. Loop up to `maxSteps`:
+2. Build tool schemas from the current tool registry.
+3. Loop up to `maxSteps`:
    - Enforce step limit guard.
-   - Trim session for context budget.
+   - Optionally auto-compact when context exceeds `compactionThreshold`.
+   - Trim session for context budget, with adaptive `keepRecentMessages` when enabled.
+   - Build a fresh system prompt, including the current code map and any focus-symbol boosts.
    - Call model with system prompt + session + tool schemas.
    - If no tool calls: return assistant text and finish turn.
    - If tool calls exist:
      - Persist assistant message/tool call metadata in session.
      - Execute each tool.
+     - Deduplicate repeated `read_file` calls within the same turn when enabled and the earlier file slice is still present in context.
+     - Apply content-aware tool output truncation when enabled.
+     - Record focus symbols from graph-aware tool calls so subsequent code maps stay aligned with the current area of work.
      - Append each tool result as a `role: "tool"` session message.
      - Continue loop for next model step.
-6. If step limit is reached, return a stop message to prevent infinite loops.
+4. If step limit is reached, return a stop message to prevent infinite loops.
 
 ## 3) Session and context management
 
@@ -40,15 +45,18 @@ The session tracks all message roles used by tool-using chat:
 - `assistant` (including tool-call intents)
 - `tool` (results tied to `toolCallId`)
 
-Before each model request, the runtime calls `session.trim(maxContextTokens, keepRecentMessages)` to keep the most recent messages while reducing approximate token load.
+Before each model request, the runtime may compact old messages and then calls `session.trim(maxContextTokens, keepRecentMessages)` to keep the most recent messages while reducing approximate token load.
 
 This keeps long-running conversations from exceeding model context while preserving near-term continuity.
 
 ## 4) Tool registration and execution
 
-`ToolRegistry.createDefault()` always registers core file/shell tools and conditionally adds code-intelligence tools when a `ProjectIndex` is available:
+At the SDK layer, `ToolRegistry.createDefault()` registers the core file/shell tools:
 
 - Core: `read_file`, `write_file`, `edit_file`, `search`, `list_files`, `run_command`
+
+At the minicode application layer, `src/tools/registry.ts` wraps those and conditionally adds code-intelligence tools when a `ProjectIndex` is available:
+
 - Indexed: `read_symbol`, `find_references`, `get_dependencies`, `search_code_map`
 
 Execution model:
@@ -67,6 +75,8 @@ Additional protections:
 
 - Step count hard limit (`maxSteps`)
 - Tool output truncation (`maxToolOutputChars`)
+- Optional file-read deduplication inside a turn
+- Compaction and trimming before prompts exceed the budget
 - Path/command guardrails enforced inside tool implementations and safety utilities
 
 ## 6) Progress, streaming, and UI updates

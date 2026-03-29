@@ -1,14 +1,18 @@
-# Context Optimization for Local Models
+# Context Optimization for Agentic Coding
 
-minicode is optimized for local AI models with smaller context windows (20B+ parameter range like GLM-4.7). This document describes the context management strategies implemented to maximize effectiveness within tight token budgets.
+minicode's context strategy started with local AI models and smaller context windows, but the same techniques also help hosted frontier models by reducing latency, cost, and prompt bloat. This document describes the context-management strategies implemented in the current runtime.
 
 ## Default configuration
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `maxContextTokens` | `40,000` | Target token budget for session history before trimming |
-| `maxToolOutputChars` | `15,000` | Max characters per tool result before truncation |
+| `maxToolOutputChars` | `8,000` | Max characters per tool result before truncation |
 | `keepRecentMessages` | `12` | Minimum number of latest messages preserved during eviction |
+| `enableFileReadDedup` | `true` | Reuses earlier `read_file` results within a turn when the same slice is still in context |
+| `enableAdaptiveKeepRecent` | `true` | Scales the protected recent-message window down as context fills |
+| `enableToolOutputTruncation` | `true` | Uses tool-specific truncation strategies instead of simple head-only clipping |
+| `compactionThreshold` | `0.8` | Auto-compacts old messages once the session reaches 80% of the configured budget |
 
 These can be overridden via environment variables (`MAX_CONTEXT_TOKENS`, etc.), `~/.minicode/agent.config.json`, or a workspace-level `agent.config.json`.
 
@@ -16,7 +20,7 @@ These can be overridden via environment variables (`MAX_CONTEXT_TOKENS`, etc.), 
 
 Every message in a session — user messages, assistant responses, tool call metadata, and tool result outputs — is stored in a single `Session` array. The entire array is sent to the model on every step. There is no separate "context buffer" vs "session storage"; whatever survives trimming IS the context.
 
-A single `read_file` returning 15,000 characters consumes ~3,750 tokens. In a 40k budget, five or six such calls would consume half the context window.
+A single `read_file` returning 8,000 characters consumes roughly 2,000 tokens. In a 40k budget, repeated full-file reads still add up quickly, which is why the runtime tries to avoid them with symbol-aware tools, file-read dedup, and trimming/compaction.
 
 ## Optimization strategies
 
@@ -109,16 +113,31 @@ Now the code map dynamically adapts based on what the user is exploring:
 - `CodingAgent` (which references Session via `session.trim()`)
 - The files containing these symbols
 
-### 5. Tool output truncation (pre-existing)
+### 5. File-read deduplication
 
 **File:** `packages/agent-sdk/src/agent/agent.ts`
 
-After each tool executes, if the result exceeds `maxToolOutputChars` (default 15,000), it is hard-truncated with a suffix:
+When `enableFileReadDedup` is enabled, repeated `read_file` calls within the same turn are short-circuited if the exact same file slice is still present in the session context. Instead of re-inserting the full file contents, the agent gets a compact reminder that the file was already read earlier in the turn.
+
+This saves tokens in common agent loops where the model repeatedly re-reads the same file before editing.
+
+### 6. Tool output truncation
+
+**File:** `packages/agent-sdk/src/agent/agent.ts`
+
+When `enableToolOutputTruncation` is enabled, minicode uses tool-specific truncation strategies. The current behavior is:
+
+- `read_file` — never truncated, because exact file contents are needed for edits
+- `run_command` — preserves the tail, where errors and final status usually appear
+- `search` — keeps the head and appends a match-count footer
+- other tools — fall back to simple head truncation
+
+When truncation is disabled, the runtime falls back to a simple head-only clip at `maxToolOutputChars` (default 8,000):
 ```
 [... truncated, 5000 more chars ...]
 ```
 
-### 6. AST-indexed tools (pre-existing)
+### 7. AST-indexed tools
 
 **Files:** `src/tools/read-symbol.ts`, `src/tools/find-references.ts`, `src/tools/get-dependencies.ts`
 

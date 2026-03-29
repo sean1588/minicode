@@ -108,11 +108,12 @@ A recursive walk captures `ts.isCallExpression` and `ts.isNewExpression` and emi
 
 If dependency edges are available, symbols are sorted by:
 
-1. Exported before non-exported,
-2. Higher inbound reference count (`edge.to`) first,
-3. Entry-point bias (`src/index.ts` or `*/index.ts`).
+1. Focus-boosted symbols first (when the agent has recently explored related symbols),
+2. Exported before non-exported,
+3. Higher inbound reference count (`edge.to`) first,
+4. Entry-point bias (`src/index.ts` or `*/index.ts`).
 
-This means highly connected API symbols and entry files survive truncation more often.
+Focus boosting expands one hop in both directions across the dependency graph, so the code map preferentially keeps the current working set and its immediate neighbors. Files containing boosted symbols are also sorted earlier in the map, which helps the relevant slice of the project survive truncation.
 
 ### 4.3 Injection into model context
 
@@ -120,7 +121,7 @@ This means highly connected API symbols and entry files survive truncation more 
 
 ## 5) How graph + code map power agent tools
 
-When a project index exists, `ToolRegistry.createDefault()` inserts graph-aware tools (`read_symbol`, `find_references`, `get_dependencies`, `search_code_map`) before generic file tools.
+When a project index exists, minicode's `createToolRegistry()` (`src/tools/registry.ts`) inserts graph-aware tools (`read_symbol`, `find_references`, `get_dependencies`, `search_code_map`) ahead of the SDK's generic file tools.
 
 ### 5.1 `read_symbol`
 
