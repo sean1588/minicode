@@ -12,6 +12,8 @@ export interface UiStoreState {
   maxSteps: number;
   inputTokens: number;
   outputTokens: number;
+  contextTokens: number;
+  maxContextTokens: number;
   model: string;
   workspaceRoot: string;
   indexStatus: string;
@@ -25,6 +27,8 @@ const DEFAULT_STATE: UiStoreState = {
   maxSteps: 50,
   inputTokens: 0,
   outputTokens: 0,
+  contextTokens: 0,
+  maxContextTokens: 0,
   model: "",
   workspaceRoot: "",
   indexStatus: "",
@@ -77,6 +81,10 @@ export class UiStore {
 
   setTokenUsage(inputTokens: number, outputTokens: number): void {
     this.update({ inputTokens, outputTokens });
+  }
+
+  setContextStatus(contextTokens: number, maxContextTokens: number): void {
+    this.update({ contextTokens, maxContextTokens });
   }
 
   addItem(item: ActivityItem): void {

@@ -68,6 +68,12 @@ export interface ServerBusyMessage {
   type: "busy";
 }
 
+export interface ServerContextStatusMessage {
+  type: "context_status";
+  contextTokens: number;
+  maxContextTokens: number;
+}
+
 export interface ServerModelChangedMessage {
   type: "model_changed";
   model: string;
@@ -83,4 +89,5 @@ export type ServerMessage =
   | ServerTurnEndMessage
   | ServerErrorMessage
   | ServerBusyMessage
+  | ServerContextStatusMessage
   | ServerModelChangedMessage;

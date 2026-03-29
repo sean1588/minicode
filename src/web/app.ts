@@ -38,6 +38,8 @@ const sessionDropdown = document.getElementById("session-dropdown")!;
 const sessionList = document.getElementById("session-list")!;
 const saveBtn = document.getElementById("save-btn")!;
 const saveLabelInput = document.getElementById("save-label") as HTMLInputElement;
+const contextFill = document.getElementById("context-fill")!;
+const contextLabel = document.getElementById("context-label")!;
 
 let ws: WebSocket;
 let currentAssistantEl: HTMLElement | null = null;
@@ -53,6 +55,7 @@ function connect(): void {
   ws.onopen = () => {
     setStatus("ready");
     fetchStatus();
+    fetchContext();
   };
 
   ws.onclose = () => {
@@ -178,6 +181,13 @@ function handleServerMessage(msg: ServerMessage): void {
       addMessage("Agent is busy. Please wait for the current turn to finish.", "error");
       break;
 
+    case "context_status":
+      updateContextIndicator(
+        (msg as ServerMessage & { contextTokens: number }).contextTokens,
+        (msg as ServerMessage & { maxContextTokens: number }).maxContextTokens,
+      );
+      break;
+
     case "model_changed":
       modelInfo.textContent = (msg as ServerMessage & { model: string }).model;
       break;
@@ -263,6 +273,30 @@ function finalizeToolCall(name: string, result: string, elapsedMs: number): void
       ? result.slice(0, TOOL_RESULT_MAX) + `\n\n... (${result.length - TOOL_RESULT_MAX} more chars)`
       : result;
     resultEl.textContent = truncated;
+  }
+}
+
+function updateContextIndicator(contextTokens: number, maxContextTokens: number): void {
+  const pct = maxContextTokens > 0 ? Math.min(100, Math.round((contextTokens / maxContextTokens) * 100)) : 0;
+  contextFill.style.width = pct + "%";
+  contextFill.classList.remove("warn", "critical");
+  if (pct >= 80) {
+    contextFill.classList.add("critical");
+  } else if (pct >= 60) {
+    contextFill.classList.add("warn");
+  }
+  contextLabel.textContent = pct + "%";
+  const indicator = document.getElementById("context-indicator")!;
+  indicator.title = `Context: ~${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens (${pct}%)`;
+}
+
+async function fetchContext(): Promise<void> {
+  try {
+    const res = await fetch("/api/context");
+    const data = await res.json() as { contextTokens: number; maxContextTokens: number };
+    updateContextIndicator(data.contextTokens, data.maxContextTokens);
+  } catch {
+    // ignore
   }
 }
 

@@ -116,12 +116,18 @@ export type UiUpdateToolCallEnd = {
   result: string;
   elapsedMs: number;
 };
+export type UiUpdateContextStatus = {
+  type: "context_status";
+  contextTokens: number;
+  maxContextTokens: number;
+};
 export type UiUpdate =
   | UiUpdateThinking
   | UiUpdateStreamingChunk
   | UiUpdateStep
   | UiUpdateToolCallStart
-  | UiUpdateToolCallEnd;
+  | UiUpdateToolCallEnd
+  | UiUpdateContextStatus;
 
 /**
  * Compute an effective keepRecentMessages that scales proportionally
@@ -220,6 +226,13 @@ export class CodingAgent {
 
   getReasoningEffort(): AgentConfig["reasoningEffort"] {
     return this.config.reasoningEffort;
+  }
+
+  getContextStatus(): { contextTokens: number; maxContextTokens: number } {
+    return {
+      contextTokens: this.session.getTokenEstimate(),
+      maxContextTokens: this.config.maxContextTokens,
+    };
   }
 
   setReasoningEffort(effort: AgentConfig["reasoningEffort"]): void {
@@ -330,6 +343,15 @@ export class CodingAgent {
         this.config.maxContextTokens,
         effectiveKeepRecent,
       );
+
+      // Broadcast current context size so UIs can display a fill indicator.
+      if (this.onUiUpdate) {
+        this.onUiUpdate({
+          type: "context_status",
+          contextTokens: this.session.getTokenEstimate(),
+          maxContextTokens: this.config.maxContextTokens,
+        });
+      }
 
       // When enableDynamicPrompt is true (default), rebuild the system prompt
       // each step with the latest focus set so the code map dynamically adapts.

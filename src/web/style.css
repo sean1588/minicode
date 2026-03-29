@@ -244,6 +244,45 @@ h1 {
   color: var(--yellow);
 }
 
+/* Context indicator */
+#context-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+}
+
+#context-bar {
+  width: 80px;
+  height: 8px;
+  background: var(--bg-surface);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+#context-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+#context-fill.warn {
+  background: var(--yellow);
+}
+
+#context-fill.critical {
+  background: var(--red);
+}
+
+#context-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 28px;
+}
+
 .badge.error {
   background: rgba(247, 118, 142, 0.15);
   color: var(--red);

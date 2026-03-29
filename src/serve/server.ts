@@ -112,6 +112,12 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      if (pathname === "/api/context" && method === "GET") {
+        const status = bridge.getAgent().getContextStatus();
+        sendJson(res, 200, status);
+        return;
+      }
+
       if (pathname === "/api/config" && method === "GET") {
         sendJson(res, 200, { config: formatConfigForDisplay(config) });
         return;
