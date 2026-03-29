@@ -39,6 +39,8 @@ function AppInner({ store, onRunTurn, onCtrlC }: AppProps): React.ReactElement {
         maxSteps={state.maxSteps}
         inputTokens={state.inputTokens}
         outputTokens={state.outputTokens}
+        contextTokens={state.contextTokens}
+        maxContextTokens={state.maxContextTokens}
         workspaceRoot={state.workspaceRoot}
         indexStatus={state.indexStatus}
       />

@@ -8,6 +8,8 @@ interface HeaderBarProps {
   maxSteps: number;
   inputTokens: number;
   outputTokens: number;
+  contextTokens: number;
+  maxContextTokens: number;
   workspaceRoot: string;
   indexStatus: string;
 }
@@ -18,9 +20,18 @@ export function HeaderBar({
   maxSteps,
   inputTokens,
   outputTokens,
+  contextTokens,
+  maxContextTokens,
   workspaceRoot,
   indexStatus,
 }: HeaderBarProps): React.ReactElement {
+  const contextPct =
+    maxContextTokens > 0
+      ? Math.min(100, Math.round((contextTokens / maxContextTokens) * 100))
+      : 0;
+  const contextColor =
+    contextPct >= 80 ? c.red : contextPct >= 60 ? c.yellow : c.green;
+
   return (
     <Box flexDirection="column" borderStyle="single" paddingX={1}>
       <Box>
@@ -45,6 +56,13 @@ export function HeaderBar({
         <Text>  </Text>
         <Text>{c.dim("index:")} </Text>
         <Text>{indexStatus || "—"}</Text>
+        <Text>  </Text>
+        <Text>{c.dim("context:")} </Text>
+        <Text>{contextColor(`${contextPct}%`)}</Text>
+        <Text> </Text>
+        <Text dimColor>
+          (~{contextTokens.toLocaleString()}/{maxContextTokens.toLocaleString()})
+        </Text>
       </Box>
     </Box>
   );

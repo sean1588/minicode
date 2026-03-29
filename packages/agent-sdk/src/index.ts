@@ -23,6 +23,7 @@ export {
   type UiUpdateStep,
   type UiUpdateToolCallStart,
   type UiUpdateToolCallEnd,
+  type UiUpdateContextStatus,
 } from "./agent/agent.js";
 
 // Session

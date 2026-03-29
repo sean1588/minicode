@@ -55,6 +55,7 @@ export async function runInkCli(
     maxSteps: config.maxSteps,
     indexStatus,
   });
+  store.setContextStatus(0, config.maxContextTokens);
   store.setPhase("idle");
 
   const toolRegistry = createToolRegistry(config, projectIndex);
@@ -92,6 +93,9 @@ export async function runInkCli(
             elapsedMs: event.elapsedMs,
           });
           store.setPhase("model_wait");
+          break;
+        case "context_status":
+          store.setContextStatus(event.contextTokens, event.maxContextTokens);
           break;
       }
     };
