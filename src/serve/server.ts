@@ -280,6 +280,46 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      if (pathname === "/api/analysis/explain" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { findingId?: string };
+        if (!body.findingId || typeof body.findingId !== "string") {
+          sendJson(res, 400, { error: "findingId is required" });
+          return;
+        }
+
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+
+        const abortController = new AbortController();
+        req.on("close", () => abortController.abort());
+
+        try {
+          await bridge.explainStructuralFinding(
+            body.findingId,
+            (event) => {
+              if (!res.writableEnded) {
+                res.write(`data: ${JSON.stringify(event)}\n\n`);
+              }
+            },
+            abortController.signal,
+          );
+        } catch (error) {
+          if (!res.writableEnded) {
+            const msg = error instanceof Error ? error.message : "Unknown error";
+            res.write(`data: ${JSON.stringify({ type: "error", message: msg })}\n\n`);
+          }
+        }
+
+        if (!res.writableEnded) {
+          res.write("data: [DONE]\n\n");
+          res.end();
+        }
+        return;
+      }
+
       if (pathname === "/api/focus" && method === "GET") {
         sendJson(res, 200, { pinned: bridge.getPinnedSymbols() });
         return;

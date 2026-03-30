@@ -1296,6 +1296,42 @@ main::-webkit-scrollbar-thumb {
   margin-top: 4px;
 }
 
+.analysis-finding-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.analysis-finding-actions .header-btn {
+  flex: 1;
+  text-align: center;
+}
+
+.analysis-explanation {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(122, 162, 247, 0.12);
+}
+
+.analysis-explanation-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7dcfff;
+  margin-bottom: 4px;
+}
+
+.analysis-explanation-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.analysis-explanation-content {
+  max-height: 280px;
+}
+
 .graph-empty {
   display: flex;
   align-items: center;
