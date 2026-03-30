@@ -3,6 +3,14 @@
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
+import {
+  buildFindingGraphContext,
+  buildFindingMetricChips,
+  countFindingsByType,
+  findingSeverityLabel,
+  findingTypeLabel,
+  type StructuralAnalysisReport,
+} from './analysis-helpers.ts';
 import { KIND_COLORS, buildStylesheet } from '../shared/graph-styles.ts';
 
 declare const cytoscape: (opts: unknown) => CyInstance;
@@ -81,6 +89,8 @@ const edgeIndex = new Map<string, GraphEdge[]>();
 const pinnedNames = new Set<string>();
 let allSymbolNames: string[] = [];
 let initialized = false;
+let analysisReport: StructuralAnalysisReport | null = null;
+let activeAnalysisFindingId: string | null = null;
 
 const LAYOUT_OPTIONS: Record<string, unknown> = {
   name: 'cose',
@@ -243,6 +253,7 @@ function addNodeAndNeighbors(symbolId: string): void {
 function expandNodeAndLayout(symbolId: string): void {
   addNodeAndNeighbors(symbolId);
   connectExistingNodes();
+  refreshAnalysisGraphState();
   runLayout();
 }
 
@@ -307,6 +318,223 @@ function findNode(name: string): CyCollection | null {
     return nName === name || qName.endsWith('.' + name);
   });
   return match.length > 0 ? match : null;
+}
+
+interface AnalysisPanelEls {
+  panel: HTMLElement;
+  status: HTMLElement;
+  summary: HTMLElement;
+  findings: HTMLElement;
+}
+
+function getAnalysisPanelEls(): AnalysisPanelEls {
+  return {
+    panel: document.getElementById('analysis-panel')!,
+    status: document.getElementById('analysis-status')!,
+    summary: document.getElementById('analysis-summary')!,
+    findings: document.getElementById('analysis-findings')!,
+  };
+}
+
+function setAnalysisStatus(message: string, tone: 'info' | 'error' = 'info'): void {
+  const { status } = getAnalysisPanelEls();
+  status.textContent = message;
+  status.classList.remove('hidden', 'error');
+  if (tone === 'error') {
+    status.classList.add('error');
+  }
+}
+
+function clearAnalysisStatus(): void {
+  const { status } = getAnalysisPanelEls();
+  status.textContent = '';
+  status.classList.add('hidden');
+  status.classList.remove('error');
+}
+
+function clearAnalysisGraphClasses(): void {
+  if (!cy) return;
+  cy.elements().removeClass('analysis-flagged');
+  cy.elements().removeClass('analysis-selected');
+}
+
+function refreshAnalysisGraphState(): void {
+  const { panel } = getAnalysisPanelEls();
+  if (!cy || !analysisReport || panel.classList.contains('hidden')) {
+    clearAnalysisGraphClasses();
+    return;
+  }
+
+  clearAnalysisGraphClasses();
+
+  const candidateNodeIds = new Set<string>();
+  const candidateEdgeIds = new Set<string>();
+  for (const finding of analysisReport.findings) {
+    const context = buildFindingGraphContext(finding, graphEdges);
+    for (const nodeId of context.nodes) candidateNodeIds.add(nodeId);
+    for (const edgeId of context.edgeIds) candidateEdgeIds.add(edgeId);
+  }
+
+  for (const nodeId of candidateNodeIds) {
+    cy.getElementById(nodeId).addClass('analysis-flagged');
+  }
+  for (const edgeId of candidateEdgeIds) {
+    cy.getElementById(edgeId).addClass('analysis-flagged');
+  }
+
+  if (!activeAnalysisFindingId) return;
+  const activeFinding = analysisReport.findings.find((finding) => finding.id === activeAnalysisFindingId);
+  if (!activeFinding) return;
+
+  const activeContext = buildFindingGraphContext(activeFinding, graphEdges);
+  for (const nodeId of activeContext.nodes) {
+    cy.getElementById(nodeId).addClass('analysis-selected');
+  }
+  for (const edgeId of activeContext.edgeIds) {
+    cy.getElementById(edgeId).addClass('analysis-selected');
+  }
+}
+
+function renderAnalysisSummary(report: StructuralAnalysisReport): void {
+  const { summary } = getAnalysisPanelEls();
+  const counts = countFindingsByType(report.findings);
+  const cards = [
+    { label: 'Findings', value: report.summary.findingCount },
+    { label: 'Cycles', value: counts.cycle },
+    { label: 'Hotspots', value: counts.hotspot },
+    { label: 'Coupling', value: counts.fileCoupling },
+  ];
+  summary.innerHTML = cards.map((card) => `
+    <div class="analysis-summary-card">
+      <span class="analysis-summary-value">${card.value}</span>
+      <span class="analysis-summary-label">${escapeHtml(card.label)}</span>
+    </div>
+  `).join('');
+}
+
+function renderAnalysisFindings(report: StructuralAnalysisReport): void {
+  const { findings } = getAnalysisPanelEls();
+
+  if (report.findings.length === 0) {
+    findings.innerHTML = `
+      <div class="analysis-empty">
+        No structural outliers cleared the current thresholds for this graph snapshot.
+      </div>
+    `;
+    return;
+  }
+
+  findings.innerHTML = report.findings.map((finding) => {
+    const metricChips = buildFindingMetricChips(finding)
+      .map((chip) => `<span class="analysis-metric-chip">${escapeHtml(chip)}</span>`)
+      .join('');
+    const fileBadges = finding.files.slice(0, 3)
+      .map((file) => `<span class="analysis-file-badge">${escapeHtml(file)}</span>`)
+      .join('');
+    const rationale = finding.rationale.slice(0, 2)
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
+      .join('');
+
+    return `
+      <article class="analysis-finding" data-finding-id="${escapeHtml(finding.id)}">
+        <div class="analysis-finding-header">
+          <div>
+            <h3 class="analysis-finding-title">${escapeHtml(finding.title)}</h3>
+          </div>
+          <div class="analysis-finding-meta">
+            <span class="analysis-type-badge">${escapeHtml(findingTypeLabel(finding.type))}</span>
+            <span class="analysis-severity-badge ${escapeHtml(finding.severity)}">${escapeHtml(findingSeverityLabel(finding.severity))}</span>
+          </div>
+        </div>
+        <p class="analysis-finding-summary">${escapeHtml(finding.summary)}</p>
+        <div class="analysis-chip-row">${metricChips}</div>
+        ${fileBadges ? `<div class="analysis-file-row">${fileBadges}</div>` : ''}
+        ${rationale ? `<ul class="analysis-rationale">${rationale}</ul>` : ''}
+      </article>
+    `;
+  }).join('');
+
+  findings.querySelectorAll('.analysis-finding').forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = (el as HTMLElement).dataset.findingId || '';
+      void selectAnalysisFinding(id);
+    });
+  });
+}
+
+function setActiveFindingCard(findingId: string | null): void {
+  const { findings } = getAnalysisPanelEls();
+  findings.querySelectorAll('.analysis-finding').forEach((el) => {
+    el.classList.toggle('active', (el as HTMLElement).dataset.findingId === findingId);
+  });
+}
+
+async function runStructuralAnalysis(): Promise<void> {
+  const { panel, findings } = getAnalysisPanelEls();
+  panel.classList.remove('hidden');
+  findings.innerHTML = '<div class="analysis-empty">Running structural analysis on the current dependency graph...</div>';
+  setAnalysisStatus('Analyzing the current graph snapshot...');
+
+  try {
+    const res = await fetch('/api/analysis');
+    if (!res.ok) {
+      throw new Error(res.status === 404 ? 'No project index available for analysis yet.' : `Analysis request failed (${res.status})`);
+    }
+
+    const report = await res.json() as StructuralAnalysisReport;
+    analysisReport = report;
+    activeAnalysisFindingId = null;
+    clearAnalysisStatus();
+    setAnalysisStatus(
+      `Analyzed ${report.summary.symbolCount} symbols across ${report.summary.fileCount} files. These are graph-derived structural signals.`,
+    );
+    renderAnalysisSummary(report);
+    renderAnalysisFindings(report);
+    refreshAnalysisGraphState();
+  } catch (error) {
+    analysisReport = null;
+    activeAnalysisFindingId = null;
+    clearAnalysisGraphClasses();
+    getAnalysisPanelEls().summary.innerHTML = '';
+    const message = error instanceof Error ? error.message : 'Failed to run structural analysis.';
+    findings.innerHTML = `<div class="analysis-empty">${escapeHtml(message)}</div>`;
+    setAnalysisStatus(message, 'error');
+  }
+}
+
+async function selectAnalysisFinding(findingId: string): Promise<void> {
+  if (!analysisReport || !cy) return;
+  const finding = analysisReport.findings.find((item) => item.id === findingId);
+  if (!finding) return;
+
+  const beforeNodeCount = cy.nodes().length;
+  for (const symbol of finding.symbols) {
+    addNodeAndNeighbors(symbol);
+  }
+  connectExistingNodes();
+
+  activeAnalysisFindingId = findingId;
+  refreshAnalysisGraphState();
+  setActiveFindingCard(findingId);
+
+  const afterNodeCount = cy.nodes().length;
+  if (afterNodeCount > beforeNodeCount) {
+    runLayout();
+  }
+
+  const primarySymbol = finding.symbols[0];
+  if (!primarySymbol) return;
+
+  const primaryNode = cy.getElementById(primarySymbol);
+  if (primaryNode.length > 0) {
+    if (finding.symbols.length > 1) {
+      cy.fit(80);
+    } else {
+      cy.animate({ center: { eles: primaryNode }, zoom: 1.35 }, { duration: 300 });
+    }
+    primaryNode.flashClass('highlighted', 1200);
+    await showDetail(primaryNode, document.getElementById('symbol-detail')!);
+  }
 }
 
 // -- Interactions --
@@ -719,9 +947,13 @@ async function togglePin(name: string, node: CyCollection, btnEl: HTMLButtonElem
 
 function setupToolbar(): void {
   const searchInput = document.getElementById('graph-search') as HTMLInputElement;
+  const analyzeBtn = document.getElementById('graph-analyze') as HTMLButtonElement;
   const fitBtn = document.getElementById('graph-fit') as HTMLButtonElement;
   const relayoutBtn = document.getElementById('graph-relayout') as HTMLButtonElement;
   const clearBtn = document.getElementById('graph-clear') as HTMLButtonElement;
+  const analysisCloseBtn = document.getElementById('analysis-close') as HTMLButtonElement;
+  const analysisRerunBtn = document.getElementById('analysis-rerun') as HTMLButtonElement;
+  const analysisPanel = document.getElementById('analysis-panel')!;
 
   let searchTimeout: ReturnType<typeof setTimeout>;
   const dropdown = document.createElement('div');
@@ -821,6 +1053,22 @@ function setupToolbar(): void {
     }
   });
 
+  analyzeBtn.addEventListener('click', () => {
+    void runStructuralAnalysis();
+  });
+
+  analysisRerunBtn.addEventListener('click', () => {
+    void runStructuralAnalysis();
+  });
+
+  analysisCloseBtn.addEventListener('click', () => {
+    analysisPanel.classList.add('hidden');
+    activeAnalysisFindingId = null;
+    clearAnalysisStatus();
+    clearAnalysisGraphClasses();
+    setActiveFindingCard(null);
+  });
+
   relayoutBtn.addEventListener('click', () => {
     runLayout();
   });
@@ -831,5 +1079,6 @@ function setupToolbar(): void {
     document.getElementById('symbol-detail')!.classList.add('hidden');
     const cyEl = document.getElementById('cy');
     if (cyEl) showOnboardingHint(cyEl);
+    refreshAnalysisGraphState();
   });
 }

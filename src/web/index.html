@@ -67,12 +67,38 @@
       <div id="graph-pane">
         <div id="graph-toolbar">
           <input id="graph-search" type="text" placeholder="Search symbols..." autocomplete="off" />
+          <button id="graph-analyze" class="header-btn">Analyze</button>
           <button id="graph-fit" class="header-btn">Fit</button>
           <button id="graph-relayout" class="header-btn">Re-layout</button>
           <button id="graph-clear" class="header-btn">Clear</button>
         </div>
-        <div id="cy"></div>
-        <div id="symbol-detail" class="hidden"></div>
+        <div id="graph-stage">
+          <div id="cy"></div>
+          <aside id="analysis-panel" class="hidden" aria-live="polite">
+            <div class="analysis-panel-header">
+              <div>
+                <div class="analysis-kicker">Deterministic analysis</div>
+                <div class="analysis-title-row">
+                  <h2 id="analysis-title">Structural findings</h2>
+                  <span class="analysis-pill">Graph-driven</span>
+                </div>
+                <p class="analysis-subtitle">
+                  These signals come from the dependency graph itself, not from agent judgment.
+                </p>
+              </div>
+              <div class="analysis-panel-actions">
+                <button id="analysis-rerun" class="header-btn" type="button">Re-run</button>
+                <button id="analysis-close" class="header-btn" type="button">Close</button>
+              </div>
+            </div>
+            <div id="analysis-status" class="analysis-status hidden"></div>
+            <div id="analysis-summary" class="analysis-summary"></div>
+            <div id="analysis-findings" class="analysis-findings">
+              <div class="analysis-empty">Run analysis to inspect cycles, hotspots, and coupling outliers.</div>
+            </div>
+          </aside>
+          <div id="symbol-detail" class="hidden"></div>
+        </div>
       </div>
     </div>
   </div>

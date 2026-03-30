@@ -66,6 +66,26 @@ describe('buildStylesheet', () => {
     );
   });
 
+  it('includes structural analysis styles for flagged graph elements', () => {
+    const flaggedNode = styles.find((s) => s.selector === 'node.analysis-flagged');
+    assert.ok(flaggedNode, 'analysis-flagged node style should exist');
+    assert.equal(flaggedNode.style['border-style'], 'double');
+
+    const selectedNode = styles.find((s) => s.selector === 'node.analysis-selected');
+    assert.ok(selectedNode, 'analysis-selected node style should exist');
+    assert.ok(
+      (selectedNode.style['border-width'] as number) >= 4,
+      'analysis-selected node should emphasize border width',
+    );
+
+    const selectedEdge = styles.find((s) => s.selector === 'edge.analysis-selected');
+    assert.ok(selectedEdge, 'analysis-selected edge style should exist');
+    assert.ok(
+      (selectedEdge.style['width'] as number) >= 3,
+      'analysis-selected edge should increase edge width',
+    );
+  });
+
   it('includes faded style for non-neighborhood elements', () => {
     const fadedNode = styles.find((s) => s.selector === 'node.faded');
     assert.ok(fadedNode, 'faded node style should exist');
