@@ -23,6 +23,46 @@ interface SessionMeta {
   messageCount: number;
 }
 
+type SettingsScope = "workspace" | "global";
+type SettingsValue = string | number | boolean | null;
+type SettingsFieldType = "string" | "number" | "boolean" | "enum";
+
+interface SettingsEntry {
+  key: string;
+  type: SettingsFieldType;
+  description: string;
+  envVar: string;
+  values?: readonly string[];
+  effectiveValue: SettingsValue;
+  workspaceValue: SettingsValue;
+  globalValue: SettingsValue;
+  envValue: string | null;
+  overriddenByEnv: boolean;
+}
+
+interface SettingsPayload {
+  workspaceConfigPath: string;
+  globalConfigPath: string;
+  entries: SettingsEntry[];
+}
+
+interface ConfigResponse {
+  config: string;
+  settings: SettingsPayload;
+  restartRequired: boolean;
+  secretsUiSupported: boolean;
+}
+
+interface ConfigSaveResponse {
+  ok: boolean;
+  scope: SettingsScope;
+  path: string;
+  saved: Array<{ key: string; value: SettingsValue }>;
+  restartRequired: boolean;
+  message: string;
+  settings: SettingsPayload;
+}
+
 const messagesEl = document.getElementById("messages")!;
 const chatForm = document.getElementById("chat-form") as HTMLFormElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
@@ -40,11 +80,23 @@ const saveBtn = document.getElementById("save-btn")!;
 const saveLabelInput = document.getElementById("save-label") as HTMLInputElement;
 const contextFill = document.getElementById("context-fill")!;
 const contextLabel = document.getElementById("context-label")!;
+const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement;
+const settingsModal = document.getElementById("settings-modal")!;
+const settingsBackdrop = document.getElementById("settings-backdrop")!;
+const settingsCloseBtn = document.getElementById("settings-close") as HTMLButtonElement;
+const settingsScopeSelect = document.getElementById("settings-scope") as HTMLSelectElement;
+const settingsPath = document.getElementById("settings-path")!;
+const settingsList = document.getElementById("settings-list")!;
+const settingsBanner = document.getElementById("settings-banner")!;
+const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
+const settingsResetBtn = document.getElementById("settings-reset") as HTMLButtonElement;
 
 let ws: WebSocket;
 let currentAssistantEl: HTMLElement | null = null;
 let assistantText = "";
 let hadToolCalls = false;
+let settingsPayload: SettingsPayload | null = null;
+let activeSettingsScope: SettingsScope = "workspace";
 
 const TOOL_RESULT_MAX = 500;
 
@@ -311,6 +363,276 @@ function scrollToBottom(): void {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function closeHeaderMenus(): void {
+  modelDropdown.classList.add("hidden");
+  sessionDropdown.classList.add("hidden");
+}
+
+function isSettingsModalOpen(): boolean {
+  return !settingsModal.classList.contains("hidden");
+}
+
+function getScopeValue(entry: SettingsEntry, scope: SettingsScope): SettingsValue {
+  return scope === "workspace" ? entry.workspaceValue : entry.globalValue;
+}
+
+function getScopePath(settings: SettingsPayload, scope: SettingsScope): string {
+  return scope === "workspace" ? settings.workspaceConfigPath : settings.globalConfigPath;
+}
+
+function formatSettingsValue(value: SettingsValue): string {
+  return value === null ? "(unset)" : String(value);
+}
+
+function setSettingsBanner(message: string, tone: "info" | "success" | "error"): void {
+  settingsBanner.textContent = message;
+  settingsBanner.className = `settings-banner ${tone}`;
+}
+
+function clearSettingsBanner(): void {
+  settingsBanner.textContent = "";
+  settingsBanner.className = "settings-banner hidden";
+}
+
+function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLElement {
+  const value = getScopeValue(entry, activeSettingsScope);
+
+  if (entry.type === "boolean") {
+    const select = document.createElement("select");
+    select.id = inputId;
+    select.className = "settings-select";
+    select.dataset.settingKey = entry.key;
+    select.innerHTML = `
+      <option value="">Use default</option>
+      <option value="true">True</option>
+      <option value="false">False</option>
+    `;
+    select.value = value === null ? "" : String(value);
+    return select;
+  }
+
+  if (entry.type === "enum") {
+    const select = document.createElement("select");
+    select.id = inputId;
+    select.className = "settings-select";
+    select.dataset.settingKey = entry.key;
+
+    const unsetOption = document.createElement("option");
+    unsetOption.value = "";
+    unsetOption.textContent = "Use default";
+    select.appendChild(unsetOption);
+
+    for (const optionValue of entry.values ?? []) {
+      const option = document.createElement("option");
+      option.value = optionValue;
+      option.textContent = optionValue;
+      select.appendChild(option);
+    }
+
+    select.value = value === null ? "" : String(value);
+    return select;
+  }
+
+  const input = document.createElement("input");
+  input.id = inputId;
+  input.className = "settings-control";
+  input.dataset.settingKey = entry.key;
+  input.type = entry.type === "number" ? "number" : "text";
+  if (entry.type === "number") {
+    input.step = "any";
+    input.inputMode = "numeric";
+  }
+  input.placeholder = "Use default";
+  input.value = value === null ? "" : String(value);
+  return input;
+}
+
+function renderSettings(): void {
+  if (!settingsPayload) {
+    return;
+  }
+
+  settingsScopeSelect.value = activeSettingsScope;
+  settingsPath.textContent = getScopePath(settingsPayload, activeSettingsScope);
+  settingsList.innerHTML = "";
+
+  for (const entry of settingsPayload.entries) {
+    const item = document.createElement("section");
+    item.className = "settings-item";
+
+    const header = document.createElement("div");
+    header.className = "settings-item-header";
+
+    const heading = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "settings-item-title";
+    title.textContent = entry.key;
+    const description = document.createElement("div");
+    description.className = "settings-item-description";
+    description.textContent = entry.description;
+    heading.append(title, description);
+
+    const badges = document.createElement("div");
+    badges.className = "settings-item-badges";
+    const envBadge = document.createElement("span");
+    envBadge.className = "settings-badge env";
+    envBadge.textContent = `Env: ${entry.envVar}`;
+    badges.appendChild(envBadge);
+
+    if (entry.overriddenByEnv) {
+      const overrideBadge = document.createElement("span");
+      overrideBadge.className = "settings-badge override";
+      overrideBadge.textContent = "Env override active";
+      badges.appendChild(overrideBadge);
+    }
+
+    header.append(heading, badges);
+
+    const meta = document.createElement("div");
+    meta.className = "settings-item-meta";
+    meta.innerHTML = `
+      <div class="settings-meta-block">
+        <span class="settings-meta-label">Effective</span>
+        <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.effectiveValue))}</div>
+      </div>
+      <div class="settings-meta-block">
+        <span class="settings-meta-label">Workspace</span>
+        <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.workspaceValue))}</div>
+      </div>
+      <div class="settings-meta-block">
+        <span class="settings-meta-label">Global</span>
+        <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.globalValue))}</div>
+      </div>
+    `;
+
+    const controls = document.createElement("div");
+    controls.className = "settings-item-controls";
+    const inputId = `setting-${entry.key}`;
+    const label = document.createElement("label");
+    label.className = "settings-help";
+    label.htmlFor = inputId;
+    label.textContent = activeSettingsScope === "workspace"
+      ? "Saved in this workspace"
+      : "Saved in your global minicode config";
+    const control = createSettingsControl(entry, inputId);
+    controls.append(label, control);
+
+    if (entry.overriddenByEnv) {
+      const overrideHelp = document.createElement("div");
+      overrideHelp.className = "settings-help";
+      overrideHelp.textContent = `${entry.envVar} currently overrides this setting with ${formatSettingsValue(entry.envValue)}. Saving here updates the persisted default underneath that env value.`;
+      controls.appendChild(overrideHelp);
+    }
+
+    item.append(header, meta, controls);
+    settingsList.appendChild(item);
+  }
+
+  updateSettingsActions();
+}
+
+async function loadSettings(): Promise<void> {
+  settingsList.innerHTML = '<div class="dropdown-empty">Loading settings...</div>';
+  settingsSaveBtn.disabled = true;
+  settingsResetBtn.disabled = true;
+  settingsSaveBtn.textContent = "Save settings";
+  clearSettingsBanner();
+
+  try {
+    const res = await fetch("/api/config");
+    if (!res.ok) {
+      throw new Error(`Failed to load settings (${res.status})`);
+    }
+    const data = await res.json() as ConfigResponse;
+    settingsPayload = data.settings;
+    renderSettings();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load settings";
+    settingsList.innerHTML = '<div class="dropdown-empty">Failed to load settings</div>';
+    setSettingsBanner(message, "error");
+  }
+}
+
+function readSettingsControlValue(entry: SettingsEntry): SettingsValue {
+  const control = settingsList.querySelector<HTMLElement>(`[data-setting-key="${entry.key}"]`);
+  if (!control) {
+    throw new Error(`Missing control for ${entry.key}`);
+  }
+
+  if (entry.type === "boolean" || entry.type === "enum") {
+    const value = (control as HTMLSelectElement).value.trim();
+    return value === "" ? null : entry.type === "boolean" ? value === "true" : value;
+  }
+
+  const rawValue = (control as HTMLInputElement).value.trim();
+  if (rawValue === "") {
+    return null;
+  }
+
+  if (entry.type === "number") {
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`Expected a number for "${entry.key}".`);
+    }
+    return parsed;
+  }
+
+  return rawValue;
+}
+
+function collectSettingsUpdates(): Record<string, SettingsValue> {
+  if (!settingsPayload) {
+    return {};
+  }
+
+  const updates: Record<string, SettingsValue> = {};
+  for (const entry of settingsPayload.entries) {
+    const nextValue = readSettingsControlValue(entry);
+    const baseline = getScopeValue(entry, activeSettingsScope);
+    if (nextValue !== baseline) {
+      updates[entry.key] = nextValue;
+    }
+  }
+  return updates;
+}
+
+function updateSettingsActions(): void {
+  if (!settingsPayload) {
+    settingsSaveBtn.disabled = true;
+    settingsResetBtn.disabled = true;
+    settingsSaveBtn.textContent = "Save settings";
+    return;
+  }
+
+  try {
+    const changeCount = Object.keys(collectSettingsUpdates()).length;
+    settingsSaveBtn.disabled = changeCount === 0;
+    settingsResetBtn.disabled = changeCount === 0;
+    settingsSaveBtn.textContent = changeCount === 0
+      ? "Save settings"
+      : `Save ${changeCount} change${changeCount === 1 ? "" : "s"}`;
+  } catch {
+    settingsSaveBtn.disabled = true;
+    settingsResetBtn.disabled = false;
+    settingsSaveBtn.textContent = "Save settings";
+  }
+}
+
+function openSettings(): void {
+  closeHeaderMenus();
+  settingsModal.classList.remove("hidden");
+  settingsModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  void loadSettings();
+}
+
+function closeSettings(): void {
+  settingsModal.classList.add("hidden");
+  settingsModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+  clearSettingsBanner();
+}
+
 // Form handling
 chatForm.addEventListener("submit", (e: Event) => {
   e.preventDefault();
@@ -347,7 +669,6 @@ modelBtn.addEventListener("click", (e: Event) => {
   e.stopPropagation();
   const isOpen = !modelDropdown.classList.contains("hidden");
   modelDropdown.classList.toggle("hidden");
-  // Close session dropdown if open
   sessionDropdown.classList.add("hidden");
   if (!isOpen) {
     refreshModelList();
@@ -399,6 +720,7 @@ sessionBtn.addEventListener("click", (e: Event) => {
   e.stopPropagation();
   const isOpen = !sessionDropdown.classList.contains("hidden");
   sessionDropdown.classList.toggle("hidden");
+  modelDropdown.classList.add("hidden");
   if (!isOpen) {
     refreshSessionList();
   }
@@ -478,6 +800,93 @@ async function loadSession(label: string): Promise<void> {
     // ignore
   }
 }
+
+// -- Settings modal --
+
+settingsBtn.addEventListener("click", () => {
+  openSettings();
+});
+
+settingsCloseBtn.addEventListener("click", () => {
+  closeSettings();
+});
+
+settingsBackdrop.addEventListener("click", () => {
+  closeSettings();
+});
+
+settingsScopeSelect.addEventListener("change", () => {
+  activeSettingsScope = settingsScopeSelect.value === "global" ? "global" : "workspace";
+  clearSettingsBanner();
+  renderSettings();
+});
+
+settingsResetBtn.addEventListener("click", () => {
+  clearSettingsBanner();
+  renderSettings();
+});
+
+settingsSaveBtn.addEventListener("click", async () => {
+  if (!settingsPayload) {
+    return;
+  }
+
+  let updates: Record<string, SettingsValue>;
+  try {
+    updates = collectSettingsUpdates();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to read settings";
+    setSettingsBanner(message, "error");
+    return;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    setSettingsBanner("No changes to save for this scope.", "info");
+    return;
+  }
+
+  settingsSaveBtn.disabled = true;
+  settingsSaveBtn.textContent = "Saving...";
+
+  try {
+    const res = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope: activeSettingsScope,
+        updates,
+      }),
+    });
+    const body = await res.json() as ConfigSaveResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to save settings (${res.status})`);
+    }
+
+    settingsPayload = body.settings;
+    renderSettings();
+    setSettingsBanner(body.message, "success");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to save settings";
+    setSettingsBanner(message, "error");
+    updateSettingsActions();
+  }
+});
+
+settingsList.addEventListener("input", () => {
+  clearSettingsBanner();
+  updateSettingsActions();
+});
+
+settingsList.addEventListener("change", () => {
+  clearSettingsBanner();
+  updateSettingsActions();
+});
+
+document.addEventListener("keydown", (event: KeyboardEvent) => {
+  if (event.key === "Escape" && isSettingsModalOpen()) {
+    closeSettings();
+  }
+});
 
 // -- Resizable pane divider --
 

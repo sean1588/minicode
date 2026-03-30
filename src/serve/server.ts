@@ -8,6 +8,7 @@ import { AgentBridge } from "./agent-bridge.js";
 import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
 import { formatConfigForDisplay } from "../agent/config.js";
+import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../agent/editable-config.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
 import type { ServerMessage } from "./types.js";
 import type { WebSocketServer } from "ws";
@@ -68,6 +69,7 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
 /** Create the HTTP request handler. Exported for testing. */
 export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage, res: ServerResponse) => void {
   const config = bridge.getConfig();
+  const configCwd = config.workspaceRoot;
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -120,7 +122,50 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
       }
 
       if (pathname === "/api/config" && method === "GET") {
-        sendJson(res, 200, { config: formatConfigForDisplay(config) });
+        const structured = await buildStructuredConfigPayload(config, configCwd);
+        sendJson(res, 200, {
+          config: formatConfigForDisplay(config),
+          settings: structured,
+          restartRequired: true,
+          secretsUiSupported: false,
+        });
+        return;
+      }
+
+      if (pathname === "/api/config" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as {
+          scope?: "workspace" | "global";
+          updates?: Record<string, string | number | boolean | null>;
+        };
+        if (!body.updates || typeof body.updates !== "object") {
+          sendJson(res, 400, { error: "updates object is required" });
+          return;
+        }
+        if (body.scope && body.scope !== "workspace" && body.scope !== "global") {
+          sendJson(res, 400, { error: `Invalid scope "${body.scope}". Use "workspace" or "global".` });
+          return;
+        }
+
+        try {
+          const result = await applyPersistedConfigUpdates({
+            cwd: configCwd,
+            scope: body.scope ?? "workspace",
+            updates: body.updates,
+          });
+          const structured = await buildStructuredConfigPayload(config, configCwd);
+          sendJson(res, 200, {
+            ok: true,
+            scope: body.scope ?? "workspace",
+            path: result.path,
+            saved: result.saved,
+            restartRequired: true,
+            message: "Persisted config updated. Restart minicode to apply changes to new sessions.",
+            settings: structured,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to update config";
+          sendJson(res, 400, { error: message });
+        }
         return;
       }
 
