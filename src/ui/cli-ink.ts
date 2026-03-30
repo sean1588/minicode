@@ -2,7 +2,8 @@ import process from "node:process";
 
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
 import type { UiUpdate, ReasoningEffort } from "@minicode/agent-sdk";
-import { formatConfigForDisplay, loadAgentConfig } from "../agent/config.js";
+import { loadAgentConfig } from "../agent/config.js";
+import { handleConfigSlashCommand } from "../cli/config-slash-command.js";
 import {
   computeFileHashes,
   getWorkspaceCacheDir,
@@ -155,15 +156,16 @@ export async function runInkCli(
       store.addItem({
         type: "system",
         content:
-          'Commands: "/help", "/config", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit".',
+          'Commands: "/help", "/config [keys|get|set|unset]", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit".',
       });
       return;
     }
 
-    if (trimmed === "/config") {
+    const configCommand = await handleConfigSlashCommand(trimmed, { config });
+    if (configCommand.handled) {
       store.addItem({
         type: "system",
-        content: formatConfigForDisplay(config),
+        content: configCommand.message ?? "",
       });
       return;
     }
