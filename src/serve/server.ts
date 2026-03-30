@@ -270,6 +270,16 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
         return;
       }
 
+      if (pathname === "/api/analysis" && method === "GET") {
+        const result = bridge.getStructuralAnalysis();
+        if (!result) {
+          sendJson(res, 404, { error: "No project index available" });
+          return;
+        }
+        sendJson(res, 200, result);
+        return;
+      }
+
       if (pathname === "/api/focus" && method === "GET") {
         sendJson(res, 200, { pinned: bridge.getPinnedSymbols() });
         return;

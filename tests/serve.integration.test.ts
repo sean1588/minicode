@@ -3,6 +3,7 @@ import { test, afterEach } from "node:test";
 import type { Server } from "node:http";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import type { StructuralAnalysisReport } from "../src/analysis/structural-analysis.js";
 import { createRequestHandler, shutdownServe } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import type { UiUpdate } from "@minicode/agent-sdk";
@@ -128,6 +129,71 @@ class MockBridge extends AgentBridge {
         { id: "Bar", name: "Bar", kind: "class", filePath: "src/bar.ts", exported: true },
       ],
       edges: [{ from: "foo", to: "Bar", kind: "calls" as const }],
+    };
+  }
+
+  override getStructuralAnalysis(): StructuralAnalysisReport | undefined {
+    return {
+      version: 1,
+      findings: [
+        {
+          id: "hotspot:foo",
+          type: "hotspot",
+          severity: "warning",
+          title: "foo is a structural hotspot",
+          summary: "foo has total degree 4.",
+          symbols: ["foo"],
+          files: ["src/foo.ts"],
+          metrics: {
+            totalDegree: 4,
+            fanIn: 1,
+            fanOut: 3,
+            threshold: 4,
+            score: 4,
+          },
+          rationale: ["Total degree exceeds the deterministic hotspot threshold."],
+        },
+      ],
+      symbolMetrics: [
+        {
+          qualifiedName: "foo",
+          name: "foo",
+          kind: "function",
+          filePath: "src/foo.ts",
+          fanIn: 1,
+          fanOut: 3,
+          totalDegree: 4,
+          inboundKinds: ["calls"],
+          outboundKinds: ["calls"],
+        },
+      ],
+      fileMetrics: [
+        {
+          filePath: "src/foo.ts",
+          symbolCount: 1,
+          incomingEdgeCount: 1,
+          outgoingEdgeCount: 3,
+          internalEdgeCount: 0,
+          afferentCoupling: 1,
+          efferentCoupling: 2,
+          totalCoupling: 3,
+          instability: 0.667,
+        },
+      ],
+      summary: {
+        symbolCount: 2,
+        edgeCount: 1,
+        fileCount: 2,
+        findingCount: 1,
+        cycleCount: 0,
+        hotspotCount: 1,
+        thresholds: {
+          fanIn: 3,
+          fanOut: 3,
+          hotspot: 4,
+          fileCoupling: 3,
+        },
+      },
     };
   }
 
@@ -660,6 +726,26 @@ test("GET /api/graph returns nodes and edges", async () => {
   assert.equal(body.edges[0]!.from, "foo");
   assert.equal(body.edges[0]!.to, "Bar");
   assert.equal(body.edges[0]!.kind, "calls");
+});
+
+test("GET /api/analysis returns deterministic structural findings", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/analysis`);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as {
+    version: number;
+    findings: Array<{ type: string; symbols: string[] }>;
+    summary: { hotspotCount: number; findingCount: number };
+  };
+
+  assert.equal(body.version, 1);
+  assert.equal(body.summary.hotspotCount, 1);
+  assert.equal(body.summary.findingCount, 1);
+  assert.equal(body.findings[0]?.type, "hotspot");
+  assert.deepEqual(body.findings[0]?.symbols, ["foo"]);
 });
 
 test("GET /api/focus returns pinned symbols", async () => {

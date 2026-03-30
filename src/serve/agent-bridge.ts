@@ -1,5 +1,6 @@
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
 import type { ModelInfo, UiUpdate } from "@minicode/agent-sdk";
+import { analyzeProjectStructure, type StructuralAnalysisReport } from "../analysis/structural-analysis.js";
 import { loadAgentConfig } from "../agent/config.js";
 import {
   computeFileHashes,
@@ -278,6 +279,11 @@ export class AgentBridge {
       kind: e.kind,
     }));
     return { nodes, edges };
+  }
+
+  getStructuralAnalysis(): StructuralAnalysisReport | undefined {
+    if (!this.projectIndex) return undefined;
+    return analyzeProjectStructure(this.projectIndex);
   }
 
   getPinnedSymbols(): string[] {
