@@ -8,6 +8,7 @@ import { AgentBridge } from "./agent-bridge.js";
 import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
 import { formatConfigForDisplay } from "../agent/config.js";
+import { sortModelsAlphabetically } from "../model-utils.js";
 import type { ServerMessage } from "./types.js";
 import type { WebSocketServer } from "ws";
 
@@ -96,7 +97,7 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
       }
 
       if (pathname === "/api/models" && method === "GET") {
-        const models = await bridge.listModels();
+        const models = sortModelsAlphabetically(await bridge.listModels());
         sendJson(res, 200, { models, activeModel: config.model });
         return;
       }

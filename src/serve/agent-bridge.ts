@@ -9,6 +9,7 @@ import {
 } from "../indexer/cache.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
 import type { ProjectIndex } from "../indexer/types.js";
+import { sortModelsAlphabetically } from "../model-utils.js";
 import { createToolRegistry } from "../tools/registry.js";
 import {
   listSessions,
@@ -393,7 +394,7 @@ export class AgentBridge {
 
   async listModels(): Promise<ModelInfo[]> {
     if (this.modelClient.listModels) {
-      return this.modelClient.listModels();
+      return sortModelsAlphabetically(await this.modelClient.listModels());
     }
     return [];
   }
