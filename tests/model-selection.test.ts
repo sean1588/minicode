@@ -83,8 +83,9 @@ class MockBridgeForModels extends AgentBridge {
 
   override async listModels(): Promise<ModelInfo[]> {
     return [
-      { id: "model-x", name: "Model X" },
-      { id: "model-y", name: "Model Y" },
+      { id: "model-z", name: "Zulu" },
+      { id: "model-a", name: "Alpha" },
+      { id: "model-m" },
     ];
   }
 
@@ -120,8 +121,11 @@ test("GET /api/models returns model list and active model", async () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/models`);
     assert.equal(res.status, 200);
     const data = (await res.json()) as { models: ModelInfo[]; activeModel: string };
-    assert.equal(data.models.length, 2);
-    assert.equal(data.models[0]!.id, "model-x");
+    assert.equal(data.models.length, 3);
+    assert.deepEqual(
+      data.models.map((model) => model.id),
+      ["model-a", "model-m", "model-z"],
+    );
     assert.equal(data.activeModel, "test-model");
   } finally {
     server.close();

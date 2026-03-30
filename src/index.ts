@@ -18,6 +18,7 @@ import {
   saveIndex,
 } from "./indexer/cache.js";
 import { buildProjectIndex } from "./indexer/project-index.js";
+import { sortModelsAlphabetically } from "./model-utils.js";
 import { createToolRegistry } from "./tools/registry.js";
 import {
   CliUsageError,
@@ -194,7 +195,7 @@ async function runInteractive(
     if (trimmed === "/models") {
       if (modelClient.listModels) {
         console.log("Fetching models...");
-        const models = await modelClient.listModels();
+        const models = sortModelsAlphabetically(await modelClient.listModels());
         if (models.length === 0) {
           console.log("No models found (provider may not support listing).");
         } else {

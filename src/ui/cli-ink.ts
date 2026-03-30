@@ -10,6 +10,7 @@ import {
   saveIndex,
 } from "../indexer/cache.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
+import { sortModelsAlphabetically } from "../model-utils.js";
 import {
   listSessions,
   loadSession,
@@ -219,7 +220,7 @@ export async function runInkCli(
     if (trimmed === "/models") {
       if (modelClient.listModels) {
         store.addItem({ type: "system", content: "Fetching models..." });
-        const models = await modelClient.listModels();
+        const models = sortModelsAlphabetically(await modelClient.listModels());
         if (models.length === 0) {
           store.addItem({ type: "system", content: "No models found (provider may not support listing)." });
         } else {
