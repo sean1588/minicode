@@ -91,6 +91,7 @@ let allSymbolNames: string[] = [];
 let initialized = false;
 let analysisReport: StructuralAnalysisReport | null = null;
 let activeAnalysisFindingId: string | null = null;
+const analysisExplanationCache = new Map<string, string>();
 
 const LAYOUT_OPTIONS: Record<string, unknown> = {
   name: 'cose',
@@ -450,6 +451,15 @@ function renderAnalysisFindings(report: StructuralAnalysisReport): void {
         <div class="analysis-chip-row">${metricChips}</div>
         ${fileBadges ? `<div class="analysis-file-row">${fileBadges}</div>` : ''}
         ${rationale ? `<ul class="analysis-rationale">${rationale}</ul>` : ''}
+        <div class="analysis-finding-actions">
+          <button class="header-btn analysis-select-btn" type="button">Inspect in graph</button>
+          <button class="header-btn analysis-explain-btn" type="button">Explain this finding</button>
+        </div>
+        <div class="analysis-explanation hidden">
+          <div class="analysis-explanation-label">AI interpretation</div>
+          <div class="analysis-explanation-note">Advisory explanation grounded in the deterministic finding and affected symbols.</div>
+          <div class="detail-explain-content analysis-explanation-content"></div>
+        </div>
       </article>
     `;
   }).join('');
@@ -458,6 +468,25 @@ function renderAnalysisFindings(report: StructuralAnalysisReport): void {
     el.addEventListener('click', () => {
       const id = (el as HTMLElement).dataset.findingId || '';
       void selectAnalysisFinding(id);
+    });
+  });
+
+  findings.querySelectorAll('.analysis-select-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const parent = (button as HTMLElement).closest('.analysis-finding') as HTMLElement | null;
+      const id = parent?.dataset.findingId || '';
+      void selectAnalysisFinding(id);
+    });
+  });
+
+  findings.querySelectorAll('.analysis-explain-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const parent = (button as HTMLElement).closest('.analysis-finding') as HTMLElement | null;
+      if (!parent) return;
+      const id = parent.dataset.findingId || '';
+      void explainAnalysisFinding(id, parent);
     });
   });
 }
@@ -484,6 +513,7 @@ async function runStructuralAnalysis(): Promise<void> {
     const report = await res.json() as StructuralAnalysisReport;
     analysisReport = report;
     activeAnalysisFindingId = null;
+    analysisExplanationCache.clear();
     clearAnalysisStatus();
     setAnalysisStatus(
       `Analyzed ${report.summary.symbolCount} symbols across ${report.summary.fileCount} files. These are graph-derived structural signals.`,
@@ -494,11 +524,97 @@ async function runStructuralAnalysis(): Promise<void> {
   } catch (error) {
     analysisReport = null;
     activeAnalysisFindingId = null;
+    analysisExplanationCache.clear();
     clearAnalysisGraphClasses();
     getAnalysisPanelEls().summary.innerHTML = '';
     const message = error instanceof Error ? error.message : 'Failed to run structural analysis.';
     findings.innerHTML = `<div class="analysis-empty">${escapeHtml(message)}</div>`;
     setAnalysisStatus(message, 'error');
+  }
+}
+
+async function streamExplanationInto(
+  request: () => Promise<Response>,
+  content: HTMLElement,
+  loadingLabel: string,
+  unavailableText: string,
+  failureText: string,
+  onComplete?: (markdown: string) => void,
+): Promise<void> {
+  content.innerHTML = `<span class="explain-status"><span class="explain-spinner"></span> ${escapeHtml(loadingLabel)}</span>`;
+
+  let streaming = false;
+  let rawText = '';
+
+  function showToolStatus(toolName: string, input: Record<string, unknown>): void {
+    if (streaming) return;
+    const arg = input.name || input.path || input.symbol || input.query || '';
+    content.innerHTML = `<span class="explain-status"><span class="explain-spinner"></span> ${escapeHtml(toolName)}(${escapeHtml(String(arg))})</span>`;
+  }
+
+  function startStreaming(): void {
+    if (streaming) return;
+    streaming = true;
+    rawText = '';
+    content.textContent = '';
+  }
+
+  function finalize(): void {
+    if (!rawText) return;
+    onComplete?.(rawText);
+    renderMarkdownInto(content, rawText);
+  }
+
+  try {
+    const res = await request();
+    if (!res.ok || !res.body) {
+      content.textContent = unavailableText;
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6);
+        if (payload === '[DONE]') {
+          finalize();
+          return;
+        }
+        try {
+          const event = JSON.parse(payload);
+          if (event.type === 'tool_call_start') {
+            showToolStatus(event.name, event.input || {});
+          } else if (event.type === 'streaming_chunk' && event.content) {
+            startStreaming();
+            rawText += event.content;
+            content.textContent = rawText;
+            content.scrollTop = content.scrollHeight;
+          } else if (event.type === 'error') {
+            startStreaming();
+            rawText += `\n[Error: ${event.message}]`;
+            content.textContent = rawText;
+          }
+        } catch {
+          // skip unparseable lines
+        }
+      }
+    }
+    finalize();
+  } catch {
+    if (!streaming) {
+      content.textContent = failureText;
+    } else {
+      finalize();
+    }
   }
 }
 
@@ -534,6 +650,48 @@ async function selectAnalysisFinding(findingId: string): Promise<void> {
     }
     primaryNode.flashClass('highlighted', 1200);
     await showDetail(primaryNode, document.getElementById('symbol-detail')!);
+  }
+}
+
+async function explainAnalysisFinding(findingId: string, findingEl: HTMLElement): Promise<void> {
+  await selectAnalysisFinding(findingId);
+
+  const explanationEl = findingEl.querySelector('.analysis-explanation') as HTMLElement | null;
+  const contentEl = findingEl.querySelector('.analysis-explanation-content') as HTMLElement | null;
+  if (!explanationEl || !contentEl) return;
+
+  explanationEl.classList.remove('hidden');
+
+  const cached = analysisExplanationCache.get(findingId);
+  if (cached) {
+    renderMarkdownInto(contentEl, cached);
+    return;
+  }
+
+  if (findingEl.dataset.explaining === 'true') {
+    return;
+  }
+  findingEl.dataset.explaining = 'true';
+
+  try {
+    await streamExplanationInto(
+      () => fetch('/api/analysis/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ findingId }),
+      }),
+      contentEl,
+      'Interpreting deterministic finding...',
+      '(analysis explanation unavailable)',
+      '(analysis explanation failed)',
+      (markdown) => {
+        if (!markdown.includes('[Error:')) {
+          analysisExplanationCache.set(findingId, markdown);
+        }
+      },
+    );
+  } finally {
+    delete findingEl.dataset.explaining;
   }
 }
 
@@ -843,77 +1001,13 @@ async function explainSymbol(name: string, detailEl: HTMLElement): Promise<void>
   const section = detailEl.querySelector('#detail-explain') as HTMLElement;
   const content = section.querySelector('.detail-explain-content') as HTMLElement;
   section.classList.remove('hidden');
-  content.innerHTML = '<span class="explain-status"><span class="explain-spinner"></span> Researching...</span>';
-
-  let streaming = false;
-  let rawText = '';
-
-  function showToolStatus(toolName: string, input: Record<string, unknown>): void {
-    if (streaming) return;
-    const arg = input.name || input.path || input.symbol || input.query || '';
-    content.innerHTML = `<span class="explain-status"><span class="explain-spinner"></span> ${escapeHtml(toolName)}(${escapeHtml(String(arg))})</span>`;
-  }
-
-  function startStreaming(): void {
-    if (streaming) return;
-    streaming = true;
-    rawText = '';
-    content.textContent = '';
-  }
-
-  function finalize(): void {
-    if (rawText) {
-      renderMarkdownInto(content, rawText);
-    }
-  }
-
-  try {
-    const res = await fetch(`/api/symbols/${encodeURIComponent(name)}/explain`);
-    if (!res.ok || !res.body) {
-      content.textContent = '(explain unavailable)';
-      return;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6);
-        if (payload === '[DONE]') { finalize(); return; }
-        try {
-          const event = JSON.parse(payload);
-          if (event.type === 'tool_call_start') {
-            showToolStatus(event.name, event.input || {});
-          } else if (event.type === 'streaming_chunk' && event.content) {
-            startStreaming();
-            rawText += event.content;
-            content.textContent = rawText;
-            content.scrollTop = content.scrollHeight;
-          } else if (event.type === 'error') {
-            startStreaming();
-            rawText += `\n[Error: ${event.message}]`;
-            content.textContent = rawText;
-          }
-        } catch {
-          // skip unparseable lines
-        }
-      }
-    }
-    finalize();
-  } catch {
-    if (!streaming) {
-      content.textContent = '(explain failed)';
-    } else {
-      finalize();
-    }
-  }
+  await streamExplanationInto(
+    () => fetch(`/api/symbols/${encodeURIComponent(name)}/explain`),
+    content,
+    'Researching...',
+    '(explain unavailable)',
+    '(explain failed)',
+  );
 }
 
 async function togglePin(name: string, node: CyCollection, btnEl: HTMLButtonElement): Promise<void> {

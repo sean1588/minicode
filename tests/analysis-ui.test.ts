@@ -20,11 +20,14 @@ test("built CSS contains analysis drawer and finding card styles", () => {
   assert.ok(css.includes("#analysis-panel"), "CSS should contain analysis panel styles");
   assert.ok(css.includes(".analysis-finding"), "CSS should contain finding card styles");
   assert.ok(css.includes(".analysis-summary-card"), "CSS should contain summary card styles");
+  assert.ok(css.includes(".analysis-explanation"), "CSS should contain AI explanation styles");
 });
 
 test("built JS contains structural analysis loading and highlighting logic", () => {
   const js = readFileSync(join(distWeb, "app.js"), "utf8");
   assert.ok(js.includes("/api/analysis"), "JS should fetch the analysis API");
+  assert.ok(js.includes("/api/analysis/explain"), "JS should call the analysis explanation API");
   assert.ok(js.includes("analysis-selected"), "JS should apply selected analysis highlight classes");
   assert.ok(js.includes("graph-derived structural signals"), "JS should surface deterministic analysis messaging");
+  assert.ok(js.includes("AI interpretation"), "JS should label advisory AI interpretation distinctly");
 });

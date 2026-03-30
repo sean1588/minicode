@@ -261,6 +261,17 @@ class MockBridge extends AgentBridge {
     onEvent({ type: "streaming_chunk", content: `Explaining ${name}...` } as UiUpdate);
     return `Explaining ${name}...`;
   }
+
+  override async explainStructuralFinding(
+    findingId: string,
+    onEvent: (event: UiUpdate) => void,
+  ): Promise<string> {
+    if (findingId !== "hotspot:foo") {
+      throw new Error(`Structural finding "${findingId}" not found`);
+    }
+    onEvent({ type: "streaming_chunk", content: `Interpreting ${findingId}...` } as UiUpdate);
+    return `Interpreting ${findingId}...`;
+  }
 }
 
 // ── Test harness ──
@@ -746,6 +757,54 @@ test("GET /api/analysis returns deterministic structural findings", async () => 
   assert.equal(body.summary.findingCount, 1);
   assert.equal(body.findings[0]?.type, "hotspot");
   assert.deepEqual(body.findings[0]?.symbols, ["foo"]);
+});
+
+test("POST /api/analysis/explain returns SSE stream", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/analysis/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ findingId: "hotspot:foo" }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "text/event-stream");
+
+  const text = await res.text();
+  assert.ok(text.includes("Interpreting hotspot:foo"));
+  assert.ok(text.includes("[DONE]"));
+});
+
+test("POST /api/analysis/explain rejects missing finding id", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/analysis/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: "findingId is required" });
+});
+
+test("POST /api/analysis/explain streams error event for unknown finding", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/analysis/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ findingId: "missing" }),
+  });
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  const errorLine = text.split("\n").find((line) => line.startsWith("data: {") && line.includes('"type":"error"'));
+  assert.ok(errorLine);
+  const payload = JSON.parse(errorLine!.slice(6)) as { type: string; message: string };
+  assert.equal(payload.type, "error");
+  assert.equal(payload.message, 'Structural finding "missing" not found');
 });
 
 test("GET /api/focus returns pinned symbols", async () => {

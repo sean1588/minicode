@@ -429,4 +429,63 @@ Be concise but thorough.`;
     const result = await explainAgent.runTurn(prompt, opts);
     return result.text;
   }
+
+  async explainStructuralFinding(
+    findingId: string,
+    onEvent: (event: UiUpdate) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const report = this.getStructuralAnalysis();
+    if (!report) throw new Error("No project index");
+
+    const finding = report.findings.find((item) => item.id === findingId);
+    if (!finding) throw new Error(`Structural finding "${findingId}" not found`);
+
+    const explainAgent = this.buildAgent(undefined, onEvent);
+    const affectedSymbols = finding.symbols.length > 0
+      ? finding.symbols.slice(0, 8).join(", ")
+      : "(none)";
+    const affectedFiles = finding.files.length > 0
+      ? finding.files.slice(0, 6).join(", ")
+      : "(none)";
+    const rationale = finding.rationale.map((item) => `- ${item}`).join("\n");
+    const metrics = Object.entries(finding.metrics)
+      .map(([key, value]) => `- ${key}: ${String(value)}`)
+      .join("\n");
+
+    const prompt = `Interpret this deterministic structural analysis finding for the current codebase.
+
+Finding type: ${finding.type}
+Severity: ${finding.severity}
+Title: ${finding.title}
+Summary: ${finding.summary}
+
+Affected symbols:
+${affectedSymbols}
+
+Affected files:
+${affectedFiles}
+
+Deterministic rationale:
+${rationale || "- No extra rationale provided."}
+
+Metrics:
+${metrics || "- No metrics provided."}
+
+Important constraints:
+- This finding came from deterministic graph analysis, not from the model.
+- Your job is to interpret the finding, not to replace it.
+- Keep the explanation advisory and note where the signal may be noisy or incomplete.
+- If useful, inspect a few affected symbols with read_symbol, get_dependencies, and find_references before explaining.
+
+Respond with short sections for:
+1. What this likely means
+2. Why it may matter
+3. Caveats / false-positive risk
+4. Potential next steps`;
+
+    const opts = signal ? { signal } : undefined;
+    const result = await explainAgent.runTurn(prompt, opts);
+    return result.text;
+  }
 }
