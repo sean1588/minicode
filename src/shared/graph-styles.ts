@@ -94,6 +94,41 @@ export function buildStylesheet(): unknown[] {
   styles.push({ selector: 'edge.faded', style: { 'opacity': 0.05 } });
   styles.push({ selector: 'node.highlighted', style: { 'border-width': 2.5, 'z-index': 10 } });
   styles.push({ selector: 'edge.highlighted', style: { 'opacity': 0.9, 'width': 2, 'z-index': 10 } });
+  styles.push({
+    selector: 'node.analysis-flagged',
+    style: {
+      'border-style': 'double',
+      'border-width': 3,
+      'overlay-color': '#7dcfff',
+      'overlay-opacity': 0.05,
+    },
+  });
+  styles.push({
+    selector: 'node.analysis-selected',
+    style: {
+      'border-color': '#f7768e',
+      'border-width': 4,
+      'background-color': 'rgba(247,118,142,0.18)',
+      'z-index': 30,
+    },
+  });
+  styles.push({
+    selector: 'edge.analysis-flagged',
+    style: {
+      'opacity': 0.55,
+      'width': 1.75,
+    },
+  });
+  styles.push({
+    selector: 'edge.analysis-selected',
+    style: {
+      'line-color': '#f7768e',
+      'target-arrow-color': '#f7768e',
+      'opacity': 0.95,
+      'width': 3,
+      'z-index': 30,
+    },
+  });
   styles.push({ selector: 'node.agent-pulse', style: { 'border-color': '#ff9e64', 'border-width': 4, 'background-color': 'rgba(255,158,100,0.25)' } });
   styles.push({ selector: 'node.search-match', style: { 'border-color': '#e0af68', 'border-width': 2.5 } });
   styles.push({ selector: 'node.expanded', style: { 'border-width': 2.5 } });
