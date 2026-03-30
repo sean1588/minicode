@@ -32,6 +32,7 @@
             </div>
           </div>
         </div>
+        <button id="settings-btn" class="header-btn" title="Edit persisted settings">Settings</button>
         <button id="graph-toggle" class="header-btn" title="Toggle graph pane">Graph</button>
         <div class="session-menu">
           <button id="session-btn" class="header-btn" title="Sessions">Sessions</button>
@@ -74,6 +75,48 @@
         <div id="symbol-detail" class="hidden"></div>
       </div>
     </div>
+  </div>
+
+  <div id="settings-modal" class="modal hidden" aria-hidden="true">
+    <div id="settings-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="settings-title">Settings</h2>
+          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret defaults for future sessions.</p>
+        </div>
+        <button id="settings-close" class="header-btn" type="button">Close</button>
+      </div>
+
+      <div class="settings-toolbar">
+        <label class="settings-scope-picker" for="settings-scope">
+          <span>Scope</span>
+          <select id="settings-scope">
+            <option value="workspace">Workspace</option>
+            <option value="global">Global</option>
+          </select>
+        </label>
+        <div class="settings-path-group">
+          <span class="settings-path-label">Config file</span>
+          <code id="settings-path" class="settings-path"></code>
+        </div>
+      </div>
+
+      <div id="settings-banner" class="settings-banner hidden" role="status" aria-live="polite"></div>
+      <div id="settings-list" class="settings-list">
+        <div class="dropdown-empty">Loading settings...</div>
+      </div>
+
+      <div class="modal-footer">
+        <p class="settings-footnote">
+          Secrets such as API keys stay env-only for now. Saved changes update persisted defaults and apply to new runs after restart.
+        </p>
+        <div class="settings-actions">
+          <button id="settings-reset" class="header-btn" type="button">Reset changes</button>
+          <button id="settings-save" class="dropdown-action" type="button">Save settings</button>
+        </div>
+      </div>
+    </section>
   </div>
 
   <script type="module" src="app.js"></script>

@@ -256,16 +256,28 @@ test("GET /api/status returns busy when agent is busy", async () => {
   assert.equal(body.status, "busy");
 });
 
-test("GET /api/config returns formatted config", async () => {
+test("GET /api/config returns formatted config plus structured settings", async () => {
   const bridge = new MockBridge();
   const base = await startTestServer(bridge);
 
   const res = await fetch(`${base}/api/config`);
   assert.equal(res.status, 200);
 
-  const body = (await res.json()) as { config: string };
+  const body = (await res.json()) as {
+    config: string;
+    restartRequired: boolean;
+    secretsUiSupported: boolean;
+    settings: {
+      workspaceConfigPath: string;
+      entries: Array<{ key: string }>;
+    };
+  };
   assert.ok(body.config.includes("workspaceRoot"));
   assert.ok(body.config.includes("test-model"));
+  assert.equal(body.restartRequired, true);
+  assert.equal(body.secretsUiSupported, false);
+  assert.equal(body.settings.workspaceConfigPath, "/tmp/test-workspace/agent.config.json");
+  assert.ok(body.settings.entries.some((entry) => entry.key === "maxSteps"));
 });
 
 test("GET /api/sessions returns session list", async () => {

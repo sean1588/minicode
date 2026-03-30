@@ -39,6 +39,25 @@ export interface EditableConfigDefinition {
   values?: readonly string[];
 }
 
+export interface StructuredConfigEntry {
+  key: EditableConfigKey;
+  type: EditableConfigType;
+  description: string;
+  envVar: string;
+  values?: readonly string[];
+  effectiveValue: string | number | boolean | null;
+  workspaceValue: string | number | boolean | null;
+  globalValue: string | number | boolean | null;
+  envValue: string | null;
+  overriddenByEnv: boolean;
+}
+
+export interface StructuredConfigPayload {
+  workspaceConfigPath: string;
+  globalConfigPath: string;
+  entries: StructuredConfigEntry[];
+}
+
 const REASONING_VALUES = [
   "xhigh",
   "high",
@@ -239,6 +258,14 @@ function parseEditableValue(
   return trimmed;
 }
 
+function normalizePersistedValue(value: unknown): string | number | boolean | null {
+  if (value === undefined) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  return null;
+}
+
 function isEmptyConfigFile(config: AgentConfigFile): boolean {
   return Object.keys(config).length === 0;
 }
@@ -268,6 +295,7 @@ export function getEffectiveEditableConfigValue(
 
 export function formatPersistedConfigValue(value: unknown): string {
   if (value === undefined) return "(unset)";
+  if (value === null) return "(unset)";
   if (typeof value === "string") return value;
   return String(value);
 }
@@ -291,6 +319,37 @@ export async function loadPersistedConfigLayers(
   return {
     global: await loadConfigFile(globalPath),
     workspace: await loadConfigFile(workspacePath),
+  };
+}
+
+export async function buildStructuredConfigPayload(
+  config: AgentConfig,
+  cwd: string,
+  minicodeHome = MINICODE_HOME,
+): Promise<StructuredConfigPayload> {
+  const paths = {
+    workspaceConfigPath: getConfigPathForScope(cwd, "workspace", minicodeHome),
+    globalConfigPath: getConfigPathForScope(cwd, "global", minicodeHome),
+  };
+  const layers = await loadPersistedConfigLayers(cwd, minicodeHome);
+
+  return {
+    ...paths,
+    entries: EDITABLE_CONFIG_DEFINITIONS.map((definition) => {
+      const envValue = process.env[definition.envVar];
+      return {
+        key: definition.key,
+        type: definition.type,
+        description: definition.description,
+        envVar: definition.envVar,
+        ...(definition.values ? { values: definition.values } : {}),
+        effectiveValue: normalizePersistedValue(config[definition.key]),
+        workspaceValue: normalizePersistedValue(layers.workspace[definition.fileKey]),
+        globalValue: normalizePersistedValue(layers.global[definition.fileKey]),
+        envValue: envValue ?? null,
+        overriddenByEnv: envValue !== undefined,
+      };
+    }),
   };
 }
 
@@ -338,4 +397,53 @@ export async function unsetPersistedConfigValue(options: {
   }
 
   return { path: configPath };
+}
+
+export async function applyPersistedConfigUpdates(options: {
+  cwd: string;
+  updates: Record<string, string | number | boolean | null>;
+  scope?: EditableConfigScope;
+  minicodeHome?: string;
+}): Promise<{
+  path: string;
+  saved: Array<{ key: EditableConfigKey; value: string | number | boolean | null }>;
+}> {
+  const scope = options.scope ?? "workspace";
+  const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
+  const cwd = options.cwd;
+
+  const planned = Object.entries(options.updates).map(([rawKey, value]) => {
+    if (!isEditableConfigKey(rawKey)) {
+      throw new Error(`Unknown editable config key "${rawKey}".`);
+    }
+    return { key: rawKey, value };
+  });
+
+  const saved: Array<{ key: EditableConfigKey; value: string | number | boolean | null }> = [];
+  for (const item of planned) {
+    if (item.value === null) {
+      await unsetPersistedConfigValue({
+        cwd,
+        key: item.key,
+        scope,
+        minicodeHome,
+      });
+      saved.push({ key: item.key, value: null });
+      continue;
+    }
+
+    await setPersistedConfigValue({
+      cwd,
+      key: item.key,
+      rawValue: String(item.value),
+      scope,
+      minicodeHome,
+    });
+    saved.push({ key: item.key, value: item.value });
+  }
+
+  return {
+    path: getConfigPathForScope(cwd, scope, minicodeHome),
+    saved,
+  };
 }
