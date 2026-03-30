@@ -75,7 +75,7 @@ function parseReasoningEffort(value: string | undefined): ReasoningEffort | unde
   return VALID_REASONING_EFFORTS.has(normalized) ? normalized : undefined;
 }
 
-interface AgentConfigFile {
+export interface AgentConfigFile {
   modelProvider?: string;
   model?: string;
   maxSteps?: number;
@@ -125,7 +125,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
-async function loadConfigFile(configPath: string): Promise<AgentConfigFile> {
+export async function loadConfigFile(configPath: string): Promise<AgentConfigFile> {
   try {
     await access(configPath);
   } catch {

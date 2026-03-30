@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
 import { CodingAgent, Session, createModelClient, type ModelClient, type ReasoningEffort } from "@minicode/agent-sdk";
-import { formatConfigForDisplay, loadAgentConfig } from "./agent/config.js";
+import { loadAgentConfig } from "./agent/config.js";
 import {
   listSessions,
   loadSession,
@@ -25,6 +25,7 @@ import {
   parseCliArgs,
   validateCliArgs,
 } from "./cli/args.js";
+import { handleConfigSlashCommand } from "./cli/config-slash-command.js";
 
 const EXIT_CODE_SUCCESS = 0;
 const EXIT_CODE_RUNTIME_ERROR = 1;
@@ -143,13 +144,14 @@ async function runInteractive(
     }
 
     if (trimmed === "/help") {
-      console.log('Commands: "/help", "/config", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit"');
+      console.log('Commands: "/help", "/config [keys|get|set|unset]", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit"');
       console.log("Start with --verbose or -v to log prompts, responses, and tool calls.");
       continue;
     }
 
-    if (trimmed === "/config") {
-      console.log("\n" + formatConfigForDisplay(config) + "\n");
+    const configCommand = await handleConfigSlashCommand(trimmed, { config });
+    if (configCommand.handled) {
+      console.log("\n" + (configCommand.message ?? "") + "\n");
       continue;
     }
 
