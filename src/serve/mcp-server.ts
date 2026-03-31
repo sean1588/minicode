@@ -456,12 +456,20 @@ export async function handleMcpRequest(
       req.on("end", () => resolve(data));
     });
 
-    const parsed = JSON.parse(body);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error: invalid JSON in request body" }, id: null }));
+      return;
+    }
 
     // Check if this is an initialization request (method: "initialize")
-    const isInit = Array.isArray(parsed)
-      ? parsed.some((m: { method?: string }) => m.method === "initialize")
-      : parsed.method === "initialize";
+    const parsedObj = parsed as Record<string, unknown> | Array<Record<string, unknown>>;
+    const isInit = Array.isArray(parsedObj)
+      ? parsedObj.some((m) => m.method === "initialize")
+      : parsedObj.method === "initialize";
 
     if (isInit) {
       // Create new transport and server for this session

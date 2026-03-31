@@ -155,7 +155,10 @@ export class AgentBridge {
         );
       });
     } catch {
-      // fs.watch with recursive may not be supported on all platforms — silently skip
+      console.warn(
+        "[warn] File watcher could not start (recursive fs.watch may not be supported on this platform).\n" +
+        "       File changes will not trigger automatic reindexing. Restart minicode serve to pick up changes.",
+      );
     }
   }
 
