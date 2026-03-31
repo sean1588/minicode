@@ -1,0 +1,12 @@
+{
+  "name": "minicode",
+  "description": "Code intelligence tools powered by minicode's AST indexer — symbol navigation, dependency tracing, and live graph visualization.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Sean Holung",
+    "url": "https://github.com/sean1588"
+  },
+  "repository": "https://github.com/sean1588/minicode",
+  "license": "MIT",
+  "keywords": ["code-intelligence", "ast", "dependency-graph", "mcp", "symbols"]
+}
