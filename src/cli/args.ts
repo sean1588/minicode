@@ -6,6 +6,7 @@ export interface CliArgs {
   serve: boolean;
   port: number;
   task: string;
+  pluginInstall?: boolean;
 }
 
 export class CliUsageError extends Error {
@@ -22,6 +23,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
   let json = false;
   let outFile: string | undefined;
   let serve = false;
+  let pluginInstall = false;
   let port = 4567;
   const taskParts: string[] = [];
 
@@ -33,6 +35,11 @@ export function parseCliArgs(argv: string[]): CliArgs {
 
     if (arg === "serve") {
       serve = true;
+      continue;
+    }
+    if (arg === "plugin" && args[i + 1] === "install") {
+      pluginInstall = true;
+      i += 1;
       continue;
     }
     if (arg === "--port") {
@@ -96,6 +103,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     serve,
     port,
     task: taskParts.join(" ").trim(),
+    pluginInstall,
   };
 }
 
@@ -112,5 +120,9 @@ export function validateCliArgs(args: CliArgs): void {
 
   if (args.serve && (args.oneshot || args.json || args.outFile)) {
     throw new CliUsageError("serve mode is mutually exclusive with --oneshot, --json, and --out.");
+  }
+
+  if (args.pluginInstall && (args.serve || args.oneshot)) {
+    throw new CliUsageError("plugin install is mutually exclusive with serve and --oneshot.");
   }
 }

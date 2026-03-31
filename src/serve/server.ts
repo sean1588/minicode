@@ -556,8 +556,12 @@ export async function runServe(verbose: boolean, port: number): Promise<void> {
     socket.on("close", () => openSockets.delete(socket));
   });
 
+  // Start file watcher for automatic reindexing
+  bridge.startFileWatcher();
+
   // Graceful shutdown
   process.on("SIGINT", () => {
+    bridge.stopFileWatcher();
     shutdownServe(server, wss, openSockets);
   });
 

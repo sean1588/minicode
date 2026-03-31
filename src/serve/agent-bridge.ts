@@ -1,5 +1,8 @@
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
 import type { ModelInfo, UiUpdate } from "@minicode/agent-sdk";
+import { readFile } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
+import path from "node:path";
 import { analyzeProjectStructure, type StructuralAnalysisReport } from "../analysis/structural-analysis.js";
 import { loadAgentConfig } from "../agent/config.js";
 import {
@@ -35,6 +38,8 @@ export class AgentBridge {
   private readonly listeners = new Set<UiListener>();
   private readonly pinnedSymbols = new Set<string>();
   private readonly annotations = new Map<string, string[]>();
+  private fileWatcher: FSWatcher | null = null;
+  private reindexTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(broadcast: (msg: ServerMessage) => void, verbose: boolean) {
     this.broadcast = broadcast;
@@ -106,6 +111,78 @@ export class AgentBridge {
     };
 
     this.agent = this.buildAgent();
+  }
+
+  // ── File watcher for automatic reindexing ──
+
+  private static readonly WATCH_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
+  private static readonly SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
+  private static readonly REINDEX_DEBOUNCE_MS = 300;
+
+  /**
+   * Start watching the workspace for file changes and reindex automatically.
+   * Call after init(). Safe to call if no project index exists (no-ops).
+   */
+  startFileWatcher(): void {
+    if (!this.projectIndex || this.fileWatcher) return;
+
+    const workspaceRoot = this.config.workspaceRoot;
+
+    try {
+      this.fileWatcher = watch(workspaceRoot, { recursive: true }, (_event, filename) => {
+        if (!filename || !this.projectIndex) return;
+
+        const normalized = filename.replace(/\\/g, "/");
+
+        // Skip ignored directories
+        const parts = normalized.split("/");
+        if (parts.some((p) => AgentBridge.SKIP_DIRS.has(p) || p.startsWith("."))) return;
+
+        // Skip non-indexable extensions
+        const ext = path.extname(normalized).toLowerCase();
+        if (!AgentBridge.WATCH_EXTENSIONS.has(ext)) return;
+
+        // Debounce: if same file changes rapidly, only reindex once
+        const existing = this.reindexTimers.get(normalized);
+        if (existing) clearTimeout(existing);
+
+        this.reindexTimers.set(
+          normalized,
+          setTimeout(() => {
+            this.reindexTimers.delete(normalized);
+            void this.reindexChangedFile(normalized);
+          }, AgentBridge.REINDEX_DEBOUNCE_MS),
+        );
+      });
+    } catch {
+      // fs.watch with recursive may not be supported on all platforms — silently skip
+    }
+  }
+
+  stopFileWatcher(): void {
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+      this.fileWatcher = null;
+    }
+    for (const timer of this.reindexTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.reindexTimers.clear();
+  }
+
+  private async reindexChangedFile(relPath: string): Promise<void> {
+    if (!this.projectIndex) return;
+
+    const absPath = path.resolve(this.config.workspaceRoot, relPath);
+    try {
+      const content = await readFile(absPath, "utf-8");
+      this.projectIndex.reindexFile(relPath, content);
+      if (this.verbose) {
+        console.error(`[watch] Reindexed: ${relPath}`);
+      }
+    } catch {
+      // File may have been deleted — ignore
+    }
   }
 
   isBusy(): boolean {

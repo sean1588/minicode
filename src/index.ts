@@ -335,6 +335,12 @@ async function main(): Promise<void> {
   const cliArgs = parseCliArgs(process.argv);
   validateCliArgs(cliArgs);
 
+  if (cliArgs.pluginInstall) {
+    const { installPlugin } = await import("./cli/plugin-install.js");
+    await installPlugin();
+    return;
+  }
+
   if (cliArgs.serve) {
     const { runServe } = await import("./serve/server.js");
     await runServe(cliArgs.verbose, cliArgs.port);

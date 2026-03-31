@@ -64,7 +64,7 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
 
   server.tool(
     "read_symbol",
-    "Read a specific function, class, interface, or type by name. Returns the source code, signature, dependencies, and references. Prefer this over reading entire files for .ts/.tsx/.js/.jsx.",
+    "Read a specific function, class, interface, or type by name from the AST index. Returns source code, signature, dependencies, references, and annotations in one call — much more targeted than reading an entire file. PREFERRED over read_file for .ts/.tsx/.js/.jsx when you know the symbol name.",
     { name: z.string().describe("The symbol name or qualified name (e.g. 'Session' or 'Session.trim')") },
     async ({ name }) => {
       return wrapToolCall("read_symbol", { name }, async () => {
@@ -172,7 +172,7 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
 
   server.tool(
     "search_code_map",
-    "Search the project's indexed symbols by name or substring. Returns matching function, class, interface, and type definitions with their signatures.",
+    "Search the project's AST-indexed symbols by name or substring. Returns matching function, class, interface, and type definitions with their file locations and signatures. PREFERRED over generic file search when looking for code symbols.",
     {
       query: z.string().describe("Search query — matches against symbol names"),
       kind: z.string().optional().describe("Filter by kind: function, class, interface, type, variable, method"),
@@ -333,6 +333,57 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
 
           return { content: [{ type: "text" as const, text: `Path from "${from}" to entry point "${foundEntry}" (${path.length} steps):\n${path.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}` }] };
         }
+      });
+    },
+  );
+
+  // ── Annotation tools ──
+
+  server.tool(
+    "add_annotation",
+    "Attach a note to a symbol in the project index. Annotations are injected into tool results when interacting with annotated code, and appear in the web UI graph. Use this to leave instructions or context for future interactions.",
+    {
+      symbol: z.string().describe("The symbol name to annotate"),
+      text: z.string().max(500).describe("The annotation text (max 500 chars)"),
+    },
+    async ({ symbol, text }) => {
+      return wrapToolCall("add_annotation", { symbol, text }, async () => {
+        const success = bridge.addAnnotation(symbol, text);
+        if (!success) {
+          return { content: [{ type: "text" as const, text: `Could not annotate "${symbol}" — symbol not found in the project index.` }], isError: true };
+        }
+        return { content: [{ type: "text" as const, text: `Annotation added to "${symbol}": ${text}` }] };
+      });
+    },
+  );
+
+  server.tool(
+    "list_annotations",
+    "List all annotations attached to symbols. Annotations are user-provided notes that guide how code should be handled.",
+    {
+      symbol: z.string().optional().describe("If provided, list annotations for this symbol only. Otherwise list all."),
+    },
+    async ({ symbol }) => {
+      return wrapToolCall("list_annotations", { symbol }, async () => {
+        if (symbol) {
+          const notes = bridge.getAnnotationsForSymbol(symbol);
+          if (notes.length === 0) {
+            return { content: [{ type: "text" as const, text: `No annotations for "${symbol}".` }] };
+          }
+          return { content: [{ type: "text" as const, text: `Annotations for "${symbol}":\n${notes.map((n, i) => `  ${i + 1}. ${n}`).join("\n")}` }] };
+        }
+
+        const all = bridge.getAnnotations();
+        const entries = Object.entries(all);
+        if (entries.length === 0) {
+          return { content: [{ type: "text" as const, text: "No annotations in this session." }] };
+        }
+
+        const lines = entries.flatMap(([name, notes]) => [
+          `${name}:`,
+          ...notes.map((n, i) => `  ${i + 1}. ${n}`),
+        ]);
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       });
     },
   );
