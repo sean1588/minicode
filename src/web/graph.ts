@@ -188,22 +188,13 @@ export async function initGraph(): Promise<void> {
 
 export function highlightAgentActivity(symbolName: string): void {
   if (!cy) return;
-  // If node is already in graph, pulse it
-  const node = findNode(symbolName);
-  if (node) {
-    node.addClass('agent-pulse');
-    setTimeout(() => node.removeClass('agent-pulse'), 2000);
-    return;
-  }
-  // Otherwise, reveal only the specific symbol being read.
-  // Agent activity should stay legible while a turn is in progress;
-  // user-driven graph exploration still expands neighbors explicitly.
-  renderNodeNeighborhoodAndLayout(symbolName, 0);
-  const added = findNode(symbolName);
-  if (added) {
-    added.addClass('agent-pulse');
-    setTimeout(() => added.removeClass('agent-pulse'), 2000);
-  }
+  void focusSymbolInGraph(symbolName, {
+    maxDegrees: 0,
+    pulse: true,
+    pulseDuration: 2000,
+    animate: false,
+    openDetail: true,
+  });
 }
 
 /** Resize the Cytoscape canvas (call after pane resize). */
@@ -277,6 +268,52 @@ function renderNodeNeighborhoodAndLayout(symbolId: string, maxDegrees = 1): void
   refreshAnalysisGraphState();
   if (cy.nodes().length > beforeNodeCount) {
     runLayout();
+  }
+}
+
+interface FocusSymbolOptions {
+  maxDegrees?: number;
+  pulse?: boolean;
+  pulseDuration?: number;
+  animate?: boolean;
+  zoom?: number;
+  flashDuration?: number;
+  openDetail?: boolean;
+}
+
+async function focusSymbolInGraph(symbolId: string, options: FocusSymbolOptions = {}): Promise<void> {
+  if (!cy) return;
+
+  const {
+    maxDegrees = 0,
+    pulse = false,
+    pulseDuration = 1500,
+    animate = false,
+    zoom = 1.2,
+    flashDuration = 1200,
+    openDetail = false,
+  } = options;
+
+  renderNodeNeighborhoodAndLayout(symbolId, maxDegrees);
+  const node = findNode(symbolId);
+  if (!node) return;
+
+  if (animate) {
+    cy.animate({ center: { eles: node }, zoom }, { duration: 300 });
+  }
+
+  if (pulse) {
+    node.addClass('agent-pulse');
+    setTimeout(() => node.removeClass('agent-pulse'), pulseDuration);
+  } else {
+    node.flashClass('highlighted', flashDuration);
+  }
+
+  if (openDetail) {
+    const detailEl = document.getElementById('symbol-detail');
+    if (detailEl) {
+      await showDetail(node, detailEl);
+    }
   }
 }
 
@@ -1116,18 +1153,15 @@ function setupToolbar(): void {
     dropdown.querySelectorAll('.search-result').forEach((el) => {
       el.addEventListener('click', () => {
         const id = (el as HTMLElement).dataset.id || '';
-        expandNodeAndLayout(id);
         searchInput.value = '';
         dropdown.classList.add('hidden');
-
-        if (!cy) return;
-        const targetNode = cy.getElementById(id);
-        if (targetNode.length) {
-          setTimeout(() => {
-            cy!.animate({ center: { eles: targetNode }, zoom: 1.2 }, { duration: 300 });
-            targetNode.flashClass('highlighted', 1500);
-          }, 350);
-        }
+        void focusSymbolInGraph(id, {
+          maxDegrees: 1,
+          animate: true,
+          zoom: 1.2,
+          flashDuration: 1500,
+          openDetail: true,
+        });
       });
     });
   }

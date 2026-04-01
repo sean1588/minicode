@@ -1382,7 +1382,7 @@ main::-webkit-scrollbar-thumb {
   position: absolute;
   top: 0;
   right: 0;
-  width: 320px;
+  width: 380px;
   min-width: 200px;
   max-width: 80%;
   height: 100%;

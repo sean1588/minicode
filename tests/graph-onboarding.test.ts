@@ -12,6 +12,7 @@ test('built CSS contains graph-onboarding styles', () => {
   assert.ok(css.includes('.graph-onboarding-title'), 'CSS should contain .graph-onboarding-title class');
   assert.ok(css.includes('.graph-onboarding-subtitle'), 'CSS should contain .graph-onboarding-subtitle class');
   assert.ok(css.includes('pointer-events: none'), 'onboarding overlay should not block interactions');
+  assert.ok(css.includes('width: 380px;'), 'symbol detail panel should have a wider default width');
 });
 
 test('built JS contains onboarding hint logic', () => {
@@ -67,11 +68,27 @@ test('built JS keeps agent activity reveals narrower than manual expansion', () 
     'JS should define a configurable graph-rendering helper',
   );
   assert.ok(
-    js.includes('renderNodeNeighborhoodAndLayout(symbolName, 0)'),
+    js.includes('maxDegrees: 0'),
     'agent activity should reveal only the active symbol instead of expanding neighbors',
   );
   assert.ok(
-    js.includes('renderNodeNeighborhoodAndLayout(symbolId, 1)'),
+    js.includes('maxDegrees: 1'),
     'intentional graph exploration should still render first-degree neighbors',
+  );
+});
+
+test('built JS auto-opens symbol details for agent activity and graph search selection', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  assert.ok(
+    js.includes('focusSymbolInGraph'),
+    'JS should define a shared focus helper for graph-driven symbol selection',
+  );
+  assert.ok(
+    js.includes('openDetail: true'),
+    'JS should request the detail panel when focusing symbols from agent activity or search',
+  );
+  assert.ok(
+    js.includes('await showDetail(node, detailEl)'),
+    'JS should populate the symbol detail panel when focus requests it',
   );
 });
