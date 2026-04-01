@@ -8,34 +8,34 @@ function buildDisplayName(
   baseName: string,
   symbol: IndexedSymbol,
   kindCount: number,
-  fileCount: number,
+  distinctFileCount: number,
 ): string {
+  if (distinctFileCount > 1) {
+    return `${baseName} (${symbol.kind} in ${symbol.filePath}:${symbol.startLine})`;
+  }
+
   if (kindCount === 1) {
     return `${baseName} (${symbol.kind})`;
   }
 
-  if (fileCount === 1) {
-    return `${baseName} (${symbol.kind}:${symbol.startLine})`;
-  }
-
-  return `${baseName} (${symbol.kind} in ${symbol.filePath}:${symbol.startLine})`;
+  return `${baseName} (${symbol.kind}:${symbol.startLine})`;
 }
 
 function buildQualifiedName(
   baseName: string,
   symbol: IndexedSymbol,
   kindCount: number,
-  fileCount: number,
+  distinctFileCount: number,
 ): string {
+  if (distinctFileCount > 1) {
+    return `${baseName}#${symbol.kind}@${symbol.filePath}:${symbol.startLine}`;
+  }
+
   if (kindCount === 1) {
     return `${baseName}#${symbol.kind}`;
   }
 
-  if (fileCount === 1) {
-    return `${baseName}#${symbol.kind}:${symbol.startLine}`;
-  }
-
-  return `${baseName}#${symbol.kind}@${symbol.filePath}:${symbol.startLine}`;
+  return `${baseName}#${symbol.kind}:${symbol.startLine}`;
 }
 
 function countByKind(symbols: IndexedSymbol[]): Map<SymbolKind, number> {
@@ -101,13 +101,12 @@ export function normalizeIndexedSymbols(
       a.kind.localeCompare(b.kind),
     );
     const kindCounts = countByKind(sorted);
-    const fileCounts = countByFile(sorted);
+    const distinctFileCount = countByFile(sorted).size;
 
     for (const symbol of sorted) {
       const kindCount = kindCounts.get(symbol.kind) ?? 1;
-      const fileCount = fileCounts.get(symbol.filePath) ?? 1;
-      const displayName = buildDisplayName(baseName, symbol, kindCount, fileCount);
-      const qualifiedName = buildQualifiedName(baseName, symbol, kindCount, fileCount);
+      const displayName = buildDisplayName(baseName, symbol, kindCount, distinctFileCount);
+      const qualifiedName = buildQualifiedName(baseName, symbol, kindCount, distinctFileCount);
 
       symbol.displayName = displayName;
       symbol.aliases = dedupe([

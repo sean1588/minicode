@@ -5,6 +5,7 @@ import {
   buildFindingGraphContext,
   buildFindingMetricChips,
   countFindingsByType,
+  filterFindings,
   findingTypeLabel,
   type StructuralFinding,
 } from "../src/web/analysis-helpers.js";
@@ -99,4 +100,6 @@ test("analysis helpers summarize types and metrics for rendering", () => {
   assert.deepEqual(buildFindingMetricChips(findings[0]!), ["fan-in 5", "threshold 3"]);
   assert.deepEqual(buildFindingMetricChips(findings[1]!), ["coupling 4", "instability 0.75"]);
   assert.equal(findingTypeLabel("fileCoupling"), "File coupling");
+  assert.deepEqual(filterFindings(findings, "all").map((finding) => finding.id), ["fanin:util", "file:service"]);
+  assert.deepEqual(filterFindings(findings, "fileCoupling").map((finding) => finding.id), ["file:service"]);
 });

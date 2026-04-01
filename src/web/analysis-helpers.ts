@@ -6,6 +6,7 @@ export type StructuralFindingType =
   | "fileCoupling";
 
 export type StructuralFindingSeverity = "info" | "warning" | "high";
+export type AnalysisFindingFilter = "all" | "cycle" | "hotspot" | "fileCoupling";
 
 export interface StructuralFinding {
   id: string;
@@ -148,4 +149,14 @@ export function countFindingsByType(findings: StructuralFinding[]): Record<Struc
       fileCoupling: 0,
     },
   );
+}
+
+export function filterFindings(
+  findings: StructuralFinding[],
+  filter: AnalysisFindingFilter,
+): StructuralFinding[] {
+  if (filter === "all") {
+    return findings;
+  }
+  return findings.filter((finding) => finding.type === filter);
 }

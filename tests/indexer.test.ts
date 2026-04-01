@@ -8,6 +8,7 @@ import { generateCodeMap } from "../src/indexer/code-map.js";
 import { getPluginForFile, loadPlugins } from "../src/indexer/plugin-loader.js";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { typescriptPlugin } from "../src/indexer/plugins/typescript.js";
+import { normalizeIndexedSymbols } from "../src/indexer/symbol-names.js";
 
 const SAMPLE_TS = `
 export interface Foo {
@@ -456,4 +457,66 @@ function beta() {}
     (e) => e.from === "alpha" && e.to === "beta" && e.kind === "calls",
   );
   assert.ok(callEdge, "should resolve dependencies even without cached AST");
+});
+
+test("resolveDependencies prefers same-file symbols over same-named helpers in other files", () => {
+  const projectIndexCode = `
+async function collectSourceFiles(dir: string): Promise<void> {
+  await collectSourceFiles(dir + "/nested");
+}
+
+export async function buildProjectIndex(): Promise<void> {
+  await collectSourceFiles("src");
+}
+`;
+
+  const cacheCode = `
+async function collectSourceFiles(dir: string): Promise<void> {
+  await collectSourceFiles(dir + "/cached");
+}
+
+export async function computeFileHashes(): Promise<void> {
+  await collectSourceFiles("src");
+}
+`;
+
+  const byFile = new Map([
+    ["src/indexer/project-index.ts", typescriptPlugin.indexFile("src/indexer/project-index.ts", projectIndexCode)],
+    ["src/indexer/cache.ts", typescriptPlugin.indexFile("src/indexer/cache.ts", cacheCode)],
+  ]);
+  const symbols = [...normalizeIndexedSymbols(byFile).values()];
+  const projectFiles = new Map([
+    ["src/indexer/project-index.ts", projectIndexCode],
+    ["src/indexer/cache.ts", cacheCode],
+  ]);
+  const edges = typescriptPlugin.resolveDependencies!(symbols, projectFiles);
+  const projectHelper = symbols.find(
+    (symbol) => symbol.name === "collectSourceFiles" && symbol.filePath === "src/indexer/project-index.ts",
+  );
+  const cacheHelper = symbols.find(
+    (symbol) => symbol.name === "collectSourceFiles" && symbol.filePath === "src/indexer/cache.ts",
+  );
+
+  assert.ok(projectHelper, "project-index helper should be uniquely preserved after normalization");
+  assert.ok(cacheHelper, "cache helper should be uniquely preserved after normalization");
+
+  const projectSelfEdge = edges.find(
+    (edge) => edge.from === projectHelper?.qualifiedName
+      && edge.to === projectHelper?.qualifiedName
+      && edge.kind === "calls",
+  );
+  const cacheSelfEdge = edges.find(
+    (edge) => edge.from === cacheHelper?.qualifiedName
+      && edge.to === cacheHelper?.qualifiedName
+      && edge.kind === "calls",
+  );
+  const crossFileEdge = edges.find(
+    (edge) => edge.from === projectHelper?.qualifiedName
+      && edge.to === cacheHelper?.qualifiedName
+      && edge.kind === "calls",
+  );
+
+  assert.ok(projectSelfEdge, "project-index helper should resolve recursive calls to itself");
+  assert.ok(cacheSelfEdge, "cache helper should resolve recursive calls to itself");
+  assert.ok(!crossFileEdge, "same-named helpers in other files should not be linked by default");
 });

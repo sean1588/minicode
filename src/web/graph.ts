@@ -7,8 +7,10 @@ import {
   buildFindingGraphContext,
   buildFindingMetricChips,
   countFindingsByType,
+  filterFindings,
   findingSeverityLabel,
   findingTypeLabel,
+  type AnalysisFindingFilter,
   type StructuralAnalysisReport,
 } from './analysis-helpers.ts';
 import { KIND_COLORS, buildStylesheet } from '../shared/graph-styles.ts';
@@ -91,6 +93,7 @@ let allSymbolNames: string[] = [];
 let initialized = false;
 let analysisReport: StructuralAnalysisReport | null = null;
 let activeAnalysisFindingId: string | null = null;
+let activeAnalysisFilter: AnalysisFindingFilter = 'all';
 const analysisExplanationCache = new Map<string, string>();
 
 const LAYOUT_OPTIONS: Record<string, unknown> = {
@@ -434,7 +437,7 @@ function refreshAnalysisGraphState(): void {
 
   const candidateNodeIds = new Set<string>();
   const candidateEdgeIds = new Set<string>();
-  for (const finding of analysisReport.findings) {
+  for (const finding of getVisibleAnalysisFindings()) {
     const context = buildFindingGraphContext(finding, graphEdges);
     for (const nodeId of context.nodes) candidateNodeIds.add(nodeId);
     for (const edgeId of context.edgeIds) candidateEdgeIds.add(edgeId);
@@ -448,7 +451,7 @@ function refreshAnalysisGraphState(): void {
   }
 
   if (!activeAnalysisFindingId) return;
-  const activeFinding = analysisReport.findings.find((finding) => finding.id === activeAnalysisFindingId);
+  const activeFinding = getVisibleAnalysisFindings().find((finding) => finding.id === activeAnalysisFindingId);
   if (!activeFinding) return;
 
   const activeContext = buildFindingGraphContext(activeFinding, graphEdges);
@@ -460,36 +463,52 @@ function refreshAnalysisGraphState(): void {
   }
 }
 
+function getVisibleAnalysisFindings(): ReturnType<typeof filterFindings> {
+  return analysisReport ? filterFindings(analysisReport.findings, activeAnalysisFilter) : [];
+}
+
 function renderAnalysisSummary(report: StructuralAnalysisReport): void {
   const { summary } = getAnalysisPanelEls();
   const counts = countFindingsByType(report.findings);
   const cards = [
-    { label: 'Findings', value: report.summary.findingCount },
-    { label: 'Cycles', value: counts.cycle },
-    { label: 'Hotspots', value: counts.hotspot },
-    { label: 'Coupling', value: counts.fileCoupling },
+    { label: 'Findings', value: report.summary.findingCount, filter: 'all' as const },
+    { label: 'Cycles', value: counts.cycle, filter: 'cycle' as const },
+    { label: 'Hotspots', value: counts.hotspot, filter: 'hotspot' as const },
+    { label: 'Coupling', value: counts.fileCoupling, filter: 'fileCoupling' as const },
   ];
   summary.innerHTML = cards.map((card) => `
-    <div class="analysis-summary-card">
+    <button
+      class="analysis-summary-card ${card.filter === activeAnalysisFilter ? 'active' : ''}"
+      data-filter="${card.filter}"
+      type="button"
+    >
       <span class="analysis-summary-value">${card.value}</span>
       <span class="analysis-summary-label">${escapeHtml(card.label)}</span>
-    </div>
+    </button>
   `).join('');
+
+  summary.querySelectorAll('.analysis-summary-card').forEach((el) => {
+    el.addEventListener('click', () => {
+      const filter = ((el as HTMLElement).dataset.filter || 'all') as AnalysisFindingFilter;
+      setAnalysisFilter(filter);
+    });
+  });
 }
 
 function renderAnalysisFindings(report: StructuralAnalysisReport): void {
   const { findings } = getAnalysisPanelEls();
+  const visibleFindings = filterFindings(report.findings, activeAnalysisFilter);
 
-  if (report.findings.length === 0) {
+  if (visibleFindings.length === 0) {
     findings.innerHTML = `
       <div class="analysis-empty">
-        No structural outliers cleared the current thresholds for this graph snapshot.
+        No ${escapeHtml(activeAnalysisFilter === 'all' ? 'structural outliers' : findingTypeLabel(activeAnalysisFilter).toLowerCase())} cleared the current thresholds for this graph snapshot.
       </div>
     `;
     return;
   }
 
-  findings.innerHTML = report.findings.map((finding) => {
+  findings.innerHTML = visibleFindings.map((finding) => {
     const metricChips = buildFindingMetricChips(finding)
       .map((chip) => `<span class="analysis-metric-chip">${escapeHtml(chip)}</span>`)
       .join('');
@@ -562,6 +581,25 @@ function setActiveFindingCard(findingId: string | null): void {
   });
 }
 
+function setAnalysisFilter(filter: AnalysisFindingFilter): void {
+  const nextFilter = activeAnalysisFilter === filter ? 'all' : filter;
+  activeAnalysisFilter = nextFilter;
+
+  if (!analysisReport) {
+    return;
+  }
+
+  const visibleFindings = filterFindings(analysisReport.findings, activeAnalysisFilter);
+  if (activeAnalysisFindingId && !visibleFindings.some((finding) => finding.id === activeAnalysisFindingId)) {
+    activeAnalysisFindingId = null;
+  }
+
+  renderAnalysisSummary(analysisReport);
+  renderAnalysisFindings(analysisReport);
+  refreshAnalysisGraphState();
+  setActiveFindingCard(activeAnalysisFindingId);
+}
+
 async function runStructuralAnalysis(): Promise<void> {
   const { panel, findings } = getAnalysisPanelEls();
   panel.classList.remove('hidden');
@@ -577,6 +615,7 @@ async function runStructuralAnalysis(): Promise<void> {
     const report = await res.json() as StructuralAnalysisReport;
     analysisReport = report;
     activeAnalysisFindingId = null;
+    activeAnalysisFilter = 'all';
     analysisExplanationCache.clear();
     clearAnalysisStatus();
     setAnalysisStatus(
@@ -588,6 +627,7 @@ async function runStructuralAnalysis(): Promise<void> {
   } catch (error) {
     analysisReport = null;
     activeAnalysisFindingId = null;
+    activeAnalysisFilter = 'all';
     analysisExplanationCache.clear();
     clearAnalysisGraphClasses();
     getAnalysisPanelEls().summary.innerHTML = '';

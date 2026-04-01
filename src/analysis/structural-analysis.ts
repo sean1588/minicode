@@ -26,6 +26,7 @@ export interface StructuralSymbolMetric {
   name: string;
   kind: string;
   filePath: string;
+  spanLines: number;
   fanIn: number;
   fanOut: number;
   totalDegree: number;
@@ -87,8 +88,9 @@ function quantile(values: number[], percentile: number): number {
   return sorted[position] ?? 0;
 }
 
-function thresholdFor(values: number[], minimum: number): number {
-  return Math.max(minimum, Math.ceil(quantile(values, 0.9)));
+function thresholdFor(values: number[], minimum: number, percentile = 0.9): number {
+  const activeValues = values.filter((value) => value > 0);
+  return Math.max(minimum, Math.ceil(quantile(activeValues, percentile)));
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -183,6 +185,49 @@ function compareFindings(a: StructuralFinding, b: StructuralFinding): number {
   return a.title.localeCompare(b.title);
 }
 
+function shouldSuppressSymbolFinding(metric: StructuralSymbolMetric): boolean {
+  return metric.kind === "interface" || metric.kind === "type";
+}
+
+function isSmallCompositionRootSymbol(metric: StructuralSymbolMetric): boolean {
+  return (
+    (metric.kind === "function" || metric.kind === "method") &&
+    metric.spanLines <= 40 &&
+    metric.fanIn <= 3 &&
+    metric.fanOut >= 8
+  );
+}
+
+function isContractModule(
+  fileSymbols: IndexedSymbol[],
+  fileMetric: StructuralFileMetric,
+): boolean {
+  return (
+    fileSymbols.length > 0 &&
+    fileMetric.efferentCoupling === 0 &&
+    fileSymbols.every((symbol) => symbol.kind === "interface" || symbol.kind === "type")
+  );
+}
+
+function isCompositionRootFile(
+  fileSymbols: IndexedSymbol[],
+  fileMetric: StructuralFileMetric,
+): boolean {
+  const hasConcreteRuntimeSymbol = fileSymbols.some((symbol) =>
+    symbol.kind === "function" ||
+    symbol.kind === "class" ||
+    symbol.kind === "method" ||
+    symbol.kind === "variable"
+  );
+
+  return (
+    hasConcreteRuntimeSymbol &&
+    fileMetric.symbolCount <= 6 &&
+    fileMetric.afferentCoupling <= 3 &&
+    fileMetric.instability >= 0.8
+  );
+}
+
 export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralAnalysisReport {
   const symbols = [...projectIndex.symbols.values()].sort((a, b) =>
     a.qualifiedName.localeCompare(b.qualifiedName),
@@ -218,6 +263,7 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
       name: symbol.name,
       kind: symbol.kind,
       filePath: symbol.filePath,
+      spanLines: Math.max(1, symbol.endLine - symbol.startLine + 1),
       fanIn: incoming.length,
       fanOut: outgoing.length,
       totalDegree: incoming.length + outgoing.length,
@@ -288,11 +334,20 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
     .sort((a, b) => a.filePath.localeCompare(b.filePath));
 
   const thresholds: StructuralAnalysisThresholds = {
-    fanIn: thresholdFor(symbolMetrics.map((metric) => metric.fanIn), 3),
-    fanOut: thresholdFor(symbolMetrics.map((metric) => metric.fanOut), 3),
-    hotspot: thresholdFor(symbolMetrics.map((metric) => metric.totalDegree), 4),
-    fileCoupling: thresholdFor(fileMetrics.map((metric) => metric.totalCoupling), 3),
+    fanIn: thresholdFor(symbolMetrics.map((metric) => metric.fanIn), 3, 0.98),
+    fanOut: thresholdFor(symbolMetrics.map((metric) => metric.fanOut), 3, 0.98),
+    hotspot: thresholdFor(symbolMetrics.map((metric) => metric.totalDegree), 4, 0.99),
+    fileCoupling: thresholdFor(fileMetrics.map((metric) => metric.totalCoupling), 3, 0.95),
   };
+  const fileSymbolsByPath = new Map<string, IndexedSymbol[]>();
+  for (const symbol of symbols) {
+    const list = fileSymbolsByPath.get(symbol.filePath);
+    if (list) {
+      list.push(symbol);
+    } else {
+      fileSymbolsByPath.set(symbol.filePath, [symbol]);
+    }
+  }
 
   const findings: StructuralFinding[] = [];
   const components = findStronglyConnectedComponents(symbolMap, edges);
@@ -301,8 +356,7 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
     const cycleEdges = edges.filter(
       (edge) => componentSet.has(edge.from) && componentSet.has(edge.to),
     );
-    const hasSelfLoop = component.length === 1 && cycleEdges.some((edge) => edge.from === edge.to);
-    if (component.length < 2 && !hasSelfLoop) {
+    if (component.length < 2) {
       continue;
     }
 
@@ -315,31 +369,30 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
       id: `cycle:${component.join("->")}`,
       type: "cycle",
       severity: component.length >= 3 ? "high" : "warning",
-      title: hasSelfLoop
-        ? `Self-referential dependency on ${component[0]}`
-        : `Cycle across ${component.length} symbols`,
-      summary: hasSelfLoop
-        ? `${component[0]} depends on itself in the current graph.`
-        : `${component.length} symbols participate in a strongly connected component.`,
+      title: `Cycle across ${component.length} symbols`,
+      summary: `${component.length} symbols participate in a strongly connected component.`,
       symbols: component,
       files,
       metrics: {
         cycleSize: component.length,
         edgeCount: cycleEdges.length,
         fileCount: files.length,
-        hasSelfLoop,
       },
-      rationale: hasSelfLoop
-        ? ["Self-loop detected in the dependency graph for this symbol."]
-        : [
-            "Strongly connected component detected using deterministic cycle analysis.",
-            `Cycle includes ${cycleEdges.length} internal dependency edges across ${files.length} file(s).`,
-          ],
+      rationale: [
+        "Strongly connected component detected using deterministic cycle analysis.",
+        `Cycle includes ${cycleEdges.length} internal dependency edges across ${files.length} file(s).`,
+      ],
     });
   }
 
   for (const metric of symbolMetrics) {
-    if (metric.fanIn >= thresholds.fanIn && metric.fanIn > 0) {
+    if (shouldSuppressSymbolFinding(metric) || isSmallCompositionRootSymbol(metric)) {
+      continue;
+    }
+
+    const isHotspot = metric.totalDegree >= thresholds.hotspot && metric.totalDegree > 0;
+
+    if (!isHotspot && metric.fanIn >= thresholds.fanIn && metric.fanIn > 0) {
       findings.push({
         id: `fanin:${metric.qualifiedName}`,
         type: "fanInOutlier",
@@ -359,7 +412,7 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
       });
     }
 
-    if (metric.fanOut >= thresholds.fanOut && metric.fanOut > 0) {
+    if (!isHotspot && metric.fanOut >= thresholds.fanOut && metric.fanOut > 0) {
       findings.push({
         id: `fanout:${metric.qualifiedName}`,
         type: "fanOutOutlier",
@@ -379,7 +432,7 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
       });
     }
 
-    if (metric.totalDegree >= thresholds.hotspot && metric.totalDegree > 0) {
+    if (isHotspot) {
       findings.push({
         id: `hotspot:${metric.qualifiedName}`,
         type: "hotspot",
@@ -408,9 +461,15 @@ export function analyzeProjectStructure(projectIndex: ProjectIndex): StructuralA
       continue;
     }
 
-    const fileSymbols = symbols
-      .filter((symbol) => symbol.filePath === metric.filePath)
-      .map((symbol) => symbol.qualifiedName);
+    const fileSymbolEntries = fileSymbolsByPath.get(metric.filePath) ?? [];
+    if (
+      isContractModule(fileSymbolEntries, metric) ||
+      isCompositionRootFile(fileSymbolEntries, metric)
+    ) {
+      continue;
+    }
+
+    const fileSymbols = fileSymbolEntries.map((symbol) => symbol.qualifiedName);
     findings.push({
       id: `file-coupling:${metric.filePath}`,
       type: "fileCoupling",
