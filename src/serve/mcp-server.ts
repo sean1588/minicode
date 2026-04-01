@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { AgentBridge } from "./agent-bridge.js";
 import type { ServerMessage } from "./types.js";
 
@@ -77,7 +78,7 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
         const refs = bridge.getReferences(name);
 
         const lines: string[] = [
-          `## ${sym.kind}: ${sym.name}`,
+          `## ${sym.kind}: ${getSymbolDisplayName(sym)}`,
           `File: ${sym.filePath}:${sym.startLine}`,
           `Signature: ${sym.signature}`,
           "",
@@ -100,11 +101,11 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
         }
 
         if (deps && deps.length > 0) {
-          lines.push("Dependencies:", ...deps.map((d) => `  - ${d.qualifiedName} (${d.kind})`), "");
+          lines.push("Dependencies:", ...deps.map((d) => `  - ${d.name} (${d.kind})`), "");
         }
 
         if (refs && refs.length > 0) {
-          lines.push("Referenced by:", ...refs.map((r) => `  - ${r.from} (${r.kind})`), "");
+          lines.push("Referenced by:", ...refs.map((r) => `  - ${r.name ?? r.from} (${r.kind})`), "");
         }
 
         // Append annotations if present
@@ -129,7 +130,7 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
           return { content: [{ type: "text" as const, text: `No references found for "${name}".` }] };
         }
 
-        const lines = [`References to "${name}":`, ...refs.map((r) => `  - ${r.from} (${r.kind})`)];
+        const lines = [`References to "${name}":`, ...refs.map((r) => `  - ${r.name ?? r.from} (${r.kind})`)];
 
         const annotations = bridge.getAnnotationsForSymbol(name);
         if (annotations.length > 0) {
@@ -200,7 +201,7 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
 
         const lines = [
           `Found ${matches.length} symbol(s) matching "${query}":`,
-          ...matches.map((s) => `  - ${s.qualifiedName} (${s.kind}) — ${s.filePath}:${s.startLine}${s.signature ? `\n    ${s.signature}` : ""}`),
+          ...matches.map((s) => `  - ${s.name} (${s.kind}) — ${s.filePath}:${s.startLine}${s.signature ? `\n    ${s.signature}` : ""}`),
         ];
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };

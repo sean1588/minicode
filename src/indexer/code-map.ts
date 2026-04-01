@@ -1,3 +1,4 @@
+import { getSymbolDisplayName } from "./symbol-names.js";
 import type { CodeMapResult, DependencyEdge, IndexedSymbol } from "./types.js";
 
 const DEFAULT_TOKEN_BUDGET = 1500;
@@ -15,7 +16,7 @@ function formatSymbol(
   if (isMethod) {
     return `${indent}  ${symbol.signature}`;
   }
-  return `${indent}${symbol.kind} ${symbol.qualifiedName}\n${indent}  ${symbol.signature}`;
+  return `${indent}${symbol.kind} ${getSymbolDisplayName(symbol)}\n${indent}  ${symbol.signature}`;
 }
 
 function isEntryPointFile(filePath: string): boolean {

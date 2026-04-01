@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { generateCodeMap } from "./code-map.js";
 import { getPluginForFile, loadPlugins } from "./plugin-loader.js";
+import { getSymbolLookupNames, normalizeIndexedSymbols } from "./symbol-names.js";
 import type {
   CodeMapResult,
   DependencyEdge,
@@ -72,10 +73,21 @@ function resolveSymbol(
 ): IndexedSymbol | undefined {
   const direct = symbols.get(name);
   if (direct) return direct;
-  for (const sym of symbols.values()) {
-    if (sym.name === name || sym.qualifiedName === name) return sym;
+
+  const matches = [...symbols.values()].filter((sym) =>
+    getSymbolLookupNames(sym).includes(name),
+  );
+  if (matches.length === 0) {
+    return undefined;
   }
-  return undefined;
+
+  matches.sort((a, b) =>
+    Number(b.exported) - Number(a.exported) ||
+    a.filePath.localeCompare(b.filePath) ||
+    a.startLine - b.startLine ||
+    a.qualifiedName.localeCompare(b.qualifiedName),
+  );
+  return matches[0];
 }
 
 export function createProjectIndex(
@@ -87,6 +99,14 @@ export function createProjectIndex(
   workspaceRoot: string,
 ): ProjectIndex {
   let adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
+
+  function rebuildSymbolsMap(): void {
+    const normalizedSymbols = normalizeIndexedSymbols(files);
+    symbols.clear();
+    for (const [qualifiedName, symbol] of normalizedSymbols) {
+      symbols.set(qualifiedName, symbol);
+    }
+  }
 
   return {
     symbols,
@@ -258,21 +278,12 @@ export function createProjectIndex(
       const plugin = getPluginForFile(relPath, plugins);
       if (!plugin) return;
 
-      const oldSymbols = files.get(relPath) ?? [];
-      for (const sym of oldSymbols) {
-        symbols.delete(sym.qualifiedName);
-      }
       files.delete(relPath);
 
       projectFiles.set(relPath, content);
       const extracted = plugin.indexFile(relPath, content);
-
-      for (const sym of extracted) {
-        symbols.set(sym.qualifiedName, sym);
-        const existing = files.get(relPath) ?? [];
-        existing.push(sym);
-        files.set(relPath, existing);
-      }
+      files.set(relPath, extracted);
+      rebuildSymbolsMap();
 
       for (const p of plugins) {
         if (p.resolveDependencies) {
@@ -318,13 +329,13 @@ export async function buildProjectIndex(
 
     projectFiles.set(relPath, content);
     const extracted = plugin.indexFile(relPath, content);
+    files.set(relPath, extracted);
+  }
 
-    for (const sym of extracted) {
-      symbols.set(sym.qualifiedName, sym);
-      const existing = files.get(relPath) ?? [];
-      existing.push(sym);
-      files.set(relPath, existing);
-    }
+  const normalizedSymbols = normalizeIndexedSymbols(files);
+  symbols.clear();
+  for (const [qualifiedName, symbol] of normalizedSymbols) {
+    symbols.set(qualifiedName, symbol);
   }
 
   let dependencyEdges: DependencyEdge[] = [];

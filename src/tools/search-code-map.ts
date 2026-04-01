@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
+import { getSymbolDisplayName, getSymbolLookupNames } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 
 const DEFAULT_LIMIT = 30;
@@ -64,7 +65,8 @@ export function createSearchCodeMapTool(
 
       const symbols = [...projectIndex.symbols.values()];
       const matches = symbols.filter((sym) => {
-        if (!matchesPattern(sym.name, pattern) && !matchesPattern(sym.qualifiedName, pattern)) {
+        const lookupNames = getSymbolLookupNames(sym);
+        if (!lookupNames.some((candidate) => matchesPattern(candidate, pattern))) {
           return false;
         }
         if (kind && sym.kind !== kind) {
@@ -75,7 +77,7 @@ export function createSearchCodeMapTool(
 
       const shown = matches.slice(skip, skip + limit);
       const lines = shown.map(
-        (s) => `- ${s.qualifiedName} (${s.kind}) — ${s.filePath}`,
+        (s) => `- ${getSymbolDisplayName(s)} (${s.kind}) — ${s.filePath}`,
       );
       const remaining = matches.length - skip - shown.length;
       const footer =

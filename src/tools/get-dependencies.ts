@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
+import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 
 export function createGetDependenciesTool(
@@ -50,7 +51,7 @@ export function createGetDependenciesTool(
 
       const shown = cone.slice(skip, skip + limit);
       const lines = shown.map((s) => {
-        const header = `${s.kind} ${s.qualifiedName}`;
+        const header = `${s.kind} ${getSymbolDisplayName(s)}`;
         return `${header}\n  ${s.signature}`;
       });
       const remaining = cone.length - skip - shown.length;
@@ -60,7 +61,7 @@ export function createGetDependenciesTool(
           : "";
 
       return [
-        `# Dependencies of ${symbol.qualifiedName} (depth ${depth}, ${cone.length} total)`,
+        `# Dependencies of ${getSymbolDisplayName(symbol)} (depth ${depth}, ${cone.length} total)`,
         "",
         ...lines,
         footer,

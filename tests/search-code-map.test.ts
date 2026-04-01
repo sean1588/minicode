@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 
 import { buildProjectIndex } from "../src/indexer/project-index.js";
@@ -40,4 +42,28 @@ test("search_code_map appears in tool registry when projectIndex provided", asyn
   const searchCodeMap = schemas.find((s) => s.name === "search_code_map");
 
   assert.ok(searchCodeMap);
+});
+
+test("search_code_map shows colliding symbols with disambiguated display names", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-search-collisions-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export interface Employee {
+  id: string;
+}
+
+export class Employee {
+  constructor(public id: string) {}
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createSearchCodeMapTool(projectIndex);
+
+  const result = await tool.execute({ pattern: "Employee" });
+
+  assert.ok(result.includes("Employee (interface)"));
+  assert.ok(result.includes("Employee (class)"));
 });

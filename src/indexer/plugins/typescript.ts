@@ -280,47 +280,102 @@ function createPlugin(): LanguagePlugin {
       projectFiles: Map<string, string>,
     ): DependencyEdge[] {
       const symbolSet = new Set(symbols.map((s) => s.qualifiedName));
+      const symbolsByLookup = new Map<string, IndexedSymbol[]>();
       const edges: DependencyEdge[] = [];
+      const edgeKeys = new Set<string>();
       const rootDir = "/project";
+
+      function addLookup(key: string, symbol: IndexedSymbol): void {
+        if (key.length === 0) return;
+        const existing = symbolsByLookup.get(key);
+        if (existing) {
+          existing.push(symbol);
+        } else {
+          symbolsByLookup.set(key, [symbol]);
+        }
+      }
+
+      for (const symbol of symbols) {
+        const lookupKeys = new Set([
+          symbol.qualifiedName,
+          symbol.name,
+          symbol.originalQualifiedName ?? "",
+          symbol.displayName ?? "",
+          ...(symbol.aliases ?? []),
+        ]);
+        for (const key of lookupKeys) {
+          addLookup(key, symbol);
+        }
+      }
 
       function addEdge(
         from: string,
         to: string,
         kind: DependencyEdgeKind,
       ): void {
-        if (symbolSet.has(to)) {
+        const edgeKey = `${from}->${to}:${kind}`;
+        if (symbolSet.has(from) && symbolSet.has(to) && !edgeKeys.has(edgeKey)) {
+          edgeKeys.add(edgeKey);
           edges.push({ from, to, kind });
         }
       }
 
-      function collectTypeRefs(node: ts.Node, from: string): void {
+      function resolveCandidates(
+        rawName: string,
+        filePath?: string,
+        kinds?: IndexedSymbol["kind"][],
+      ): IndexedSymbol[] {
+        const matches = symbolsByLookup.get(rawName) ?? [];
+        return matches.filter((symbol) =>
+          (filePath === undefined || symbol.filePath === filePath) &&
+          (kinds === undefined || kinds.includes(symbol.kind)),
+        );
+      }
+
+      function addResolvedEdges(
+        rawFrom: string,
+        rawTo: string,
+        kind: DependencyEdgeKind,
+        filePath: string,
+        targetKinds?: IndexedSymbol["kind"][],
+      ): void {
+        const fromMatches = resolveCandidates(rawFrom, filePath);
+        const toMatches = resolveCandidates(rawTo, undefined, targetKinds);
+        for (const fromSymbol of fromMatches) {
+          for (const toSymbol of toMatches) {
+            addEdge(fromSymbol.qualifiedName, toSymbol.qualifiedName, kind);
+          }
+        }
+      }
+
+      function collectTypeRefs(node: ts.Node, from: string, filePath: string): void {
         if (ts.isTypeReferenceNode(node)) {
           const name = node.typeName.getText();
-          addEdge(from, name, "references");
+          addResolvedEdges(from, name, "references", filePath, ["type", "interface", "class"]);
           if (ts.isQualifiedName(node.typeName)) {
             const left = node.typeName.left;
             if (ts.isIdentifier(left)) {
-              addEdge(from, left.getText(), "references");
+              addResolvedEdges(from, left.getText(), "references", filePath, ["type", "interface", "class"]);
             }
           }
         }
-        ts.forEachChild(node, (n) => collectTypeRefs(n, from));
+        ts.forEachChild(node, (n) => collectTypeRefs(n, from, filePath));
       }
 
-      function collectCalls(node: ts.Node, from: string): void {
+      function collectCalls(node: ts.Node, from: string, filePath: string): void {
         if (ts.isCallExpression(node)) {
           const expr = node.expression;
           if (ts.isIdentifier(expr)) {
-            addEdge(from, expr.getText(), "calls");
+            addResolvedEdges(from, expr.getText(), "calls", filePath, ["function", "class", "variable"]);
           }
         }
         if (ts.isNewExpression(node)) {
           const expr = node.expression;
           if (ts.isIdentifier(expr)) {
-            addEdge(from, expr.getText(), "calls");
+            addResolvedEdges(from, expr.getText(), "calls", filePath, ["class", "function"]);
           }
         }
-        ts.forEachChild(node, (n) => collectCalls(n, from));
+        ts.forEachChild(node, (n) => collectCalls(n, from, filePath));
       }
 
       for (const [filePath, content] of projectFiles) {
@@ -355,7 +410,7 @@ function createPlugin(): LanguagePlugin {
                   clause.token === ts.SyntaxKind.ExtendsKeyword
                     ? "extends"
                     : "implements";
-                addEdge(name, target, kind);
+                addResolvedEdges(name, target, kind, filePath, ["class", "interface"]);
               }
             }
           }
@@ -376,9 +431,9 @@ function createPlugin(): LanguagePlugin {
 
           if (ts.isConstructorDeclaration(node)) {
             const from = currentClass ? `${currentClass}.constructor` : "constructor";
-            if (symbolSet.has(from)) {
-              collectTypeRefs(node, from);
-              collectCalls(node, from);
+            if (resolveCandidates(from, filePath).length > 0) {
+              collectTypeRefs(node, from, filePath);
+              collectCalls(node, from, filePath);
             }
             return;
           }
@@ -389,9 +444,9 @@ function createPlugin(): LanguagePlugin {
                 ? "[computed]"
                 : node.name.getText(sourceFile);
             const from = currentClass ? `${currentClass}.${name}` : name;
-            if (symbolSet.has(from)) {
-              collectTypeRefs(node, from);
-              collectCalls(node, from);
+            if (resolveCandidates(from, filePath).length > 0) {
+              collectTypeRefs(node, from, filePath);
+              collectCalls(node, from, filePath);
             }
             return;
           }
@@ -399,9 +454,9 @@ function createPlugin(): LanguagePlugin {
           if (ts.isFunctionDeclaration(node) && node.name) {
             const name = node.name.getText(sourceFile);
             const from = currentClass ? `${currentClass}.${name}` : name;
-            if (symbolSet.has(from)) {
-              collectTypeRefs(node, from);
-              collectCalls(node, from);
+            if (resolveCandidates(from, filePath).length > 0) {
+              collectTypeRefs(node, from, filePath);
+              collectCalls(node, from, filePath);
             }
             return;
           }
@@ -413,9 +468,9 @@ function createPlugin(): LanguagePlugin {
 
               if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
                 const name = decl.name.getText(sourceFile);
-                if (symbolSet.has(name)) {
-                  collectTypeRefs(decl, name);
-                  collectCalls(decl, name);
+                if (resolveCandidates(name, filePath).length > 0) {
+                  collectTypeRefs(decl, name, filePath);
+                  collectCalls(decl, name, filePath);
                 }
               } else if (ts.isClassExpression(init)) {
                 const name = decl.name.getText(sourceFile);

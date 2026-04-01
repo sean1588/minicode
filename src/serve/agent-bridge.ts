@@ -21,6 +21,7 @@ import {
   loadSessionByLabel,
   saveSession,
 } from "../session/session-store.js";
+import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ServerMessage } from "./types.js";
 
 export type UiListener = (msg: ServerMessage) => void;
@@ -287,7 +288,7 @@ export class AgentBridge {
     }> = [];
     for (const sym of this.projectIndex.symbols.values()) {
       symbols.push({
-        name: sym.name,
+        name: getSymbolDisplayName(sym),
         qualifiedName: sym.qualifiedName,
         kind: sym.kind,
         filePath: sym.filePath,
@@ -310,7 +311,7 @@ export class AgentBridge {
     const cone = this.projectIndex.getDependencyCone(symbolName, depth);
     if (cone.length === 0) return undefined;
     return cone.map((sym) => ({
-      name: sym.name,
+      name: getSymbolDisplayName(sym),
       qualifiedName: sym.qualifiedName,
       kind: sym.kind,
       filePath: sym.filePath,
@@ -325,7 +326,14 @@ export class AgentBridge {
     // Find all edges pointing TO this symbol
     const refs = this.projectIndex.dependencyEdges
       .filter((e) => e.to === sym.qualifiedName || e.to === sym.name)
-      .map((e) => ({ from: e.from, kind: e.kind }));
+      .map((e) => {
+        const fromSymbol = this.projectIndex!.getSymbol(e.from);
+        return {
+          from: e.from,
+          kind: e.kind,
+          ...(fromSymbol ? { name: getSymbolDisplayName(fromSymbol) } : {}),
+        };
+      });
     return refs;
   }
 
@@ -347,7 +355,7 @@ export class AgentBridge {
     for (const sym of this.projectIndex.symbols.values()) {
       nodes.push({
         id: sym.qualifiedName,
-        name: sym.name,
+        name: getSymbolDisplayName(sym),
         kind: sym.kind,
         filePath: sym.filePath,
         exported: sym.exported,

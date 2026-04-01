@@ -7,6 +7,7 @@ import {
   expectNonEmptyString,
   expectOptionalBoolean,
 } from "@minicode/agent-sdk";
+import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 
 const LEADING_CONTEXT_LINES = 3;
@@ -72,7 +73,7 @@ export function createReadSymbolTool(
           .join("\n");
 
         const parts: string[] = [
-          `# ${symbol.qualifiedName} (${symbol.kind})`,
+          `# ${getSymbolDisplayName(symbol)} (${symbol.kind})`,
           `File: ${symbol.filePath}`,
           `Lines: ${symbol.startLine}-${symbol.endLine}`,
           "",
@@ -88,7 +89,10 @@ export function createReadSymbolTool(
               e.to === symbol.qualifiedName || e.to === symbol.name,
           )
           .slice(0, 5)
-          .map((e) => e.from);
+          .map((e) => {
+            const ref = projectIndex.getSymbol(e.from);
+            return ref ? getSymbolDisplayName(ref) : e.from;
+          });
         if (usedBy.length > 0) {
           parts.push("", "## Used by", "", usedBy.map((s) => `- ${s}`).join("\n"));
         }
@@ -99,7 +103,10 @@ export function createReadSymbolTool(
               e.from === symbol.qualifiedName || e.from === symbol.name,
           )
           .slice(0, 5)
-          .map((e) => e.to);
+          .map((e) => {
+            const dep = projectIndex.getSymbol(e.to);
+            return dep ? getSymbolDisplayName(dep) : e.to;
+          });
         if (calls.length > 0) {
           parts.push("", "## Calls", "", calls.map((s) => `- ${s}`).join("\n"));
         }
@@ -113,7 +120,7 @@ export function createReadSymbolTool(
         if (typeRefs.length > 0) {
           parts.push("", "## Referenced Types", "");
           for (const ref of typeRefs) {
-            parts.push(`### ${ref.qualifiedName}`, ref.signature, "");
+            parts.push(`### ${getSymbolDisplayName(ref)}`, ref.signature, "");
           }
         }
 
@@ -121,7 +128,7 @@ export function createReadSymbolTool(
       }
 
       const sigParts = [
-        `# ${symbol.qualifiedName} (${symbol.kind})`,
+        `# ${getSymbolDisplayName(symbol)} (${symbol.kind})`,
         `File: ${symbol.filePath}`,
         `Lines: ${symbol.startLine}-${symbol.endLine}`,
         "",
