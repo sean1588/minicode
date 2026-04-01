@@ -59,3 +59,19 @@ test('onboarding hint is removed when nodes are added in built JS', () => {
     'JS should call removeOnboardingHint when adding nodes',
   );
 });
+
+test('built JS keeps agent activity reveals narrower than manual expansion', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  assert.ok(
+    js.includes('renderNodeNeighborhoodAndLayout'),
+    'JS should define a configurable graph-rendering helper',
+  );
+  assert.ok(
+    js.includes('renderNodeNeighborhoodAndLayout(symbolName, 0)'),
+    'agent activity should reveal only the active symbol instead of expanding neighbors',
+  );
+  assert.ok(
+    js.includes('renderNodeNeighborhoodAndLayout(symbolId, 1)'),
+    'intentional graph exploration should still render first-degree neighbors',
+  );
+});
