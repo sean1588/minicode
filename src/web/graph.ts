@@ -172,7 +172,7 @@ export async function initGraph(): Promise<void> {
     // If there are pinned symbols, seed with those; otherwise show onboarding hint
     if (pinnedNames.size > 0) {
       for (const name of pinnedNames) {
-        addNodeAndNeighbors(name);
+        addNodeNeighborhood(name, 1);
       }
       runLayout();
     } else {
@@ -195,8 +195,10 @@ export function highlightAgentActivity(symbolName: string): void {
     setTimeout(() => node.removeClass('agent-pulse'), 2000);
     return;
   }
-  // Otherwise, add it to the graph with neighbors
-  expandNodeAndLayout(symbolName);
+  // Otherwise, reveal only the specific symbol being read.
+  // Agent activity should stay legible while a turn is in progress;
+  // user-driven graph exploration still expands neighbors explicitly.
+  renderNodeNeighborhoodAndLayout(symbolName, 0);
   const added = findNode(symbolName);
   if (added) {
     added.addClass('agent-pulse');
@@ -239,23 +241,48 @@ function buildEdgeIndex(): void {
   }
 }
 
-function addNodeAndNeighbors(symbolId: string): void {
-  addNodeToGraph(symbolId);
+function addNodeNeighborhood(symbolId: string, maxDegrees = 1): void {
+  const visited = new Set<string>();
+  let frontier = new Set<string>([symbolId]);
 
-  const edges = edgeIndex.get(symbolId) || [];
-  for (const edge of edges) {
-    const neighbor = edge.source === symbolId ? edge.target : edge.source;
-    addNodeToGraph(neighbor);
-    addEdgeToGraph(edge);
+  for (let degree = 0; degree <= maxDegrees; degree += 1) {
+    const next = new Set<string>();
+    for (const currentId of frontier) {
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      addNodeToGraph(currentId);
+
+      if (degree === maxDegrees) continue;
+
+      const edges = edgeIndex.get(currentId) || [];
+      for (const edge of edges) {
+        const neighbor = edge.source === currentId ? edge.target : edge.source;
+        addNodeToGraph(neighbor);
+        addEdgeToGraph(edge);
+        if (!visited.has(neighbor)) {
+          next.add(neighbor);
+        }
+      }
+    }
+    frontier = next;
+    if (frontier.size === 0) break;
+  }
+}
+
+function renderNodeNeighborhoodAndLayout(symbolId: string, maxDegrees = 1): void {
+  if (!cy) return;
+  const beforeNodeCount = cy.nodes().length;
+  addNodeNeighborhood(symbolId, maxDegrees);
+  connectExistingNodes();
+  refreshAnalysisGraphState();
+  if (cy.nodes().length > beforeNodeCount) {
+    runLayout();
   }
 }
 
 /** Add a node + neighbors, connect existing nodes, and re-run layout. */
 function expandNodeAndLayout(symbolId: string): void {
-  addNodeAndNeighbors(symbolId);
-  connectExistingNodes();
-  refreshAnalysisGraphState();
-  runLayout();
+  renderNodeNeighborhoodAndLayout(symbolId, 1);
 }
 
 function addNodeToGraph(id: string): void {
@@ -625,7 +652,7 @@ async function selectAnalysisFinding(findingId: string): Promise<void> {
 
   const beforeNodeCount = cy.nodes().length;
   for (const symbol of finding.symbols) {
-    addNodeAndNeighbors(symbol);
+    addNodeNeighborhood(symbol, 1);
   }
   connectExistingNodes();
 
