@@ -260,6 +260,53 @@ test("reindexFile updates symbols and code map after file change", async () => {
   assert.ok(codeMap.text.includes("title?: string"), "code map should reflect new signature");
 });
 
+test("buildProjectIndex preserves colliding top-level symbols with distinct display names", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-colliding-symbols-"));
+  const samplePath = path.join(workspaceRoot, "sample.ts");
+  const content = `export interface Employee {
+  id: string;
+}
+
+export class Employee {
+  constructor(public id: string) {}
+}
+`;
+  await writeFile(samplePath, content, "utf8");
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const fileSymbols = index.getSymbolsInFile("sample.ts");
+
+  assert.equal(fileSymbols.length, 3, "should preserve interface, class, and constructor");
+
+  const employeeSymbols = fileSymbols.filter((symbol) => symbol.name === "Employee");
+  assert.equal(employeeSymbols.length, 2, "should keep both colliding Employee symbols");
+  assert.notEqual(
+    employeeSymbols[0]!.qualifiedName,
+    employeeSymbols[1]!.qualifiedName,
+    "colliding symbols should have unique internal qualified names",
+  );
+  assert.ok(employeeSymbols.some((symbol) => symbol.displayName === "Employee (interface)"));
+  assert.ok(employeeSymbols.some((symbol) => symbol.displayName === "Employee (class)"));
+
+  const employeeClass = index.getSymbol("Employee (class)");
+  const employeeInterface = index.getSymbol("Employee (interface)");
+  assert.ok(employeeClass, "should resolve colliding class by display name");
+  assert.ok(employeeInterface, "should resolve colliding interface by display name");
+  assert.equal(employeeClass!.kind, "class");
+  assert.equal(employeeInterface!.kind, "interface");
+
+  const codeMap = index.getCodeMap();
+  assert.ok(codeMap.text.includes("interface Employee (interface)"));
+  assert.ok(codeMap.text.includes("class Employee (class)"));
+
+  const resolved = index.getSymbol("Employee");
+  assert.ok(resolved, "bare lookup should still resolve one of the colliding symbols");
+  assert.ok(
+    resolved!.displayName === "Employee (class)" || resolved!.displayName === "Employee (interface)",
+    "resolved symbol should use a disambiguated display name",
+  );
+});
+
 test("TypeScript plugin indexes class expressions assigned to variables", () => {
   const code = `const MyClass = class MyClass {
   constructor(name) {

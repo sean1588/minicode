@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
+import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 
 export function createFindPathTool(
@@ -55,11 +56,11 @@ export function createFindPathTool(
 
         const lines = path.map((s, i) => {
           const arrow = i < path.length - 1 ? " ->" : "";
-          return `${i + 1}. [${s.kind}] ${s.qualifiedName} (${s.filePath}:${s.startLine})${arrow}`;
+          return `${i + 1}. [${s.kind}] ${getSymbolDisplayName(s)} (${s.filePath}:${s.startLine})${arrow}`;
         });
 
         return [
-          `# Path from ${fromSymbol.qualifiedName} to ${toSymbol.qualifiedName} (${path.length} symbols)`,
+          `# Path from ${getSymbolDisplayName(fromSymbol)} to ${getSymbolDisplayName(toSymbol)} (${path.length} symbols)`,
           "",
           ...lines,
         ].join("\n");
@@ -74,13 +75,13 @@ export function createFindPathTool(
         const sections = paths.map((p, pi) => {
           const lines = p.map((s, i) => {
             const arrow = i < p.length - 1 ? " ->" : "";
-            return `  ${i + 1}. [${s.kind}] ${s.qualifiedName} (${s.filePath}:${s.startLine})${arrow}`;
+            return `  ${i + 1}. [${s.kind}] ${getSymbolDisplayName(s)} (${s.filePath}:${s.startLine})${arrow}`;
           });
           return [`## Path ${pi + 1}`, ...lines].join("\n");
         });
 
         return [
-          `# Entry point paths for ${fromSymbol.qualifiedName} (${paths.length} path${paths.length === 1 ? "" : "s"})`,
+          `# Entry point paths for ${getSymbolDisplayName(fromSymbol)} (${paths.length} path${paths.length === 1 ? "" : "s"})`,
           "",
           ...sections,
         ].join("\n\n");

@@ -931,7 +931,7 @@ async function loadDepsAndRefs(name: string, detailEl: HTMLElement): Promise<voi
       refsEl.innerHTML = items.length
         ? items.map((r) => {
             const id = typeof r === 'string' ? r : r.from || r.qualifiedName || r.name || '';
-            const label = id.split('.').pop() || id;
+            const label = typeof r === 'string' ? id : r.name || id.split('.').pop() || id;
             const kind = typeof r === 'string' ? '' : r.kind || '';
             return `<a class="detail-link" data-target="${escapeHtml(id)}">${escapeHtml(label)} <span style="opacity:0.5">${escapeHtml(kind)}</span></a>`;
           }).join('')

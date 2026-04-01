@@ -15,6 +15,9 @@ export type SymbolKind =
 export interface IndexedSymbol {
   name: string;
   qualifiedName: string;
+  originalQualifiedName?: string;
+  displayName?: string;
+  aliases?: string[];
   kind: SymbolKind;
   filePath: string;
   startLine: number;

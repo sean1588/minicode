@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
+import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 
 const DEFAULT_LIMIT = 50;
@@ -51,14 +52,18 @@ export function createFindReferencesTool(
       }
 
       const shown = refs.slice(skip, skip + limit);
-      const lines = shown.map((e) => `- ${e.from} (${e.kind})`);
+      const lines = shown.map((e) => {
+        const fromSymbol = projectIndex.getSymbol(e.from);
+        const label = fromSymbol ? getSymbolDisplayName(fromSymbol) : e.from;
+        return `- ${label} (${e.kind})`;
+      });
       const remaining = refs.length - skip - shown.length;
       const footer =
         remaining > 0
           ? `\n... and ${remaining} more (use skip: ${skip + limit}, limit: ${limit} for next page)`
           : "";
       return [
-        `# References to ${symbol.qualifiedName} (${refs.length} total)`,
+        `# References to ${getSymbolDisplayName(symbol)} (${refs.length} total)`,
         "",
         ...lines,
         footer,
