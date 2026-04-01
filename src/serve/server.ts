@@ -12,6 +12,7 @@ import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../ag
 import { sortModelsAlphabetically } from "../model-utils.js";
 import type { ServerMessage } from "./types.js";
 import type { WebSocketServer } from "ws";
+import { handleMcpRequest } from "./mcp-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -67,9 +68,13 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
 }
 
 /** Create the HTTP request handler. Exported for testing. */
-export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage, res: ServerResponse) => void {
+export function createRequestHandler(
+  bridge: AgentBridge,
+  emit?: (msg: ServerMessage) => void,
+): (req: IncomingMessage, res: ServerResponse) => void {
   const config = bridge.getConfig();
   const configCwd = config.workspaceRoot;
+  const emitFn = emit ?? (() => {});
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -77,6 +82,12 @@ export function createRequestHandler(bridge: AgentBridge): (req: IncomingMessage
     const pathname = url.pathname;
 
     const handle = async () => {
+      // MCP (Model Context Protocol) endpoint
+      if (pathname === "/mcp") {
+        await handleMcpRequest(req, res, bridge, emitFn);
+        return;
+      }
+
       // OpenAI-compatible routes
       if (pathname === "/v1/models" && method === "GET") {
         handleModels(req, res);
@@ -521,7 +532,7 @@ export async function runServe(verbose: boolean, port: number): Promise<void> {
 
   const config = bridge.getConfig();
 
-  const handler = createRequestHandler(bridge);
+  const handler = createRequestHandler(bridge, (msg) => broadcastFn(msg));
   const server = createServer(handler);
 
   // WebSocket server — captures the real broadcast function
@@ -545,8 +556,12 @@ export async function runServe(verbose: boolean, port: number): Promise<void> {
     socket.on("close", () => openSockets.delete(socket));
   });
 
+  // Start file watcher for automatic reindexing
+  bridge.startFileWatcher();
+
   // Graceful shutdown
   process.on("SIGINT", () => {
+    bridge.stopFileWatcher();
     shutdownServe(server, wss, openSockets);
   });
 
@@ -556,6 +571,7 @@ export async function runServe(verbose: boolean, port: number): Promise<void> {
     console.log(`  Model:     ${config.model} (${config.modelProvider})`);
     console.log(`  Web UI:    http://localhost:${port}`);
     console.log(`  OpenAI:    http://localhost:${port}/v1`);
+    console.log(`  MCP:       http://localhost:${port}/mcp`);
     console.log(`\nPress Ctrl+C to stop.\n`);
   });
 
