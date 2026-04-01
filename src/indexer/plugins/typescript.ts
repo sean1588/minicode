@@ -340,7 +340,10 @@ function createPlugin(): LanguagePlugin {
         targetKinds?: IndexedSymbol["kind"][],
       ): void {
         const fromMatches = resolveCandidates(rawFrom, filePath);
-        const toMatches = resolveCandidates(rawTo, undefined, targetKinds);
+        const sameFileTargets = resolveCandidates(rawTo, filePath, targetKinds);
+        const toMatches = sameFileTargets.length > 0
+          ? sameFileTargets
+          : resolveCandidates(rawTo, undefined, targetKinds);
         for (const fromSymbol of fromMatches) {
           for (const toSymbol of toMatches) {
             addEdge(fromSymbol.qualifiedName, toSymbol.qualifiedName, kind);

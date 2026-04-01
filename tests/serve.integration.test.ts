@@ -160,6 +160,7 @@ class MockBridge extends AgentBridge {
           name: "foo",
           kind: "function",
           filePath: "src/foo.ts",
+          spanLines: 12,
           fanIn: 1,
           fanOut: 3,
           totalDegree: 4,
