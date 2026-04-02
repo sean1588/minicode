@@ -182,7 +182,10 @@ export function createRequestHandler(
 
       if (pathname === "/api/sessions" && method === "GET") {
         const sessions = await bridge.listSess();
-        sendJson(res, 200, { sessions });
+        sendJson(res, 200, {
+          sessions,
+          currentSessionId: bridge.getCurrentSessionId(),
+        });
         return;
       }
 
