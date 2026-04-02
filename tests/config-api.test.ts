@@ -130,7 +130,7 @@ test("GET /api/config returns structured editable settings payload", async () =>
     assert.equal(maxSteps?.globalValue, null);
     assert.equal(maxSteps?.envValue, null);
     assert.equal(maxSteps?.overriddenByEnv, false);
-    assert.match(maxSteps?.description ?? "", /Maximum agent loop steps per turn/);
+    assert.match(maxSteps?.description ?? "", /Turn call limit/);
   });
 });
 

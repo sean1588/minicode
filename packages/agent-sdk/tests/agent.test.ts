@@ -215,7 +215,9 @@ test("agent respects maxSteps limit", async () => {
   });
 
   const { text } = await agent.runTurn("Go forever");
-  assert.match(text, /maximum number of steps/);
+  assert.match(text, /turn call limit/);
+  assert.match(text, /Type "continue"/);
+  assert.match(text, /maxSteps/);
   assert.equal(callCount, 2);
 });
 

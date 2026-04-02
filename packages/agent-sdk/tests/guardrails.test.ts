@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   ensureStepWithinLimit,
+  formatStepLimitMessage,
   isDestructiveCommand,
   resolveWorkspacePath,
   validateCommand,
@@ -62,12 +63,19 @@ test("isDestructiveCommand returns false for safe commands", () => {
 test("ensureStepWithinLimit throws at limit", () => {
   assert.throws(
     () => ensureStepWithinLimit(10, 10),
-    /maximum step limit/,
+    /turn call limit/,
   );
 });
 
 test("ensureStepWithinLimit allows steps below limit", () => {
   assert.doesNotThrow(() => ensureStepWithinLimit(5, 10));
+});
+
+test("formatStepLimitMessage explains how to continue and adjust the limit", () => {
+  const message = formatStepLimitMessage(10);
+  assert.match(message, /Type "continue"/);
+  assert.match(message, /Settings/);
+  assert.match(message, /maxSteps/);
 });
 
 test("validateFileReadSize throws for oversized files", () => {

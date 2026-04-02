@@ -57,6 +57,31 @@ class RepeatingModelClient implements ModelClient {
   }
 }
 
+class InfiniteToolModelClient implements ModelClient {
+  private callCount = 0;
+
+  getCalls(): number {
+    return this.callCount;
+  }
+
+  async chat(params: {
+    model: string;
+    system: string;
+    messages: SessionMessage[];
+    tools: ToolSchema[];
+    maxTokens: number;
+  }): Promise<ModelResponse> {
+    void params;
+    this.callCount += 1;
+    return {
+      text: `step ${this.callCount}`,
+      toolCalls: [{ id: `tool-${this.callCount}`, name: "echo_tool", input: { value: String(this.callCount) } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    };
+  }
+}
+
 function createEchoTool(): ToolDefinition {
   return {
     name: "echo_tool",
@@ -114,6 +139,24 @@ test("agent stops on repeated identical tool calls", async () => {
 
   const { text } = await agent.runTurn("Do something");
   assert.match(text, /repeated identical tool calls/);
+});
+
+test("agent tells the user how to continue when the turn call limit is reached", async () => {
+  const config = createTestAgentConfig("/tmp");
+  config.maxSteps = 2;
+  const modelClient = new InfiniteToolModelClient();
+
+  const agent = new CodingAgent({
+    config,
+    modelClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Keep working");
+  assert.match(text, /turn call limit/);
+  assert.match(text, /Type "continue"/);
+  assert.match(text, /Settings/);
+  assert.equal(modelClient.getCalls(), 2);
 });
 
 test("agent omits code map when projectIndex is not provided", async () => {
