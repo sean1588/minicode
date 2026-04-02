@@ -1,6 +1,6 @@
 import { buildSystemPrompt } from "../prompt/system-prompt.js";
 import type { CodeMapResult } from "../indexer/types.js";
-import { ensureStepWithinLimit } from "../safety/guardrails.js";
+import { ensureStepWithinLimit, formatStepLimitMessage } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
 import type { CompactionResult } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
@@ -577,8 +577,7 @@ export class CodingAgent {
       }
     }
 
-    const stepLimitMessage =
-      "Reached the maximum number of steps for this turn. I stopped to avoid an infinite loop.";
+    const stepLimitMessage = formatStepLimitMessage(this.config.maxSteps);
     this.session.addMessage({
       role: "assistant",
       content: stepLimitMessage,

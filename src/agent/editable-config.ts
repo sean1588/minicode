@@ -88,7 +88,7 @@ export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = 
     fileKey: "maxSteps",
     envVar: "MAX_STEPS",
     type: "number",
-    description: "Maximum agent loop steps per turn",
+    description: "Turn call limit before the agent pauses and waits for another prompt",
   },
   {
     key: "maxTokens",

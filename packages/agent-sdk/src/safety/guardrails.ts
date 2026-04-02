@@ -67,11 +67,17 @@ export function isDestructiveCommand(command: string): boolean {
   return DESTRUCTIVE_COMMAND_PATTERNS.some((pattern) => pattern.test(command));
 }
 
+export function formatStepLimitMessage(maxSteps: number): string {
+  return [
+    `Reached the turn call limit (${maxSteps}) for this turn, so I paused here.`,
+    'Type "continue" to let me keep working from the current session.',
+    'If you want longer turns by default, increase the turn call limit (maxSteps) in Settings or with /config set maxSteps <n>.',
+  ].join(" ");
+}
+
 export function ensureStepWithinLimit(step: number, maxSteps: number): void {
   if (step >= maxSteps) {
-    throw new Error(
-      `Reached maximum step limit (${maxSteps}). Stopping tool loop.`,
-    );
+    throw new Error(formatStepLimitMessage(maxSteps));
   }
 }
 
