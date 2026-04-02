@@ -152,6 +152,11 @@ h1 {
   padding: 8px;
 }
 
+.session-update-row {
+  display: flex;
+  margin-bottom: 8px;
+}
+
 .dropdown-divider {
   height: 1px;
   background: var(--border);
@@ -217,6 +222,11 @@ h1 {
   background: var(--bg-hover);
 }
 
+.session-item.active {
+  background: rgba(122, 162, 247, 0.12);
+  outline: 1px solid rgba(122, 162, 247, 0.35);
+}
+
 .session-label {
   color: var(--text);
   overflow: hidden;
@@ -229,6 +239,10 @@ h1 {
   font-size: 11px;
   flex-shrink: 0;
   margin-left: 8px;
+}
+
+.session-active-badge {
+  color: var(--accent);
 }
 
 .badge {

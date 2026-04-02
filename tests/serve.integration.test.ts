@@ -16,6 +16,7 @@ import { createTestAgentConfig } from "./test-utils.js";
  */
 class MockBridge extends AgentBridge {
   private _busy = false;
+  private _currentSessionId = "sess-1";
   turnHistory: string[] = [];
 
   constructor() {
@@ -76,6 +77,10 @@ class MockBridge extends AgentBridge {
   override async loadSess(label: string) {
     if (label === "nonexistent") return null;
     return { session: {} as never, label };
+  }
+
+  override getCurrentSessionId(): string {
+    return this._currentSessionId;
   }
 
   setBusy(busy: boolean): void {
@@ -365,8 +370,13 @@ test("GET /api/sessions returns session list", async () => {
   const res = await fetch(`${base}/api/sessions`);
   assert.equal(res.status, 200);
 
-  const body = (await res.json()) as { sessions: Array<{ label: string }> };
+  const body = (await res.json()) as {
+    sessions: Array<{ id: string; label: string }>;
+    currentSessionId: string;
+  };
   assert.equal(body.sessions.length, 1);
+  assert.equal(body.currentSessionId, "sess-1");
+  assert.equal(body.sessions[0]!.id, "sess-1");
   assert.equal(body.sessions[0]!.label, "test-session");
 });
 

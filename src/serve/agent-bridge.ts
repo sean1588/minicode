@@ -201,6 +201,10 @@ export class AgentBridge {
     return this.agent;
   }
 
+  getCurrentSessionId(): string {
+    return this.agent.getSession().id;
+  }
+
   async runTurn(message: string): Promise<{ text: string; usage?: { inputTokens: number; outputTokens: number } }> {
     if (this.busy) {
       throw new Error("busy");

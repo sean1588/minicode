@@ -19,8 +19,14 @@ interface StatusResponse {
 }
 
 interface SessionMeta {
+  id: string;
   label: string;
   messageCount: number;
+}
+
+interface SessionsResponse {
+  sessions: SessionMeta[];
+  currentSessionId: string;
 }
 
 type SettingsScope = "workspace" | "global";
@@ -76,6 +82,8 @@ const modelList = document.getElementById("model-list")!;
 const sessionBtn = document.getElementById("session-btn")!;
 const sessionDropdown = document.getElementById("session-dropdown")!;
 const sessionList = document.getElementById("session-list")!;
+const sessionUpdateRow = document.getElementById("session-update-row")!;
+const sessionUpdateBtn = document.getElementById("session-update-btn") as HTMLButtonElement;
 const saveBtn = document.getElementById("save-btn")!;
 const saveLabelInput = document.getElementById("save-label") as HTMLInputElement;
 const contextFill = document.getElementById("context-fill")!;
@@ -97,6 +105,7 @@ let assistantText = "";
 let hadToolCalls = false;
 let settingsPayload: SettingsPayload | null = null;
 let activeSettingsScope: SettingsScope = "workspace";
+let activeSavedSession: SessionMeta | null = null;
 
 const TOOL_RESULT_MAX = 500;
 
@@ -733,7 +742,10 @@ document.addEventListener("click", (e: Event) => {
 });
 
 saveBtn.addEventListener("click", async () => {
-  const label = saveLabelInput.value.trim() || undefined;
+  const requestedLabel = saveLabelInput.value.trim();
+  const label = requestedLabel || activeSavedSession?.label || undefined;
+  const isUpdatingCurrentSession =
+    !!activeSavedSession && (requestedLabel.length === 0 || requestedLabel === activeSavedSession.label);
   try {
     const res = await fetch("/api/sessions/save", {
       method: "POST",
@@ -741,10 +753,13 @@ saveBtn.addEventListener("click", async () => {
       body: JSON.stringify({ label }),
     });
     if (res.ok) {
-      const data = await res.json() as { label: string };
+      const data = await res.json() as SessionMeta;
       saveLabelInput.value = "";
-      addMessage(`Session saved: "${data.label}"`, "thinking");
-      refreshSessionList();
+      addMessage(
+        `${isUpdatingCurrentSession ? "Session updated" : "Session saved"}: "${data.label}"`,
+        "thinking",
+      );
+      void refreshSessionList();
     }
   } catch {
     // ignore
@@ -761,8 +776,20 @@ saveLabelInput.addEventListener("keydown", (e: KeyboardEvent) => {
 async function refreshSessionList(): Promise<void> {
   try {
     const res = await fetch("/api/sessions");
-    const data = await res.json() as { sessions: SessionMeta[] };
+    const data = await res.json() as SessionsResponse;
     const sessions = data.sessions;
+    activeSavedSession =
+      sessions.find((session) => session.id === data.currentSessionId) ?? null;
+
+    if (activeSavedSession) {
+      sessionUpdateRow.classList.remove("hidden");
+      sessionUpdateBtn.textContent = `Update "${activeSavedSession.label}"`;
+      sessionUpdateBtn.title = `Save changes back to "${activeSavedSession.label}"`;
+    } else {
+      sessionUpdateRow.classList.add("hidden");
+      sessionUpdateBtn.textContent = "Update current saved session";
+      sessionUpdateBtn.title = "";
+    }
 
     if (!sessions || sessions.length === 0) {
       sessionList.innerHTML = '<div class="dropdown-empty">No saved sessions</div>';
@@ -772,14 +799,17 @@ async function refreshSessionList(): Promise<void> {
     sessionList.innerHTML = "";
     for (const s of sessions) {
       const el = document.createElement("div");
-      el.className = "session-item";
+      const isActive = activeSavedSession?.id === s.id;
+      el.className = "session-item" + (isActive ? " active" : "");
       el.innerHTML =
         `<span class="session-label">${escapeHtml(s.label)}</span>` +
-        `<span class="session-meta">${s.messageCount} msgs</span>`;
+        `<span class="session-meta">${s.messageCount} msgs${isActive ? ' <span class="session-active-badge">• active</span>' : ""}</span>`;
       el.addEventListener("click", () => loadSession(s.label));
       sessionList.appendChild(el);
     }
   } catch {
+    activeSavedSession = null;
+    sessionUpdateRow.classList.add("hidden");
     sessionList.innerHTML = '<div class="dropdown-empty">Failed to load sessions</div>';
   }
 }
@@ -795,11 +825,36 @@ async function loadSession(label: string): Promise<void> {
       sessionDropdown.classList.add("hidden");
       messagesEl.innerHTML = "";
       addMessage(`Session "${label}" restored`, "thinking");
+      void refreshSessionList();
     }
   } catch {
     // ignore
   }
 }
+
+sessionUpdateBtn.addEventListener("click", async () => {
+  if (!activeSavedSession) {
+    return;
+  }
+
+  try {
+    sessionUpdateBtn.disabled = true;
+    const res = await fetch("/api/sessions/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: activeSavedSession.label }),
+    });
+    if (res.ok) {
+      const data = await res.json() as SessionMeta;
+      addMessage(`Session updated: "${data.label}"`, "thinking");
+      await refreshSessionList();
+    }
+  } catch {
+    // ignore
+  } finally {
+    sessionUpdateBtn.disabled = false;
+  }
+});
 
 // -- Settings modal --
 
