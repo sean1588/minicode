@@ -20,7 +20,18 @@
     "LICENSE"
   ],
   "bundleDependencies": [
-    "@minicode/agent-sdk"
+    "@anthropic-ai/sdk",
+    "@inkjs/ui",
+    "@minicode/agent-sdk",
+    "@modelcontextprotocol/sdk",
+    "dotenv",
+    "ink",
+    "marked",
+    "picocolors",
+    "react",
+    "typescript",
+    "ws",
+    "zod"
   ],
   "scripts": {
     "build:web": "node scripts/build-web.mjs",
@@ -47,7 +58,7 @@
     "react": "^19.2.4",
     "typescript": "^5.9.3",
     "ws": "^8.19.0",
-    "zod": "^4.3.6"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
