@@ -3,7 +3,7 @@
   "model": "zai-org/glm-4.7-flash",
   "maxSteps": 50,
   "maxTokens": 4096,
-  "maxContextTokens": 120000,
+  "maxContextTokens": 32000,
   "workspaceRoot": ".",
   "commandTimeout": 30000,
   "commandDenylist": [],

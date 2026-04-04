@@ -3,7 +3,13 @@ import path from "node:path";
 
 import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
 
-import { loadConfigFile, MINICODE_HOME, type AgentConfigFile } from "./config.js";
+import {
+  loadConfigFile,
+  MINICODE_HOME,
+  resolveConfigEnv,
+  type AgentConfigFile,
+  type ConfigEnvSource,
+} from "./config.js";
 
 export type EditableConfigScope = "workspace" | "global";
 type EditableConfigValue = string | number | boolean;
@@ -49,6 +55,8 @@ export interface StructuredConfigEntry {
   workspaceValue: string | number | boolean | null;
   globalValue: string | number | boolean | null;
   envValue: string | null;
+  envSource: ConfigEnvSource | null;
+  envSourcePath: string | null;
   overriddenByEnv: boolean;
 }
 
@@ -326,17 +334,32 @@ export async function buildStructuredConfigPayload(
   config: AgentConfig,
   cwd: string,
   minicodeHome = MINICODE_HOME,
+  options: { includeWorkspaceEnv?: boolean } = {},
 ): Promise<StructuredConfigPayload> {
   const paths = {
     workspaceConfigPath: getConfigPathForScope(cwd, "workspace", minicodeHome),
     globalConfigPath: getConfigPathForScope(cwd, "global", minicodeHome),
   };
   const layers = await loadPersistedConfigLayers(cwd, minicodeHome);
+  const env = await resolveConfigEnv(cwd, {
+    minicodeHome,
+    ...(options.includeWorkspaceEnv === undefined
+      ? {}
+      : { includeWorkspaceEnv: options.includeWorkspaceEnv }),
+  });
 
   return {
     ...paths,
     entries: EDITABLE_CONFIG_DEFINITIONS.map((definition) => {
-      const envValue = process.env[definition.envVar];
+      const envValue = env.values[definition.envVar];
+      const envSource = env.sources[definition.envVar] ?? null;
+      const envSourcePath = envSource === "home-dotenv"
+        ? env.homeEnvPath
+        : envSource === "project-dotenv"
+          ? env.projectEnvPath
+          : envSource === "cwd-dotenv"
+            ? env.cwdEnvPath
+            : null;
       return {
         key: definition.key,
         type: definition.type,
@@ -347,6 +370,8 @@ export async function buildStructuredConfigPayload(
         workspaceValue: normalizePersistedValue(layers.workspace[definition.fileKey]),
         globalValue: normalizePersistedValue(layers.global[definition.fileKey]),
         envValue: envValue ?? null,
+        envSource,
+        envSourcePath,
         overriddenByEnv: envValue !== undefined,
       };
     }),

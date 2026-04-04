@@ -9,7 +9,7 @@ test("built HTML contains settings entry point and modal shell", () => {
   const html = readFileSync(join(distWeb, "index.html"), "utf8");
   assert.ok(html.includes('id="settings-btn"'), "HTML should contain the settings button");
   assert.ok(html.includes('id="settings-modal"'), "HTML should contain the settings modal");
-  assert.ok(html.includes('id="settings-scope"'), "HTML should contain the settings scope selector");
+  assert.ok(!html.includes('id="settings-scope"'), "HTML should no longer contain the settings scope selector");
   assert.ok(html.includes('id="settings-save"'), "HTML should contain the settings save action");
 });
 
@@ -26,5 +26,7 @@ test("built JS contains config loading and saving logic for settings", () => {
   assert.ok(js.includes("/api/config"), "JS should fetch the config API");
   assert.ok(js.includes("Save settings"), "JS should contain the settings save action text");
   assert.ok(js.includes("settingsPayload"), "JS should track settings payload state");
-  assert.ok(js.includes("activeSettingsScope"), "JS should wire scope-specific settings behavior");
+  assert.ok(js.includes("persistedValue"), "JS should wire persisted settings behavior");
+  assert.ok(js.includes("home-dotenv"), "JS should distinguish home dotenv overrides");
+  assert.ok(js.includes("manage this setting here"), "JS should explain how to resolve env overrides");
 });

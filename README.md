@@ -26,7 +26,7 @@ OPENAI_BASE_URL=http://localhost:1234/v1
 OPENAI_API_KEY=
 MAX_STEPS=50
 MAX_TOKENS=4096
-MAX_CONTEXT_TOKENS=24000
+MAX_CONTEXT_TOKENS=32000
 WORKSPACE_ROOT=.
 COMMAND_TIMEOUT_MS=30000
 MAX_FILE_SIZE_BYTES=1000000
@@ -195,7 +195,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `OPENROUTER_API_KEY`    | No              | none                       | Preferred key when `OPENAI_BASE_URL` points at OpenRouter; falls back to `OPENAI_API_KEY` if unset                                  |
 | `MAX_STEPS`             | No              | `50`                       | Max agent loop iterations per user turn                                                                                               |
 | `MAX_TOKENS`            | No              | `4096`                     | Max model output tokens per model call                                                                                                |
-| `MAX_CONTEXT_TOKENS`    | No              | `40000`                    | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
+| `MAX_CONTEXT_TOKENS`    | No              | `32000`                    | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
 | `MAX_TOOL_OUTPUT_CHARS` | No              | `8000`                     | Max chars per tool result before truncation. Set to `0` to disable.                                                                   |
 | `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access                                                                                            |
 | `COMMAND_TIMEOUT_MS`    | No              | `30000`                    | Timeout for shell/search commands                                                                                                     |
@@ -221,7 +221,7 @@ Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the 
   "model": "zai-org/glm-4.7-flash",
   "maxSteps": 50,
   "maxTokens": 4096,
-  "maxContextTokens": 40000,
+  "maxContextTokens": 32000,
   "maxToolOutputChars": 8000,
   "workspaceRoot": ".",
   "commandTimeout": 30000,

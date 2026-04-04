@@ -112,19 +112,12 @@
       <div class="modal-header">
         <div>
           <h2 id="settings-title">Settings</h2>
-          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret defaults for future sessions.</p>
+          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret global defaults for future sessions.</p>
         </div>
         <button id="settings-close" class="header-btn" type="button">Close</button>
       </div>
 
       <div class="settings-toolbar">
-        <label class="settings-scope-picker" for="settings-scope">
-          <span>Scope</span>
-          <select id="settings-scope">
-            <option value="workspace">Workspace</option>
-            <option value="global">Global</option>
-          </select>
-        </label>
         <div class="settings-path-group">
           <span class="settings-path-label">Config file</span>
           <code id="settings-path" class="settings-path"></code>
@@ -138,7 +131,7 @@
 
       <div class="modal-footer">
         <p class="settings-footnote">
-          Secrets such as API keys stay env-only for now. Saved changes update persisted defaults and apply to new runs after restart.
+          Secrets such as API keys stay env-only for now. Saved changes update <code>~/.minicode/agent.config.json</code> and apply to new runs after restart.
         </p>
         <div class="settings-actions">
           <button id="settings-reset" class="header-btn" type="button">Reset changes</button>

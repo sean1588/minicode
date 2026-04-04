@@ -35,7 +35,7 @@ const config: AgentConfig = {
   model: "claude-sonnet-4-20250514",
   maxSteps: 20,
   maxTokens: 4096,
-  maxContextTokens: 40_000,
+  maxContextTokens: 32_000,
   workspaceRoot: process.cwd(),
   commandTimeoutMs: 30_000,
   maxFileSizeBytes: 1_000_000,

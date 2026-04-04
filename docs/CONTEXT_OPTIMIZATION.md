@@ -6,7 +6,7 @@ minicode's context strategy started with local AI models and smaller context win
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
-| `maxContextTokens` | `40,000` | Target token budget for session history before trimming |
+| `maxContextTokens` | `32,000` | Target token budget for session history before trimming |
 | `maxToolOutputChars` | `8,000` | Max characters per tool result before truncation |
 | `keepRecentMessages` | `12` | Minimum number of latest messages preserved during eviction |
 | `enableFileReadDedup` | `true` | Reuses earlier `read_file` results within a turn when the same slice is still in context |
@@ -20,7 +20,7 @@ These can be overridden via environment variables (`MAX_CONTEXT_TOKENS`, etc.), 
 
 Every message in a session — user messages, assistant responses, tool call metadata, and tool result outputs — is stored in a single `Session` array. The entire array is sent to the model on every step. There is no separate "context buffer" vs "session storage"; whatever survives trimming IS the context.
 
-A single `read_file` returning 8,000 characters consumes roughly 2,000 tokens. In a 40k budget, repeated full-file reads still add up quickly, which is why the runtime tries to avoid them with symbol-aware tools, file-read dedup, and trimming/compaction.
+A single `read_file` returning 8,000 characters consumes roughly 2,000 tokens. In a 32k budget, repeated full-file reads still add up quickly, which is why the runtime tries to avoid them with symbol-aware tools, file-read dedup, and trimming/compaction.
 
 ## Optimization strategies
 
@@ -159,4 +159,4 @@ Token counts are approximated using `text.length / 4`. This is a rough heuristic
 | 8k | `6,000` | Very tight; lower `maxToolOutputChars` to ~4,000 |
 | 16k | `12,000` | Comfortable for single-file tasks |
 | 32k | `25,000` | Good for multi-file exploration |
-| 64k+ | `40,000`–`60,000` | Default range; room for complex tasks |
+| 64k+ | `32,000`–`48,000` | Default range; room for complex tasks |

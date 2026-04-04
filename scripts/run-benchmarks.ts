@@ -84,7 +84,7 @@ export function buildConfig(): AgentConfig {
     model,
     maxSteps: Number(process.env.MAX_STEPS ?? "50"),
     maxTokens: Number(process.env.MAX_TOKENS ?? "4096"),
-    maxContextTokens: Number(process.env.MAX_CONTEXT_TOKENS ?? "40000"),
+    maxContextTokens: Number(process.env.MAX_CONTEXT_TOKENS ?? "32000"),
     workspaceRoot: process.cwd(),
     commandTimeoutMs: Number(process.env.COMMAND_TIMEOUT_MS ?? "30000"),
     maxFileSizeBytes: Number(process.env.MAX_FILE_SIZE_BYTES ?? "1000000"),

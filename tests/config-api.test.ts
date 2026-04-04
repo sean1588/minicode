@@ -50,8 +50,11 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-async function startServer(bridge: AgentBridge): Promise<string> {
-  const server = createServer(createRequestHandler(bridge));
+async function startServer(
+  bridge: AgentBridge,
+  options: { minicodeHome?: string } = {},
+): Promise<string> {
+  const server = createServer(createRequestHandler(bridge, undefined, options));
   activeServers.add(server);
 
   return new Promise((resolve) => {
@@ -90,8 +93,10 @@ async function withUnsetEnvVars(
 test("GET /api/config returns structured editable settings payload", async () => {
   await withUnsetEnvVars(["MAX_STEPS"], async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));
+    const minicodeHome = await mkdtemp(path.join(os.tmpdir(), "minicode-config-home-"));
     tempDirs.push(workspaceRoot);
-    const base = await startServer(new ConfigApiBridge(workspaceRoot));
+    tempDirs.push(minicodeHome);
+    const base = await startServer(new ConfigApiBridge(workspaceRoot), { minicodeHome });
 
     const res = await fetch(`${base}/api/config`);
     assert.equal(res.status, 200);
@@ -99,16 +104,14 @@ test("GET /api/config returns structured editable settings payload", async () =>
     const body = await res.json() as {
       config: string;
       settings: {
-        workspaceConfigPath: string;
-        globalConfigPath: string;
+        configPath: string;
         entries: Array<{
           key: string;
           type: string;
           description: string;
           envVar: string;
           effectiveValue: unknown;
-          workspaceValue: unknown;
-          globalValue: unknown;
+          persistedValue: unknown;
           envValue: unknown;
           overriddenByEnv: boolean;
         }>;
@@ -120,30 +123,29 @@ test("GET /api/config returns structured editable settings payload", async () =>
     assert.match(body.config, /workspaceRoot/);
     assert.equal(body.restartRequired, true);
     assert.equal(body.secretsUiSupported, false);
-    assert.equal(body.settings.workspaceConfigPath, path.join(workspaceRoot, "agent.config.json"));
-    assert.ok(body.settings.globalConfigPath.endsWith(path.join(".minicode", "agent.config.json")));
+    assert.equal(body.settings.configPath, path.join(minicodeHome, "agent.config.json"));
     const maxSteps = body.settings.entries.find((entry) => entry.key === "maxSteps");
     assert.equal(maxSteps?.type, "number");
     assert.equal(maxSteps?.envVar, "MAX_STEPS");
     assert.equal(maxSteps?.effectiveValue, 10);
-    assert.equal(maxSteps?.workspaceValue, null);
-    assert.equal(maxSteps?.globalValue, null);
+    assert.equal(maxSteps?.persistedValue, null);
     assert.equal(maxSteps?.envValue, null);
     assert.equal(maxSteps?.overriddenByEnv, false);
     assert.match(maxSteps?.description ?? "", /Turn call limit/);
   });
 });
 
-test("POST /api/config persists workspace settings and returns updated metadata", async () => {
+test("POST /api/config persists global settings and returns updated metadata", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));
+  const minicodeHome = await mkdtemp(path.join(os.tmpdir(), "minicode-config-home-"));
   tempDirs.push(workspaceRoot);
-  const base = await startServer(new ConfigApiBridge(workspaceRoot));
+  tempDirs.push(minicodeHome);
+  const base = await startServer(new ConfigApiBridge(workspaceRoot), { minicodeHome });
 
   const res = await fetch(`${base}/api/config`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      scope: "workspace",
       updates: {
         maxSteps: 42,
         enableDynamicPrompt: false,
@@ -160,13 +162,13 @@ test("POST /api/config persists workspace settings and returns updated metadata"
     restartRequired: boolean;
     message: string;
     settings: {
-      entries: Array<{ key: string; workspaceValue: unknown }>;
+      entries: Array<{ key: string; persistedValue: unknown }>;
     };
   };
 
   assert.equal(body.ok, true);
-  assert.equal(body.scope, "workspace");
-  assert.equal(body.path, path.join(workspaceRoot, "agent.config.json"));
+  assert.equal(body.scope, "global");
+  assert.equal(body.path, path.join(minicodeHome, "agent.config.json"));
   assert.equal(body.restartRequired, true);
   assert.match(body.message, /Persisted config updated/);
   assert.deepEqual(body.saved, [
@@ -175,16 +177,16 @@ test("POST /api/config persists workspace settings and returns updated metadata"
   ]);
 
   const persisted = JSON.parse(
-    await readFile(path.join(workspaceRoot, "agent.config.json"), "utf8"),
+    await readFile(path.join(minicodeHome, "agent.config.json"), "utf8"),
   ) as { maxSteps: number; enableDynamicPrompt: boolean };
   assert.equal(persisted.maxSteps, 42);
   assert.equal(persisted.enableDynamicPrompt, false);
 
   const maxSteps = body.settings.entries.find((entry) => entry.key === "maxSteps");
-  assert.equal(maxSteps?.workspaceValue, 42);
+  assert.equal(maxSteps?.persistedValue, 42);
 });
 
-test("POST /api/config rejects invalid scopes", async () => {
+test("POST /api/config rejects non-global scopes", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));
   tempDirs.push(workspaceRoot);
   const base = await startServer(new ConfigApiBridge(workspaceRoot));
@@ -202,7 +204,28 @@ test("POST /api/config rejects invalid scopes", async () => {
 
   assert.equal(res.status, 400);
   const body = await res.json() as { error: string };
-  assert.match(body.error, /Invalid scope/);
+  assert.match(body.error, /global scope/);
+});
+
+test("POST /api/config rejects explicit workspace scope", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));
+  tempDirs.push(workspaceRoot);
+  const base = await startServer(new ConfigApiBridge(workspaceRoot));
+
+  const res = await fetch(`${base}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      scope: "workspace",
+      updates: {
+        maxSteps: 7,
+      },
+    }),
+  });
+
+  assert.equal(res.status, 400);
+  const body = await res.json() as { error: string };
+  assert.match(body.error, /global scope/);
 });
 
 test("POST /api/config rejects invalid keys", async () => {

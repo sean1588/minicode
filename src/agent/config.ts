@@ -48,11 +48,6 @@ const envPath = __dirname.includes(`${path.sep}dist${path.sep}`)
   ? path.resolve(__dirname, "../../../.env")
   : path.resolve(__dirname, "../../.env");
 
-// Load order: user home (~/.minicode/.env) < project .env < cwd .env
-dotenv.config({ path: path.join(MINICODE_HOME, ".env") });
-dotenv.config({ path: envPath, override: true });
-dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
-
 const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
   /\brm\s+-rf\s+\//i,
   /\bmkfs\b/i,
@@ -100,6 +95,26 @@ export interface AgentConfigFile {
   enableDynamicPrompt?: boolean;
 }
 
+export interface LoadAgentConfigOptions {
+  includeWorkspaceConfig?: boolean;
+  minicodeHome?: string;
+  includeWorkspaceEnv?: boolean;
+}
+
+export type ConfigEnvSource =
+  | "process"
+  | "home-dotenv"
+  | "project-dotenv"
+  | "cwd-dotenv";
+
+export interface ResolvedConfigEnv {
+  values: Record<string, string>;
+  sources: Record<string, ConfigEnvSource>;
+  homeEnvPath: string;
+  projectEnvPath: string;
+  cwdEnvPath: string;
+}
+
 function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
@@ -141,6 +156,76 @@ export async function loadConfigFile(configPath: string): Promise<AgentConfigFil
   return parsed as AgentConfigFile;
 }
 
+async function loadDotenvFile(envPath: string): Promise<Record<string, string>> {
+  try {
+    const file = await readFile(envPath, "utf8");
+    return dotenv.parse(file);
+  } catch {
+    return {};
+  }
+}
+
+function applyEnvLayer(
+  target: Record<string, string>,
+  sources: Record<string, ConfigEnvSource>,
+  layer: Record<string, string>,
+  source: ConfigEnvSource,
+  override: boolean,
+): void {
+  for (const [key, value] of Object.entries(layer)) {
+    if (!override && target[key] !== undefined) {
+      continue;
+    }
+    target[key] = value;
+    sources[key] = source;
+  }
+}
+
+function applyProcessEnv(
+  target: Record<string, string>,
+  sources: Record<string, ConfigEnvSource>,
+): void {
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) {
+      continue;
+    }
+    target[key] = value;
+    sources[key] = "process";
+  }
+}
+
+export async function resolveConfigEnv(
+  cwd = process.cwd(),
+  options: LoadAgentConfigOptions = {},
+): Promise<ResolvedConfigEnv> {
+  const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
+  const includeWorkspaceEnv = options.includeWorkspaceEnv ?? true;
+  const homeEnvPath = path.join(minicodeHome, ".env");
+  const projectEnvPath = envPath;
+  const cwdEnvPath = path.resolve(cwd, ".env");
+
+  const values: Record<string, string> = {};
+  const sources: Record<string, ConfigEnvSource> = {};
+
+  if (includeWorkspaceEnv) {
+    applyProcessEnv(values, sources);
+    applyEnvLayer(values, sources, await loadDotenvFile(homeEnvPath), "home-dotenv", false);
+    applyEnvLayer(values, sources, await loadDotenvFile(projectEnvPath), "project-dotenv", true);
+    applyEnvLayer(values, sources, await loadDotenvFile(cwdEnvPath), "cwd-dotenv", true);
+  } else {
+    applyEnvLayer(values, sources, await loadDotenvFile(homeEnvPath), "home-dotenv", true);
+    applyProcessEnv(values, sources);
+  }
+
+  return {
+    values,
+    sources,
+    homeEnvPath,
+    projectEnvPath,
+    cwdEnvPath,
+  };
+}
+
 function parseUserDenylist(patterns: string[] | undefined): RegExp[] {
   if (!patterns?.length) {
     return [];
@@ -174,15 +259,22 @@ function parseModelProvider(
 
 export async function loadAgentConfig(
   cwd = process.cwd(),
+  options: LoadAgentConfigOptions = {},
 ): Promise<AgentConfig> {
-  const homeConfigPath = path.join(MINICODE_HOME, "agent.config.json");
+  const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
+  const includeWorkspaceConfig = options.includeWorkspaceConfig ?? true;
+  const includeWorkspaceEnv = options.includeWorkspaceEnv ?? true;
+  const homeConfigPath = path.join(minicodeHome, "agent.config.json");
   const workspaceConfigPath = path.resolve(cwd, "agent.config.json");
   const homeConfig = await loadConfigFile(homeConfigPath);
-  const workspaceConfig = await loadConfigFile(workspaceConfigPath);
+  const workspaceConfig = includeWorkspaceConfig
+    ? await loadConfigFile(workspaceConfigPath)
+    : {};
   const fileConfig: AgentConfigFile = { ...homeConfig, ...workspaceConfig };
+  const env = (await resolveConfigEnv(cwd, { minicodeHome, includeWorkspaceEnv })).values;
 
   const rawWorkspaceRoot =
-    process.env.WORKSPACE_ROOT ?? fileConfig.workspaceRoot ?? cwd;
+    env.WORKSPACE_ROOT ?? fileConfig.workspaceRoot ?? cwd;
   const workspaceRoot = path.resolve(cwd, rawWorkspaceRoot);
 
   const commandDenylist = [
@@ -191,90 +283,90 @@ export async function loadAgentConfig(
   ];
 
   const rawBaseUrl =
-    process.env.OPENAI_BASE_URL ??
+    env.OPENAI_BASE_URL ??
     fileConfig.openAiBaseUrl ??
     "http://localhost:1234/v1";
   const isOpenRouter = rawBaseUrl.includes("openrouter");
   const openAiApiKey = isOpenRouter
-    ? (process.env.OPENROUTER_API_KEY ??
-      process.env.OPENAI_API_KEY ??
+    ? (env.OPENROUTER_API_KEY ??
+      env.OPENAI_API_KEY ??
       fileConfig.openAiApiKey)
-    : (process.env.OPENAI_API_KEY ?? fileConfig.openAiApiKey);
+    : (env.OPENAI_API_KEY ?? fileConfig.openAiApiKey);
 
   return {
     modelProvider: parseModelProvider(
-      process.env.MODEL_PROVIDER ?? fileConfig.modelProvider ?? "openai-compatible",
+      env.MODEL_PROVIDER ?? fileConfig.modelProvider ?? "openai-compatible",
     ),
     model:
-      process.env.MODEL ??
+      env.MODEL ??
       fileConfig.model ??
       "zai-org/glm-4.7-flash",
     maxSteps: parseNumber(
-      process.env.MAX_STEPS,
+      env.MAX_STEPS,
       fileConfig.maxSteps ?? 50,
     ),
     maxTokens: parseNumber(
-      process.env.MAX_TOKENS,
+      env.MAX_TOKENS,
       fileConfig.maxTokens ?? 4096,
     ),
     maxContextTokens: parseNumber(
-      process.env.MAX_CONTEXT_TOKENS,
-      fileConfig.maxContextTokens ?? 40_000,
+      env.MAX_CONTEXT_TOKENS,
+      fileConfig.maxContextTokens ?? 32_000,
     ),
     workspaceRoot,
     commandTimeoutMs: parseNumber(
-      process.env.COMMAND_TIMEOUT_MS,
+      env.COMMAND_TIMEOUT_MS,
       fileConfig.commandTimeout ?? 30_000,
     ),
     maxFileSizeBytes: parseNumber(
-      process.env.MAX_FILE_SIZE_BYTES,
+      env.MAX_FILE_SIZE_BYTES,
       fileConfig.maxFileSizeBytes ?? 1_000_000,
     ),
     commandDenylist,
     confirmDestructive: parseBoolean(
-      process.env.CONFIRM_DESTRUCTIVE,
+      env.CONFIRM_DESTRUCTIVE,
       fileConfig.confirmDestructive ?? true,
     ),
     keepRecentMessages: parseNumber(
-      process.env.KEEP_RECENT_MESSAGES,
+      env.KEEP_RECENT_MESSAGES,
       fileConfig.keepRecentMessages ?? 12,
     ),
     loopDetectionWindow: parseNumber(
-      process.env.LOOP_DETECTION_WINDOW,
+      env.LOOP_DETECTION_WINDOW,
       fileConfig.loopDetectionWindow ?? 6,
     ),
     maxToolOutputChars: parseNumber(
-      process.env.MAX_TOOL_OUTPUT_CHARS,
+      env.MAX_TOOL_OUTPUT_CHARS,
       fileConfig.maxToolOutputChars ?? 8_000,
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
     enableFileReadDedup: parseBoolean(
-      process.env.ENABLE_FILE_READ_DEDUP,
+      env.ENABLE_FILE_READ_DEDUP,
       fileConfig.enableFileReadDedup ?? true,
     ),
     enableAdaptiveKeepRecent: parseBoolean(
-      process.env.ENABLE_ADAPTIVE_KEEP_RECENT,
+      env.ENABLE_ADAPTIVE_KEEP_RECENT,
       fileConfig.enableAdaptiveKeepRecent ?? true,
     ),
     enableToolOutputTruncation: parseBoolean(
-      process.env.ENABLE_TOOL_OUTPUT_TRUNCATION,
+      env.ENABLE_TOOL_OUTPUT_TRUNCATION,
       fileConfig.enableToolOutputTruncation ?? true,
     ),
     compactionThreshold: parseNumber(
-      process.env.COMPACTION_THRESHOLD,
+      env.COMPACTION_THRESHOLD,
       fileConfig.compactionThreshold ?? 0.8,
     ),
-    ...(process.env.COMPACTION_MODEL ?? fileConfig.compactionModel
-      ? { compactionModel: process.env.COMPACTION_MODEL ?? fileConfig.compactionModel }
+    ...(env.COMPACTION_MODEL ?? fileConfig.compactionModel
+      ? { compactionModel: env.COMPACTION_MODEL ?? fileConfig.compactionModel }
       : {}),
     enableDynamicPrompt: parseBoolean(
-      process.env.ENABLE_DYNAMIC_PROMPT,
+      env.ENABLE_DYNAMIC_PROMPT,
       fileConfig.enableDynamicPrompt ?? true,
     ),
     ...(() => {
       const effort = parseReasoningEffort(
-        process.env.REASONING_EFFORT ?? fileConfig.reasoningEffort,
+        env.REASONING_EFFORT ?? fileConfig.reasoningEffort,
       );
       return effort ? { reasoningEffort: effort } : {};
     })(),

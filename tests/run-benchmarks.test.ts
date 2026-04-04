@@ -66,7 +66,7 @@ test("buildConfig: returns defaults when no env vars set", () => {
     assert.equal(config.model, "test-model");
     assert.equal(config.maxSteps, 50);
     assert.equal(config.maxTokens, 4096);
-    assert.equal(config.maxContextTokens, 40000);
+    assert.equal(config.maxContextTokens, 32000);
     assert.equal(config.confirmDestructive, false);
   } finally {
     if (originalProvider !== undefined) process.env.MODEL_PROVIDER = originalProvider;

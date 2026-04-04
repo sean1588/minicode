@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
@@ -92,6 +92,8 @@ test("buildStructuredConfigPayload reports effective values, scope layers, and e
     assert.equal(maxSteps?.workspaceValue, null);
     assert.equal(maxSteps?.globalValue, 77);
     assert.equal(maxSteps?.envValue, "120");
+    assert.equal(maxSteps?.envSource, "process");
+    assert.equal(maxSteps?.envSourcePath, null);
     assert.equal(maxSteps?.overriddenByEnv, true);
 
     const model = payload.entries.find((entry) => entry.key === "model");
@@ -99,6 +101,31 @@ test("buildStructuredConfigPayload reports effective values, scope layers, and e
     assert.equal(model?.workspaceValue, "workspace-model");
     assert.equal(model?.globalValue, "global-model");
     assert.equal(model?.overriddenByEnv, false);
+  });
+});
+
+test("buildStructuredConfigPayload reports home dotenv env source for global-only settings", async () => {
+  await withUnsetEnvVars(["MAX_STEPS"], async () => {
+    const { workspace, home } = await createTempPaths();
+
+    await mkdir(home, { recursive: true });
+    await writeFile(path.join(home, ".env"), "MAX_STEPS=88\n", "utf8");
+
+    const payload = await buildStructuredConfigPayload(
+      {
+        ...createTestAgentConfig(workspace),
+        maxSteps: 88,
+      },
+      workspace,
+      home,
+      { includeWorkspaceEnv: false },
+    );
+
+    const maxSteps = payload.entries.find((entry) => entry.key === "maxSteps");
+    assert.equal(maxSteps?.envValue, "88");
+    assert.equal(maxSteps?.envSource, "home-dotenv");
+    assert.equal(maxSteps?.envSourcePath, path.join(home, ".env"));
+    assert.equal(maxSteps?.overriddenByEnv, true);
   });
 });
 
