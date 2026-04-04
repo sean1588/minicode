@@ -303,7 +303,7 @@ const runtime = new AgentRuntime(
     model: "zai-org/glm-4.7-flash",
     maxSteps: 50,
     maxTokens: 4096,
-    maxContextTokens: 40000,
+    maxContextTokens: 32000,
     keepRecentMessages: 12,
     loopDetectionWindow: 6,
     maxToolOutputChars: 8000,

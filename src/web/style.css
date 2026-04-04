@@ -744,6 +744,13 @@ footer {
   padding: 9px 11px;
 }
 
+.settings-control:disabled,
+.settings-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  background: rgba(17, 19, 29, 0.9);
+}
+
 .settings-scope-picker select:focus,
 .settings-control:focus,
 .settings-select:focus {
@@ -818,6 +825,11 @@ footer {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
+}
+
+.settings-item.is-disabled {
+  border-color: rgba(122, 162, 247, 0.24);
+  background: rgba(26, 27, 38, 0.6);
 }
 
 .settings-item-header {
@@ -908,6 +920,11 @@ footer {
 .settings-help {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.settings-help-warning {
+  color: var(--red);
+  font-weight: 600;
 }
 
 .modal-footer {

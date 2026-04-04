@@ -29,7 +29,6 @@ interface SessionsResponse {
   currentSessionId: string;
 }
 
-type SettingsScope = "workspace" | "global";
 type SettingsValue = string | number | boolean | null;
 type SettingsFieldType = "string" | "number" | "boolean" | "enum";
 
@@ -40,15 +39,15 @@ interface SettingsEntry {
   envVar: string;
   values?: readonly string[];
   effectiveValue: SettingsValue;
-  workspaceValue: SettingsValue;
-  globalValue: SettingsValue;
+  persistedValue: SettingsValue;
   envValue: string | null;
+  envSource: "process" | "home-dotenv" | "project-dotenv" | "cwd-dotenv" | null;
+  envSourcePath: string | null;
   overriddenByEnv: boolean;
 }
 
 interface SettingsPayload {
-  workspaceConfigPath: string;
-  globalConfigPath: string;
+  configPath: string;
   entries: SettingsEntry[];
 }
 
@@ -61,7 +60,7 @@ interface ConfigResponse {
 
 interface ConfigSaveResponse {
   ok: boolean;
-  scope: SettingsScope;
+  scope: "global";
   path: string;
   saved: Array<{ key: string; value: SettingsValue }>;
   restartRequired: boolean;
@@ -92,7 +91,6 @@ const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement
 const settingsModal = document.getElementById("settings-modal")!;
 const settingsBackdrop = document.getElementById("settings-backdrop")!;
 const settingsCloseBtn = document.getElementById("settings-close") as HTMLButtonElement;
-const settingsScopeSelect = document.getElementById("settings-scope") as HTMLSelectElement;
 const settingsPath = document.getElementById("settings-path")!;
 const settingsList = document.getElementById("settings-list")!;
 const settingsBanner = document.getElementById("settings-banner")!;
@@ -104,7 +102,6 @@ let currentAssistantEl: HTMLElement | null = null;
 let assistantText = "";
 let hadToolCalls = false;
 let settingsPayload: SettingsPayload | null = null;
-let activeSettingsScope: SettingsScope = "workspace";
 let activeSavedSession: SessionMeta | null = null;
 
 const TOOL_RESULT_MAX = 500;
@@ -381,14 +378,6 @@ function isSettingsModalOpen(): boolean {
   return !settingsModal.classList.contains("hidden");
 }
 
-function getScopeValue(entry: SettingsEntry, scope: SettingsScope): SettingsValue {
-  return scope === "workspace" ? entry.workspaceValue : entry.globalValue;
-}
-
-function getScopePath(settings: SettingsPayload, scope: SettingsScope): string {
-  return scope === "workspace" ? settings.workspaceConfigPath : settings.globalConfigPath;
-}
-
 function formatSettingsValue(value: SettingsValue): string {
   return value === null ? "(unset)" : String(value);
 }
@@ -404,7 +393,7 @@ function clearSettingsBanner(): void {
 }
 
 function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLElement {
-  const value = getScopeValue(entry, activeSettingsScope);
+  const value = entry.persistedValue;
 
   if (entry.type === "boolean") {
     const select = document.createElement("select");
@@ -417,6 +406,7 @@ function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLEleme
       <option value="false">False</option>
     `;
     select.value = value === null ? "" : String(value);
+    select.disabled = entry.overriddenByEnv;
     return select;
   }
 
@@ -439,6 +429,7 @@ function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLEleme
     }
 
     select.value = value === null ? "" : String(value);
+    select.disabled = entry.overriddenByEnv;
     return select;
   }
 
@@ -453,6 +444,7 @@ function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLEleme
   }
   input.placeholder = "Use default";
   input.value = value === null ? "" : String(value);
+  input.disabled = entry.overriddenByEnv;
   return input;
 }
 
@@ -461,13 +453,15 @@ function renderSettings(): void {
     return;
   }
 
-  settingsScopeSelect.value = activeSettingsScope;
-  settingsPath.textContent = getScopePath(settingsPayload, activeSettingsScope);
+  settingsPath.textContent = settingsPayload.configPath;
   settingsList.innerHTML = "";
 
   for (const entry of settingsPayload.entries) {
     const item = document.createElement("section");
     item.className = "settings-item";
+    if (entry.overriddenByEnv) {
+      item.classList.add("is-disabled");
+    }
 
     const header = document.createElement("div");
     header.className = "settings-item-header";
@@ -505,12 +499,8 @@ function renderSettings(): void {
         <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.effectiveValue))}</div>
       </div>
       <div class="settings-meta-block">
-        <span class="settings-meta-label">Workspace</span>
-        <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.workspaceValue))}</div>
-      </div>
-      <div class="settings-meta-block">
-        <span class="settings-meta-label">Global</span>
-        <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.globalValue))}</div>
+        <span class="settings-meta-label">Saved</span>
+        <div class="settings-meta-value">${escapeHtml(formatSettingsValue(entry.persistedValue))}</div>
       </div>
     `;
 
@@ -520,16 +510,16 @@ function renderSettings(): void {
     const label = document.createElement("label");
     label.className = "settings-help";
     label.htmlFor = inputId;
-    label.textContent = activeSettingsScope === "workspace"
-      ? "Saved in this workspace"
-      : "Saved in your global minicode config";
+    label.textContent = "Saved in your global minicode config";
     const control = createSettingsControl(entry, inputId);
     controls.append(label, control);
 
     if (entry.overriddenByEnv) {
       const overrideHelp = document.createElement("div");
-      overrideHelp.className = "settings-help";
-      overrideHelp.textContent = `${entry.envVar} currently overrides this setting with ${formatSettingsValue(entry.envValue)}. Saving here updates the persisted default underneath that env value.`;
+      overrideHelp.className = "settings-help settings-help-warning";
+      overrideHelp.textContent = entry.envSource === "home-dotenv" && entry.envSourcePath
+        ? `Defined by ${entry.envVar} in ${entry.envSourcePath}. Update or remove that env var there to manage this setting here.`
+        : `${entry.envVar} is currently defined by the running environment. Remove or update that env var to manage this setting here.`;
       controls.appendChild(overrideHelp);
     }
 
@@ -597,7 +587,7 @@ function collectSettingsUpdates(): Record<string, SettingsValue> {
   const updates: Record<string, SettingsValue> = {};
   for (const entry of settingsPayload.entries) {
     const nextValue = readSettingsControlValue(entry);
-    const baseline = getScopeValue(entry, activeSettingsScope);
+    const baseline = entry.persistedValue;
     if (nextValue !== baseline) {
       updates[entry.key] = nextValue;
     }
@@ -870,12 +860,6 @@ settingsBackdrop.addEventListener("click", () => {
   closeSettings();
 });
 
-settingsScopeSelect.addEventListener("change", () => {
-  activeSettingsScope = settingsScopeSelect.value === "global" ? "global" : "workspace";
-  clearSettingsBanner();
-  renderSettings();
-});
-
 settingsResetBtn.addEventListener("click", () => {
   clearSettingsBanner();
   renderSettings();
@@ -896,7 +880,7 @@ settingsSaveBtn.addEventListener("click", async () => {
   }
 
   if (Object.keys(updates).length === 0) {
-    setSettingsBanner("No changes to save for this scope.", "info");
+    setSettingsBanner("No changes to save.", "info");
     return;
   }
 
@@ -908,7 +892,6 @@ settingsSaveBtn.addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        scope: activeSettingsScope,
         updates,
       }),
     });

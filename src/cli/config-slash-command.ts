@@ -2,7 +2,7 @@ import process from "node:process";
 
 import type { AgentConfig } from "@minicode/agent-sdk";
 
-import { formatConfigForDisplay, MINICODE_HOME } from "../agent/config.js";
+import { formatConfigForDisplay, MINICODE_HOME, resolveConfigEnv } from "../agent/config.js";
 import {
   formatPersistedConfigValue,
   getEditableConfigDefinition,
@@ -77,7 +77,8 @@ async function renderConfigValue(
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
   const layers = await loadPersistedConfigLayers(cwd, minicodeHome);
-  const envValue = process.env[definition.envVar];
+  const env = await resolveConfigEnv(cwd, { minicodeHome });
+  const envValue = env.values[definition.envVar];
 
   return [
     `${definition.key}`,
@@ -101,6 +102,7 @@ async function persistConfigValue(
   const cwd = context.cwd ?? process.cwd();
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
+  const env = await resolveConfigEnv(cwd, { minicodeHome });
 
   try {
     const result = await setPersistedConfigValue({
@@ -115,7 +117,7 @@ async function persistConfigValue(
       `File: ${result.path}`,
       "Restart minicode to pick up persisted config changes in a new session.",
     ];
-    if (process.env[definition.envVar] !== undefined) {
+    if (env.values[definition.envVar] !== undefined) {
       lines.push(`Note: ${definition.envVar} is currently set and will override this persisted value until it is unset.`);
     }
     return lines.join("\n");
@@ -137,6 +139,7 @@ async function removeConfigValue(
   const cwd = context.cwd ?? process.cwd();
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
+  const env = await resolveConfigEnv(cwd, { minicodeHome });
 
   await unsetPersistedConfigValue({
     cwd,
@@ -150,7 +153,7 @@ async function removeConfigValue(
     `File: ${scope === "global" ? `${minicodeHome}/agent.config.json` : `${cwd}/agent.config.json`}`,
     "Restart minicode to ensure the updated config is applied in a new session.",
   ];
-  if (process.env[definition.envVar] !== undefined) {
+  if (env.values[definition.envVar] !== undefined) {
     lines.push(`Note: ${definition.envVar} is still set in the environment, so the effective value may remain unchanged.`);
   }
   return lines.join("\n");

@@ -63,7 +63,10 @@ export class AgentBridge {
   }
 
   async init(): Promise<void> {
-    const config = await loadAgentConfig();
+    const config = await loadAgentConfig(process.cwd(), {
+      includeWorkspaceConfig: false,
+      includeWorkspaceEnv: false,
+    });
     const modelClient = createModelClient(config);
 
     let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
