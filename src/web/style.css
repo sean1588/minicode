@@ -922,6 +922,11 @@ footer {
   color: var(--text-dim);
 }
 
+.settings-help-warning {
+  color: var(--red);
+  font-weight: 600;
+}
+
 .modal-footer {
   display: flex;
   align-items: center;

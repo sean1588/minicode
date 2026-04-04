@@ -18,6 +18,7 @@ test("built CSS contains modal and settings layout styles", () => {
   assert.ok(css.includes(".modal-panel"), "CSS should contain modal panel styles");
   assert.ok(css.includes(".settings-list"), "CSS should contain settings list styles");
   assert.ok(css.includes(".settings-item-meta"), "CSS should contain settings metadata grid styles");
+  assert.ok(css.includes(".settings-help-warning"), "CSS should contain warning styling for env overrides");
   assert.ok(css.includes("body.modal-open"), "CSS should lock scroll while the settings modal is open");
 });
 
@@ -27,6 +28,7 @@ test("built JS contains config loading and saving logic for settings", () => {
   assert.ok(js.includes("Save settings"), "JS should contain the settings save action text");
   assert.ok(js.includes("settingsPayload"), "JS should track settings payload state");
   assert.ok(js.includes("persistedValue"), "JS should wire persisted settings behavior");
+  assert.ok(js.includes("settings-help settings-help-warning"), "JS should mark env override help as warning text");
   assert.ok(js.includes("home-dotenv"), "JS should distinguish home dotenv overrides");
   assert.ok(js.includes("manage this setting here"), "JS should explain how to resolve env overrides");
 });

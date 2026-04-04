@@ -516,7 +516,7 @@ function renderSettings(): void {
 
     if (entry.overriddenByEnv) {
       const overrideHelp = document.createElement("div");
-      overrideHelp.className = "settings-help";
+      overrideHelp.className = "settings-help settings-help-warning";
       overrideHelp.textContent = entry.envSource === "home-dotenv" && entry.envSourcePath
         ? `Defined by ${entry.envVar} in ${entry.envSourcePath}. Update or remove that env var there to manage this setting here.`
         : `${entry.envVar} is currently defined by the running environment. Remove or update that env var to manage this setting here.`;
