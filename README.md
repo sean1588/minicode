@@ -7,7 +7,7 @@ _Run `minicode serve` to get the web UI on localhost: chat, tool activity, sessi
 <img width="1723" height="920" alt="Screenshot 2026-03-26 at 6 30 23 PM" src="https://github.com/user-attachments/assets/499c8dc7-cc2b-4125-abd5-32b2fc9795ea" />
 
 
-Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup with language plugins, injects a compact **code map** (signatures only) into the system prompt, and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. The deepest built-in indexing path today is for TypeScript and JavaScript, with plugins leaving room for more languages over time.
+Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup with language plugins, injects a compact **code map** (signatures only) into the system prompt, and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. TypeScript and JavaScript support come built-in, with custom language plugins leaving room for broader language support over time.
 
 ## Quick Start (LM Studio)
 
