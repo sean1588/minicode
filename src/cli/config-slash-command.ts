@@ -1,5 +1,3 @@
-import process from "node:process";
-
 import type { AgentConfig } from "@minicode/agent-sdk";
 
 import { formatConfigForDisplay, MINICODE_HOME, resolveConfigEnv } from "../agent/config.js";
@@ -9,15 +7,13 @@ import {
   getEffectiveEditableConfigValue,
   isEditableConfigKey,
   listEditableConfigDefinitions,
-  loadPersistedConfigLayers,
+  loadPersistedConfig,
   setPersistedConfigValue,
   unsetPersistedConfigValue,
-  type EditableConfigScope,
 } from "../agent/editable-config.js";
 
 export interface ConfigSlashCommandContext {
   config: AgentConfig;
-  cwd?: string;
   minicodeHome?: string;
 }
 
@@ -26,28 +22,20 @@ export interface ConfigSlashCommandResult {
   message?: string;
 }
 
-function parseScope(tokens: string[]): { scope: EditableConfigScope; args: string[] } {
-  const args = tokens.filter((token) => token !== "--global");
-  return {
-    scope: tokens.includes("--global") ? "global" : "workspace",
-    args,
-  };
-}
-
 function renderUsage(): string {
   return [
     'Usage:',
     '  /config',
     '  /config keys',
     '  /config get <key>',
-    '  /config set <key> <value> [--global]',
-    '  /config unset <key> [--global]',
+    '  /config set <key> <value>',
+    '  /config unset <key>',
   ].join("\n");
 }
 
 function renderEditableKeys(): string {
   const lines = [
-    "Editable config keys (persisted in agent.config.json; environment variables still take precedence):",
+    "Editable config keys (persisted in ~/.minicode/agent.config.json; environment variables take precedence):",
   ];
 
   for (const definition of listEditableConfigDefinitions()) {
@@ -60,7 +48,7 @@ function renderEditableKeys(): string {
   }
 
   lines.push("");
-  lines.push('Use "/config set <key> <value>" for workspace config or add "--global" for ~/.minicode/agent.config.json.');
+  lines.push('Use "/config set <key> <value>" to update your global config.');
   lines.push("Secrets like API keys stay env-only for now.");
   return lines.join("\n");
 }
@@ -73,18 +61,16 @@ async function renderConfigValue(
     return `Unknown editable config key "${key}".\n\n${renderEditableKeys()}`;
   }
 
-  const cwd = context.cwd ?? process.cwd();
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
-  const layers = await loadPersistedConfigLayers(cwd, minicodeHome);
-  const env = await resolveConfigEnv(cwd, { minicodeHome });
+  const persisted = await loadPersistedConfig(minicodeHome);
+  const env = await resolveConfigEnv({ minicodeHome });
   const envValue = env.values[definition.envVar];
 
   return [
     `${definition.key}`,
     `  effective: ${getEffectiveEditableConfigValue(context.config, key)}`,
-    `  workspace file: ${formatPersistedConfigValue(layers.workspace[definition.fileKey])}`,
-    `  global file: ${formatPersistedConfigValue(layers.global[definition.fileKey])}`,
+    `  config file: ${formatPersistedConfigValue(persisted[definition.fileKey])}`,
     `  env override (${definition.envVar}): ${formatPersistedConfigValue(envValue)}`,
   ].join("\n");
 }
@@ -93,27 +79,23 @@ async function persistConfigValue(
   key: string,
   rawValue: string,
   context: ConfigSlashCommandContext,
-  scope: EditableConfigScope,
 ): Promise<string> {
   if (!isEditableConfigKey(key)) {
     return `Unknown editable config key "${key}".\n\n${renderEditableKeys()}`;
   }
 
-  const cwd = context.cwd ?? process.cwd();
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
-  const env = await resolveConfigEnv(cwd, { minicodeHome });
+  const env = await resolveConfigEnv({ minicodeHome });
 
   try {
     const result = await setPersistedConfigValue({
-      cwd,
       key,
       rawValue,
-      scope,
       minicodeHome,
     });
     const lines = [
-      `Saved ${scope} config: ${key} = ${formatPersistedConfigValue(result.storedValue)}`,
+      `Saved config: ${key} = ${formatPersistedConfigValue(result.storedValue)}`,
       `File: ${result.path}`,
       "Restart minicode to pick up persisted config changes in a new session.",
     ];
@@ -130,27 +112,23 @@ async function persistConfigValue(
 async function removeConfigValue(
   key: string,
   context: ConfigSlashCommandContext,
-  scope: EditableConfigScope,
 ): Promise<string> {
   if (!isEditableConfigKey(key)) {
     return `Unknown editable config key "${key}".\n\n${renderEditableKeys()}`;
   }
 
-  const cwd = context.cwd ?? process.cwd();
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
-  const env = await resolveConfigEnv(cwd, { minicodeHome });
+  const env = await resolveConfigEnv({ minicodeHome });
 
   await unsetPersistedConfigValue({
-    cwd,
     key,
-    scope,
     minicodeHome,
   });
 
   const lines = [
-    `Removed ${scope} persisted value for "${key}".`,
-    `File: ${scope === "global" ? `${minicodeHome}/agent.config.json` : `${cwd}/agent.config.json`}`,
+    `Removed persisted value for "${key}".`,
+    `File: ${minicodeHome}/agent.config.json`,
     "Restart minicode to ensure the updated config is applied in a new session.",
   ];
   if (env.values[definition.envVar] !== undefined) {
@@ -173,8 +151,7 @@ export async function handleConfigSlashCommand(
   }
 
   const tokens = rest.split(/\s+/);
-  const { scope, args } = parseScope(tokens);
-  const [subcommand, ...subArgs] = args;
+  const [subcommand, ...subArgs] = tokens;
 
   if (subcommand === "keys") {
     return { handled: true, message: renderEditableKeys() };
@@ -197,7 +174,7 @@ export async function handleConfigSlashCommand(
     const [key, ...valueParts] = subArgs;
     return {
       handled: true,
-      message: await persistConfigValue(key!, valueParts.join(" "), context, scope),
+      message: await persistConfigValue(key!, valueParts.join(" "), context),
     };
   }
 
@@ -207,7 +184,7 @@ export async function handleConfigSlashCommand(
     }
     return {
       handled: true,
-      message: await removeConfigValue(subArgs[0]!, context, scope),
+      message: await removeConfigValue(subArgs[0]!, context),
     };
   }
 

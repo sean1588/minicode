@@ -553,7 +553,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
       headers.Authorization = `Bearer ${apiKey}`;
     } else if (this.baseUrl.includes("openrouter")) {
       throw new Error(
-        "Missing OpenRouter API key. Set OPENAI_API_KEY or OPENROUTER_API_KEY in .env. Get one at https://openrouter.ai/keys",
+        "Missing OpenRouter API key. Set OPENROUTER_API_KEY in ~/.minicode/.env or your shell environment. Get one at https://openrouter.ai/keys",
       );
     }
 

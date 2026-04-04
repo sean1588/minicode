@@ -17,22 +17,11 @@ Read operations dominate token usage in typical agent sessions; minicode address
 # 2. Install
 npm install -g @sean.holung/minicode
 
-# 3. Configure for local (no API key needed)
-mkdir -p ~/.minicode
+# 3. Configure (~/.minicode/agent.config.json is auto-created on first run)
+#    Set your model name — minicode will prompt you if this is missing.
 cat > ~/.minicode/.env << 'EOF'
 MODEL_PROVIDER=openai-compatible
-MODEL=zai-org/glm-4.7-flash
-OPENAI_BASE_URL=http://localhost:1234/v1
-OPENAI_API_KEY=
-MAX_STEPS=50
-MAX_TOKENS=4096
-MAX_CONTEXT_TOKENS=32000
-WORKSPACE_ROOT=.
-COMMAND_TIMEOUT_MS=30000
-MAX_FILE_SIZE_BYTES=1000000
-CONFIRM_DESTRUCTIVE=true
-KEEP_RECENT_MESSAGES=12
-LOOP_DETECTION_WINDOW=6
+MODEL=your-model-name
 EOF
 ```
 
@@ -188,7 +177,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | Variable                | Required        | Default                    | Notes                                                                                                                                 |
 | ----------------------- | --------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `MODEL_PROVIDER`        | No              | `openai-compatible`        | `anthropic` or `openai-compatible` (aliases: `openai`, `lmstudio`, `lm-studio`)                                                       |
-| `MODEL`                 | No              | `zai-org/glm-4.7-flash`    | Model name for selected provider                                                                                                      |
+| `MODEL`                 | Yes             | none                       | Model name for selected provider                                                                                                      |
 | `ANTHROPIC_API_KEY`     | Yes (Anthropic) | none                       | Required when `MODEL_PROVIDER=anthropic`                                                                                              |
 | `OPENAI_BASE_URL`       | No              | `http://localhost:1234/v1` | Base URL for OpenAI-compatible API (LM Studio, etc.)                                                                                  |
 | `OPENAI_API_KEY`        | No              | none                       | Optional for local servers; required if your endpoint enforces auth                                                                   |
@@ -197,7 +186,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `MAX_TOKENS`            | No              | `4096`                     | Max model output tokens per model call                                                                                                |
 | `MAX_CONTEXT_TOKENS`    | No              | `32000`                    | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
 | `MAX_TOOL_OUTPUT_CHARS` | No              | `8000`                     | Max chars per tool result before truncation. Set to `0` to disable.                                                                   |
-| `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access                                                                                            |
+| `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access (set at runtime, not typically configured)                                                  |
 | `COMMAND_TIMEOUT_MS`    | No              | `30000`                    | Timeout for shell/search commands                                                                                                     |
 | `MAX_FILE_SIZE_BYTES`   | No              | `1000000`                  | Read limit for `read_file`                                                                                                            |
 | `CONFIRM_DESTRUCTIVE`   | No              | `true`                     | If `true`, blocks destructive shell commands unless confirmed                                                                         |
@@ -213,29 +202,16 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 
 ### `agent.config.json`
 
-Create `agent.config.json` in `~/.minicode/` for user-level defaults, or in the project root for workspace-specific overrides:
+A global `~/.minicode/agent.config.json` is auto-created on first run. Only set what you need — everything has sensible defaults:
 
 ```json
 {
   "modelProvider": "openai-compatible",
-  "model": "zai-org/glm-4.7-flash",
+  "model": "your-model-name",
+  "openAiBaseUrl": "http://localhost:1234/v1",
   "maxSteps": 50,
   "maxTokens": 4096,
-  "maxContextTokens": 32000,
-  "maxToolOutputChars": 8000,
-  "workspaceRoot": ".",
-  "commandTimeout": 30000,
-  "commandDenylist": [],
-  "confirmDestructive": true,
-  "maxFileSizeBytes": 1000000,
-  "keepRecentMessages": 12,
-  "loopDetectionWindow": 6,
-  "openAiBaseUrl": "http://localhost:1234/v1",
-  "openAiApiKey": "",
-  "enableFileReadDedup": true,
-  "enableAdaptiveKeepRecent": true,
-  "enableToolOutputTruncation": true,
-  "compactionThreshold": 0.8
+  "maxContextTokens": 32000
 }
 ```
 

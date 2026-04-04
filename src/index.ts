@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
 import { CodingAgent, Session, createModelClient, type ModelClient, type ReasoningEffort } from "@minicode/agent-sdk";
-import { loadAgentConfig } from "./agent/config.js";
+import { loadAgentConfig, getConfigSetupMessage } from "./agent/config.js";
 import {
   listSessions,
   loadSession,
@@ -50,6 +50,11 @@ async function createAgentRuntime(
   onProgress?: (message: string) => void,
 ): Promise<AgentRuntime> {
   const config = await loadAgentConfig();
+  const setupMessage = getConfigSetupMessage(config);
+  if (setupMessage) {
+    console.error(setupMessage);
+    process.exit(EXIT_CODE_USAGE_ERROR);
+  }
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   try {

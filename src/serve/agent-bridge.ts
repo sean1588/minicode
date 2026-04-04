@@ -27,11 +27,11 @@ import type { ServerMessage } from "./types.js";
 export type UiListener = (msg: ServerMessage) => void;
 
 export class AgentBridge {
-  private agent!: CodingAgent;
+  private agent: CodingAgent | undefined;
   private config!: Awaited<ReturnType<typeof loadAgentConfig>>;
-  private modelClient!: ReturnType<typeof createModelClient>;
+  private modelClient: ReturnType<typeof createModelClient> | undefined;
   private projectIndex: ProjectIndex | undefined;
-  private buildAgent!: (session?: Session, onUiUpdate?: (event: UiUpdate) => void) => CodingAgent;
+  private buildAgent: ((session?: Session, onUiUpdate?: (event: UiUpdate) => void) => CodingAgent) | undefined;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
@@ -63,11 +63,14 @@ export class AgentBridge {
   }
 
   async init(): Promise<void> {
-    const config = await loadAgentConfig(process.cwd(), {
-      includeWorkspaceConfig: false,
-      includeWorkspaceEnv: false,
-    });
-    const modelClient = createModelClient(config);
+    const config = await loadAgentConfig();
+    let modelClient: ReturnType<typeof createModelClient> | undefined;
+    try {
+      modelClient = createModelClient(config);
+    } catch {
+      // Model client may fail to initialize if API keys are missing.
+      // Serve mode continues so the web UI can show setup instructions.
+    }
 
     let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
     try {
@@ -94,27 +97,30 @@ export class AgentBridge {
     };
 
     this.config = config;
-    this.modelClient = modelClient;
     this.projectIndex = projectIndex;
 
-    this.buildAgent = (session?: Session, onUiUpdate?: (event: UiUpdate) => void): CodingAgent => {
-      return new CodingAgent({
-        config,
-        modelClient,
-        toolRegistry,
-        verbose: this.verbose,
-        ...(session ? { session } : {}),
-        ...(projectIndex !== undefined
-          ? { getCodeMap: (focusSymbols?: Set<string>) => projectIndex.getCodeMap(undefined, focusSymbols) }
-          : {}),
-        onUiUpdate: onUiUpdate ?? ((event: UiUpdate) => {
-          this.emit(event as ServerMessage);
-        }),
-        getSystemPromptSuffix: () => this.buildAnnotationSuffix(),
-      });
-    };
+    if (modelClient) {
+      this.modelClient = modelClient;
 
-    this.agent = this.buildAgent();
+      this.buildAgent = (session?: Session, onUiUpdate?: (event: UiUpdate) => void): CodingAgent => {
+        return new CodingAgent({
+          config,
+          modelClient,
+          toolRegistry,
+          verbose: this.verbose,
+          ...(session ? { session } : {}),
+          ...(projectIndex !== undefined
+            ? { getCodeMap: (focusSymbols?: Set<string>) => projectIndex.getCodeMap(undefined, focusSymbols) }
+            : {}),
+          onUiUpdate: onUiUpdate ?? ((event: UiUpdate) => {
+            this.emit(event as ServerMessage);
+          }),
+          getSystemPromptSuffix: () => this.buildAnnotationSuffix(),
+        });
+      };
+
+      this.agent = this.buildAgent();
+    }
   }
 
   // ── File watcher for automatic reindexing ──
@@ -192,6 +198,10 @@ export class AgentBridge {
     }
   }
 
+  isReady(): boolean {
+    return this.agent !== undefined;
+  }
+
   isBusy(): boolean {
     return this.busy;
   }
@@ -200,15 +210,23 @@ export class AgentBridge {
     return this.config;
   }
 
-  getAgent(): CodingAgent {
+  private requireAgent(): CodingAgent {
+    if (!this.agent) {
+      throw new Error("Agent is not configured. Set MODEL and provider settings in ~/.minicode/.env");
+    }
     return this.agent;
   }
 
+  getAgent(): CodingAgent {
+    return this.requireAgent();
+  }
+
   getCurrentSessionId(): string {
-    return this.agent.getSession().id;
+    return this.requireAgent().getSession().id;
   }
 
   async runTurn(message: string): Promise<{ text: string; usage?: { inputTokens: number; outputTokens: number } }> {
+    const agent = this.requireAgent();
     if (this.busy) {
       throw new Error("busy");
     }
@@ -218,7 +236,7 @@ export class AgentBridge {
 
     try {
       this.emit({ type: "turn_start" });
-      const result = await this.agent.runTurn(message, {
+      const result = await agent.runTurn(message, {
         signal: this.abortController.signal,
       });
       this.emit({
@@ -250,13 +268,17 @@ export class AgentBridge {
 
   // Session operations
   async saveSess(label?: string) {
+    const agent = this.requireAgent();
     const annotationsObj = this.annotations.size > 0
       ? Object.fromEntries(this.annotations)
       : undefined;
-    return saveSession(this.agent.getSession(), label, annotationsObj);
+    return saveSession(agent.getSession(), label, annotationsObj);
   }
 
   async loadSess(label: string) {
+    if (!this.buildAgent) {
+      throw new Error("Agent is not configured.");
+    }
     const result =
       (await loadSessionByLabel(label)) ?? (await loadSession(label));
     if (!result) return null;
@@ -494,7 +516,7 @@ export class AgentBridge {
   // ── Model selection ──
 
   async listModels(): Promise<ModelInfo[]> {
-    if (this.modelClient.listModels) {
+    if (this.modelClient?.listModels) {
       return sortModelsAlphabetically(await this.modelClient.listModels());
     }
     return [];
@@ -512,6 +534,7 @@ export class AgentBridge {
     signal?: AbortSignal,
   ): Promise<string> {
     if (!this.projectIndex) throw new Error("No project index");
+    if (!this.buildAgent) throw new Error("Agent is not configured.");
     const sym = this.projectIndex.getSymbol(name);
     if (!sym) throw new Error(`Symbol "${name}" not found`);
 
@@ -532,6 +555,7 @@ Be concise but thorough.`;
   ): Promise<string> {
     const report = this.getStructuralAnalysis();
     if (!report) throw new Error("No project index");
+    if (!this.buildAgent) throw new Error("Agent is not configured.");
 
     const finding = report.findings.find((item) => item.id === findingId);
     if (!finding) throw new Error(`Structural finding "${findingId}" not found`);

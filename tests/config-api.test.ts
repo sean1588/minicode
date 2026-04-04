@@ -186,47 +186,6 @@ test("POST /api/config persists global settings and returns updated metadata", a
   assert.equal(maxSteps?.persistedValue, 42);
 });
 
-test("POST /api/config rejects non-global scopes", async () => {
-  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));
-  tempDirs.push(workspaceRoot);
-  const base = await startServer(new ConfigApiBridge(workspaceRoot));
-
-  const res = await fetch(`${base}/api/config`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      scope: "project",
-      updates: {
-        maxSteps: 7,
-      },
-    }),
-  });
-
-  assert.equal(res.status, 400);
-  const body = await res.json() as { error: string };
-  assert.match(body.error, /global scope/);
-});
-
-test("POST /api/config rejects explicit workspace scope", async () => {
-  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));
-  tempDirs.push(workspaceRoot);
-  const base = await startServer(new ConfigApiBridge(workspaceRoot));
-
-  const res = await fetch(`${base}/api/config`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      scope: "workspace",
-      updates: {
-        maxSteps: 7,
-      },
-    }),
-  });
-
-  assert.equal(res.status, 400);
-  const body = await res.json() as { error: string };
-  assert.match(body.error, /global scope/);
-});
 
 test("POST /api/config rejects invalid keys", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-config-api-"));

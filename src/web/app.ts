@@ -16,6 +16,8 @@ interface ServerMessage {
 interface StatusResponse {
   model: string;
   provider: string;
+  needsSetup?: boolean;
+  missing?: string[];
 }
 
 interface SessionMeta {
@@ -41,7 +43,7 @@ interface SettingsEntry {
   effectiveValue: SettingsValue;
   persistedValue: SettingsValue;
   envValue: string | null;
-  envSource: "process" | "home-dotenv" | "project-dotenv" | "cwd-dotenv" | null;
+  envSource: "process" | "home-dotenv" | null;
   envSourcePath: string | null;
   overriddenByEnv: boolean;
 }
@@ -143,12 +145,34 @@ function setBusy(busy: boolean): void {
   }
 }
 
+const configOverlay = document.getElementById("config-overlay")!;
+
 async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
     const data = await res.json() as StatusResponse;
-    modelInfo.textContent = `${data.model}`;
+    modelInfo.textContent = data.model || "Select model";
+    modelInfo.classList.toggle("placeholder", !data.model);
     activeModel = data.model;
+
+    if (data.needsSetup) {
+      configOverlay.classList.remove("hidden");
+      chatInput.disabled = true;
+      sendBtn.disabled = true;
+      // Show specific missing items
+      const missingEl = document.getElementById("config-missing");
+      if (missingEl && data.missing && data.missing.length > 0) {
+        const isOnlyModelMissing = data.missing.length === 1 && data.missing[0]!.includes("MODEL");
+        const hint = isOnlyModelMissing
+          ? ` — select one from the <strong>model dropdown</strong> above, or set it in config`
+          : "";
+        missingEl.innerHTML = `<strong>Missing:</strong> ${data.missing.map(escapeHtml).join(", ")}${hint}`;
+        missingEl.classList.remove("hidden");
+      }
+    } else {
+      configOverlay.classList.add("hidden");
+      chatInput.disabled = false;
+    }
   } catch {
     // ignore
   }
@@ -246,9 +270,15 @@ function handleServerMessage(msg: ServerMessage): void {
       );
       break;
 
-    case "model_changed":
-      modelInfo.textContent = (msg as ServerMessage & { model: string }).model;
+    case "model_changed": {
+      const changedModel = (msg as ServerMessage & { model: string }).model;
+      modelInfo.textContent = changedModel || "Select model";
+      modelInfo.classList.toggle("placeholder", !changedModel);
+      activeModel = changedModel;
+      // Re-check setup status — model selection may dismiss the config overlay
+      void fetchStatus();
       break;
+    }
   }
 }
 
@@ -707,10 +737,13 @@ async function refreshModelList(): Promise<void> {
 
 function switchModel(modelId: string): void {
   ws.send(JSON.stringify({ type: "switch_model", model: modelId }));
-  modelInfo.textContent = modelId;
+  modelInfo.textContent = modelId || "Select model";
+  modelInfo.classList.toggle("placeholder", !modelId);
   activeModel = modelId;
   modelDropdown.classList.add("hidden");
   addMessage(`Model switched to: ${modelId}`, "thinking");
+  // Re-check setup status so the overlay dismisses if model was the missing piece
+  void fetchStatus();
 }
 
 // -- Session management --
