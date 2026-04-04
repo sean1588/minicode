@@ -45,13 +45,11 @@ test("loadAgentConfig normalizes openai-compatible provider aliases", async () =
   }
 });
 
-test("loadAgentConfig can ignore workspace config while still honoring global config and env overrides", async () => {
+test("loadAgentConfig uses global config and env vars with correct precedence", async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), "minicode-config-test-"));
   tempDirs.push(base);
 
-  const workspace = path.join(base, "workspace");
   const minicodeHome = path.join(base, "home");
-  await mkdir(workspace, { recursive: true });
   await mkdir(minicodeHome, { recursive: true });
 
   await writeFile(
@@ -64,31 +62,20 @@ test("loadAgentConfig can ignore workspace config while still honoring global co
     "MODEL=home-env-model\n",
     "utf8",
   );
-  await writeFile(
-    path.join(workspace, "agent.config.json"),
-    JSON.stringify({ model: "workspace-model", maxSteps: 99 }, null, 2) + "\n",
-    "utf8",
-  );
-  await writeFile(
-    path.join(workspace, ".env"),
-    "MODEL=workspace-env-model\nMAX_STEPS=200\n",
-    "utf8",
-  );
 
   const previousMaxSteps = process.env.MAX_STEPS;
   const previousModel = process.env.MODEL;
 
   try {
+    // Shell env vars should override everything
     process.env.MAX_STEPS = "120";
     delete process.env.MODEL;
 
-    const config = await loadAgentConfig(workspace, {
-      includeWorkspaceConfig: false,
-      includeWorkspaceEnv: false,
-      minicodeHome,
-    });
+    const config = await loadAgentConfig("/tmp", { minicodeHome });
 
+    // MODEL from ~/.minicode/.env (no shell override)
     assert.equal(config.model, "home-env-model");
+    // MAX_STEPS from shell env (overrides config file value of 33)
     assert.equal(config.maxSteps, 120);
   } finally {
     if (previousMaxSteps === undefined) {

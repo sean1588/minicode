@@ -2,7 +2,7 @@ import process from "node:process";
 
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
 import type { UiUpdate, ReasoningEffort } from "@minicode/agent-sdk";
-import { loadAgentConfig } from "../agent/config.js";
+import { loadAgentConfig, getConfigSetupMessage } from "../agent/config.js";
 import { handleConfigSlashCommand } from "../cli/config-slash-command.js";
 import {
   computeFileHashes,
@@ -30,6 +30,11 @@ export async function runInkCli(
   store.setPhase("loading");
 
   const config = await loadAgentConfig();
+  const setupMessage = getConfigSetupMessage(config);
+  if (setupMessage) {
+    console.error(setupMessage);
+    process.exit(2);
+  }
   const modelClient = createModelClient(config);
   let projectIndex: Awaited<ReturnType<typeof buildProjectIndex>> | undefined;
   let indexStatus = "building...";

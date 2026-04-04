@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 import {
   applyPersistedConfigUpdates,
   buildStructuredConfigPayload,
-  getConfigPathForScope,
+  getGlobalConfigPath,
 } from "../src/agent/editable-config.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
@@ -16,14 +16,6 @@ const tempDirs: string[] = [];
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
-
-async function createTempPaths(): Promise<{ workspace: string; home: string }> {
-  const base = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-config-"));
-  const workspace = path.join(base, "workspace");
-  const home = path.join(base, "home");
-  tempDirs.push(base);
-  return { workspace, home };
-}
 
 async function withUnsetEnvVars(
   names: string[],
@@ -48,26 +40,17 @@ async function withUnsetEnvVars(
   }
 }
 
-test("buildStructuredConfigPayload reports effective values, scope layers, and env overrides", async () => {
+test("buildStructuredConfigPayload reports effective values and env overrides", async () => {
   await withUnsetEnvVars(["MAX_STEPS", "MODEL", "ENABLE_DYNAMIC_PROMPT"], async () => {
-    const { workspace, home } = await createTempPaths();
+    const home = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-config-"));
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-ws-"));
+    tempDirs.push(home, workspace);
 
     await applyPersistedConfigUpdates({
-      cwd: workspace,
       minicodeHome: home,
-      scope: "global",
       updates: {
         maxSteps: 77,
         model: "global-model",
-      },
-    });
-    await applyPersistedConfigUpdates({
-      cwd: workspace,
-      minicodeHome: home,
-      scope: "workspace",
-      updates: {
-        model: "workspace-model",
-        enableDynamicPrompt: false,
       },
     });
 
@@ -77,36 +60,33 @@ test("buildStructuredConfigPayload reports effective values, scope layers, and e
       {
         ...createTestAgentConfig(workspace),
         maxSteps: 120,
-        model: "workspace-model",
-        enableDynamicPrompt: false,
+        model: "global-model",
       },
-      workspace,
       home,
     );
 
-    assert.equal(payload.workspaceConfigPath, path.join(workspace, "agent.config.json"));
-    assert.equal(payload.globalConfigPath, path.join(home, "agent.config.json"));
+    assert.equal(payload.configPath, path.join(home, "agent.config.json"));
 
     const maxSteps = payload.entries.find((entry) => entry.key === "maxSteps");
     assert.equal(maxSteps?.effectiveValue, 120);
-    assert.equal(maxSteps?.workspaceValue, null);
-    assert.equal(maxSteps?.globalValue, 77);
+    assert.equal(maxSteps?.persistedValue, 77);
     assert.equal(maxSteps?.envValue, "120");
     assert.equal(maxSteps?.envSource, "process");
     assert.equal(maxSteps?.envSourcePath, null);
     assert.equal(maxSteps?.overriddenByEnv, true);
 
     const model = payload.entries.find((entry) => entry.key === "model");
-    assert.equal(model?.effectiveValue, "workspace-model");
-    assert.equal(model?.workspaceValue, "workspace-model");
-    assert.equal(model?.globalValue, "global-model");
+    assert.equal(model?.effectiveValue, "global-model");
+    assert.equal(model?.persistedValue, "global-model");
     assert.equal(model?.overriddenByEnv, false);
   });
 });
 
-test("buildStructuredConfigPayload reports home dotenv env source for global-only settings", async () => {
+test("buildStructuredConfigPayload reports home dotenv env source", async () => {
   await withUnsetEnvVars(["MAX_STEPS"], async () => {
-    const { workspace, home } = await createTempPaths();
+    const home = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-config-"));
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-ws-"));
+    tempDirs.push(home, workspace);
 
     await mkdir(home, { recursive: true });
     await writeFile(path.join(home, ".env"), "MAX_STEPS=88\n", "utf8");
@@ -116,9 +96,7 @@ test("buildStructuredConfigPayload reports home dotenv env source for global-onl
         ...createTestAgentConfig(workspace),
         maxSteps: 88,
       },
-      workspace,
       home,
-      { includeWorkspaceEnv: false },
     );
 
     const maxSteps = payload.entries.find((entry) => entry.key === "maxSteps");
@@ -129,20 +107,19 @@ test("buildStructuredConfigPayload reports home dotenv env source for global-onl
   });
 });
 
-test("applyPersistedConfigUpdates writes global scope and removes files when everything is unset", async () => {
-  const { workspace, home } = await createTempPaths();
+test("applyPersistedConfigUpdates writes global config and removes files when everything is unset", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-config-"));
+  tempDirs.push(home);
 
   const result = await applyPersistedConfigUpdates({
-    cwd: workspace,
     minicodeHome: home,
-    scope: "global",
     updates: {
       keepRecentMessages: 18,
       enableFileReadDedup: false,
     },
   });
 
-  assert.equal(result.path, getConfigPathForScope(workspace, "global", home));
+  assert.equal(result.path, getGlobalConfigPath(home));
   assert.deepEqual(result.saved, [
     { key: "keepRecentMessages", value: 18 },
     { key: "enableFileReadDedup", value: false },
@@ -157,9 +134,7 @@ test("applyPersistedConfigUpdates writes global scope and removes files when eve
   assert.equal(persisted.enableFileReadDedup, false);
 
   await applyPersistedConfigUpdates({
-    cwd: workspace,
     minicodeHome: home,
-    scope: "global",
     updates: {
       keepRecentMessages: null,
       enableFileReadDedup: null,

@@ -1,17 +1,8 @@
 {
   "modelProvider": "openai-compatible",
-  "model": "zai-org/glm-4.7-flash",
+  "model": "",
+  "openAiBaseUrl": "http://localhost:1234/v1",
   "maxSteps": 50,
   "maxTokens": 4096,
-  "maxContextTokens": 32000,
-  "workspaceRoot": ".",
-  "commandTimeout": 30000,
-  "commandDenylist": [],
-  "confirmDestructive": true,
-  "maxFileSizeBytes": 1000000,
-  "keepRecentMessages": 12,
-  "loopDetectionWindow": 6,
-  "openAiBaseUrl": "http://localhost:1234/v1",
-  "openAiApiKey": "",
-  "compactionModel": ""
+  "maxContextTokens": 32000
 }

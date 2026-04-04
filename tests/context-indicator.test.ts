@@ -53,6 +53,10 @@ class MockBridge extends AgentBridge {
     super(() => {}, false);
   }
 
+  override isReady(): boolean {
+    return true;
+  }
+
   override isBusy(): boolean {
     return this._busy;
   }

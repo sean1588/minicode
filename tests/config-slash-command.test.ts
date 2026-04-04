@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, test } from "node:test";
 
 import {
-  getConfigPathForScope,
+  getGlobalConfigPath,
   setPersistedConfigValue,
   unsetPersistedConfigValue,
 } from "../src/agent/editable-config.js";
@@ -18,30 +18,21 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-async function createTempPaths(): Promise<{ workspace: string; home: string }> {
-  const base = await mkdtemp(path.join(os.tmpdir(), "minicode-config-"));
-  const workspace = path.join(base, "workspace");
-  const home = path.join(base, "home");
-  tempDirs.push(base);
-  return { workspace, home };
-}
-
 test("setPersistedConfigValue writes mapped keys and unset removes empty config files", async () => {
-  const { workspace, home } = await createTempPaths();
+  const home = await mkdtemp(path.join(os.tmpdir(), "minicode-config-"));
+  tempDirs.push(home);
 
   const setResult = await setPersistedConfigValue({
-    cwd: workspace,
     minicodeHome: home,
     key: "commandTimeoutMs",
     rawValue: "45000",
   });
 
-  assert.equal(setResult.path, path.join(workspace, "agent.config.json"));
+  assert.equal(setResult.path, path.join(home, "agent.config.json"));
   const file = JSON.parse(await readFile(setResult.path, "utf8")) as { commandTimeout: number };
   assert.equal(file.commandTimeout, 45000);
 
   await unsetPersistedConfigValue({
-    cwd: workspace,
     minicodeHome: home,
     key: "commandTimeoutMs",
   });
@@ -49,8 +40,10 @@ test("setPersistedConfigValue writes mapped keys and unset removes empty config 
   await assert.rejects(access(setResult.path));
 });
 
-test("handleConfigSlashCommand persists workspace config and reports env overrides", async () => {
-  const { workspace, home } = await createTempPaths();
+test("handleConfigSlashCommand persists config and reports env overrides", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "minicode-config-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "minicode-config-ws-"));
+  tempDirs.push(home, workspace);
   const config = createTestAgentConfig(workspace);
   const previous = process.env.MAX_STEPS;
 
@@ -58,16 +51,15 @@ test("handleConfigSlashCommand persists workspace config and reports env overrid
     process.env.MAX_STEPS = "120";
     const result = await handleConfigSlashCommand("/config set maxSteps 64", {
       config,
-      cwd: workspace,
       minicodeHome: home,
     });
 
     assert.equal(result.handled, true);
-    assert.match(result.message ?? "", /Saved workspace config: maxSteps = 64/);
+    assert.match(result.message ?? "", /Saved config: maxSteps = 64/);
     assert.match(result.message ?? "", /MAX_STEPS is currently set/);
 
     const persisted = JSON.parse(
-      await readFile(path.join(workspace, "agent.config.json"), "utf8"),
+      await readFile(path.join(home, "agent.config.json"), "utf8"),
     ) as { maxSteps: number };
     assert.equal(persisted.maxSteps, 64);
   } finally {
@@ -79,8 +71,10 @@ test("handleConfigSlashCommand persists workspace config and reports env overrid
   }
 });
 
-test("handleConfigSlashCommand supports --global and reports config layers with /config get", async () => {
-  const { workspace, home } = await createTempPaths();
+test("handleConfigSlashCommand reports config layers with /config get", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "minicode-config-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "minicode-config-ws-"));
+  tempDirs.push(home, workspace);
   const config = {
     ...createTestAgentConfig(workspace),
     modelProvider: "openai-compatible" as const,
@@ -90,30 +84,19 @@ test("handleConfigSlashCommand supports --global and reports config layers with 
   try {
     process.env.MODEL_PROVIDER = "openai-compatible";
     await setPersistedConfigValue({
-      cwd: workspace,
       minicodeHome: home,
       key: "modelProvider",
-      rawValue: "anthropic",
-      scope: "workspace",
+      rawValue: "openai-compatible",
     });
-
-    const setGlobal = await handleConfigSlashCommand("/config set --global modelProvider openai-compatible", {
-      config,
-      cwd: workspace,
-      minicodeHome: home,
-    });
-    assert.match(setGlobal.message ?? "", /Saved global config: modelProvider = openai-compatible/);
 
     const getResult = await handleConfigSlashCommand("/config get modelProvider", {
       config,
-      cwd: workspace,
       minicodeHome: home,
     });
 
     assert.equal(getResult.handled, true);
     assert.match(getResult.message ?? "", /effective: openai-compatible/);
-    assert.match(getResult.message ?? "", /workspace file: anthropic/);
-    assert.match(getResult.message ?? "", /global file: openai-compatible/);
+    assert.match(getResult.message ?? "", /config file: openai-compatible/);
     assert.match(getResult.message ?? "", /env override \(MODEL_PROVIDER\): openai-compatible/);
   } finally {
     if (previous === undefined) {
@@ -125,10 +108,11 @@ test("handleConfigSlashCommand supports --global and reports config layers with 
 });
 
 test("handleConfigSlashCommand rejects non-editable keys and keeps secrets env-only", async () => {
-  const { workspace, home } = await createTempPaths();
+  const home = await mkdtemp(path.join(os.tmpdir(), "minicode-config-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "minicode-config-ws-"));
+  tempDirs.push(home, workspace);
   const result = await handleConfigSlashCommand("/config set openAiApiKey secret", {
     config: createTestAgentConfig(workspace),
-    cwd: workspace,
     minicodeHome: home,
   });
 
@@ -137,16 +121,10 @@ test("handleConfigSlashCommand rejects non-editable keys and keeps secrets env-o
   assert.match(result.message ?? "", /Secrets like API keys stay env-only for now/);
 });
 
-test("getConfigPathForScope resolves workspace and global paths", () => {
-  const workspace = "/tmp/example-workspace";
+test("getGlobalConfigPath resolves to minicode home", () => {
   const home = "/tmp/example-home";
-
   assert.equal(
-    getConfigPathForScope(workspace, "workspace", home),
-    path.join(workspace, "agent.config.json"),
-  );
-  assert.equal(
-    getConfigPathForScope(workspace, "global", home),
+    getGlobalConfigPath(home),
     path.join(home, "agent.config.json"),
   );
 });

@@ -24,8 +24,8 @@
   ],
   "scripts": {
     "build:web": "node scripts/build-web.mjs",
-    "dev": "node scripts/build-web.mjs && node --env-file=.env --import tsx src/index.ts",
-    "dev:ink": "CLI_UI_MODE=ink node --env-file=.env --import tsx src/index.ts",
+    "dev": "node scripts/build-web.mjs && node --import tsx src/index.ts",
+    "dev:ink": "CLI_UI_MODE=ink node --import tsx src/index.ts",
     "build": "npm run build --workspace=packages/agent-sdk && tsc -p tsconfig.json && node scripts/build-web.mjs && chmod +x dist/src/index.js",
     "start": "node dist/src/index.js",
     "install:global": "npm run build && npm link",

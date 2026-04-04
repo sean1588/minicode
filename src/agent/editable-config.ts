@@ -11,7 +11,6 @@ import {
   type ConfigEnvSource,
 } from "./config.js";
 
-export type EditableConfigScope = "workspace" | "global";
 type EditableConfigValue = string | number | boolean;
 type EditableConfigType = "string" | "number" | "boolean" | "enum";
 
@@ -52,8 +51,7 @@ export interface StructuredConfigEntry {
   envVar: string;
   values?: readonly string[];
   effectiveValue: string | number | boolean | null;
-  workspaceValue: string | number | boolean | null;
-  globalValue: string | number | boolean | null;
+  persistedValue: string | number | boolean | null;
   envValue: string | null;
   envSource: ConfigEnvSource | null;
   envSourcePath: string | null;
@@ -61,8 +59,7 @@ export interface StructuredConfigEntry {
 }
 
 export interface StructuredConfigPayload {
-  workspaceConfigPath: string;
-  globalConfigPath: string;
+  configPath: string;
   entries: StructuredConfigEntry[];
 }
 
@@ -308,58 +305,34 @@ export function formatPersistedConfigValue(value: unknown): string {
   return String(value);
 }
 
-export function getConfigPathForScope(
-  cwd: string,
-  scope: EditableConfigScope,
+export function getGlobalConfigPath(
   minicodeHome = MINICODE_HOME,
 ): string {
-  return scope === "global"
-    ? path.join(minicodeHome, "agent.config.json")
-    : path.resolve(cwd, "agent.config.json");
+  return path.join(minicodeHome, "agent.config.json");
 }
 
-export async function loadPersistedConfigLayers(
-  cwd: string,
+export async function loadPersistedConfig(
   minicodeHome = MINICODE_HOME,
-): Promise<{ global: AgentConfigFile; workspace: AgentConfigFile }> {
-  const globalPath = getConfigPathForScope(cwd, "global", minicodeHome);
-  const workspacePath = getConfigPathForScope(cwd, "workspace", minicodeHome);
-  return {
-    global: await loadConfigFile(globalPath),
-    workspace: await loadConfigFile(workspacePath),
-  };
+): Promise<AgentConfigFile> {
+  return loadConfigFile(getGlobalConfigPath(minicodeHome));
 }
 
 export async function buildStructuredConfigPayload(
   config: AgentConfig,
-  cwd: string,
   minicodeHome = MINICODE_HOME,
-  options: { includeWorkspaceEnv?: boolean } = {},
 ): Promise<StructuredConfigPayload> {
-  const paths = {
-    workspaceConfigPath: getConfigPathForScope(cwd, "workspace", minicodeHome),
-    globalConfigPath: getConfigPathForScope(cwd, "global", minicodeHome),
-  };
-  const layers = await loadPersistedConfigLayers(cwd, minicodeHome);
-  const env = await resolveConfigEnv(cwd, {
-    minicodeHome,
-    ...(options.includeWorkspaceEnv === undefined
-      ? {}
-      : { includeWorkspaceEnv: options.includeWorkspaceEnv }),
-  });
+  const configPath = getGlobalConfigPath(minicodeHome);
+  const persisted = await loadPersistedConfig(minicodeHome);
+  const env = await resolveConfigEnv({ minicodeHome });
 
   return {
-    ...paths,
+    configPath,
     entries: EDITABLE_CONFIG_DEFINITIONS.map((definition) => {
       const envValue = env.values[definition.envVar];
       const envSource = env.sources[definition.envVar] ?? null;
       const envSourcePath = envSource === "home-dotenv"
         ? env.homeEnvPath
-        : envSource === "project-dotenv"
-          ? env.projectEnvPath
-          : envSource === "cwd-dotenv"
-            ? env.cwdEnvPath
-            : null;
+        : null;
       return {
         key: definition.key,
         type: definition.type,
@@ -367,8 +340,7 @@ export async function buildStructuredConfigPayload(
         envVar: definition.envVar,
         ...(definition.values ? { values: definition.values } : {}),
         effectiveValue: normalizePersistedValue(config[definition.key]),
-        workspaceValue: normalizePersistedValue(layers.workspace[definition.fileKey]),
-        globalValue: normalizePersistedValue(layers.global[definition.fileKey]),
+        persistedValue: normalizePersistedValue(persisted[definition.fileKey]),
         envValue: envValue ?? null,
         envSource,
         envSourcePath,
@@ -379,16 +351,13 @@ export async function buildStructuredConfigPayload(
 }
 
 export async function setPersistedConfigValue(options: {
-  cwd: string;
   key: EditableConfigKey;
   rawValue: string;
-  scope?: EditableConfigScope;
   minicodeHome?: string;
 }): Promise<{ path: string; storedValue: EditableConfigValue }> {
-  const scope = options.scope ?? "workspace";
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(options.key);
-  const configPath = getConfigPathForScope(options.cwd, scope, minicodeHome);
+  const configPath = getGlobalConfigPath(minicodeHome);
   const nextFile = await loadConfigFile(configPath);
   const storedValue = parseEditableValue(definition, options.rawValue);
 
@@ -401,15 +370,12 @@ export async function setPersistedConfigValue(options: {
 }
 
 export async function unsetPersistedConfigValue(options: {
-  cwd: string;
   key: EditableConfigKey;
-  scope?: EditableConfigScope;
   minicodeHome?: string;
 }): Promise<{ path: string }> {
-  const scope = options.scope ?? "workspace";
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(options.key);
-  const configPath = getConfigPathForScope(options.cwd, scope, minicodeHome);
+  const configPath = getGlobalConfigPath(minicodeHome);
   const nextFile = await loadConfigFile(configPath);
 
   delete nextFile[definition.fileKey];
@@ -425,17 +391,13 @@ export async function unsetPersistedConfigValue(options: {
 }
 
 export async function applyPersistedConfigUpdates(options: {
-  cwd: string;
   updates: Record<string, string | number | boolean | null>;
-  scope?: EditableConfigScope;
   minicodeHome?: string;
 }): Promise<{
   path: string;
   saved: Array<{ key: EditableConfigKey; value: string | number | boolean | null }>;
 }> {
-  const scope = options.scope ?? "workspace";
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
-  const cwd = options.cwd;
 
   const planned = Object.entries(options.updates).map(([rawKey, value]) => {
     if (!isEditableConfigKey(rawKey)) {
@@ -448,9 +410,7 @@ export async function applyPersistedConfigUpdates(options: {
   for (const item of planned) {
     if (item.value === null) {
       await unsetPersistedConfigValue({
-        cwd,
         key: item.key,
-        scope,
         minicodeHome,
       });
       saved.push({ key: item.key, value: null });
@@ -458,17 +418,15 @@ export async function applyPersistedConfigUpdates(options: {
     }
 
     await setPersistedConfigValue({
-      cwd,
       key: item.key,
       rawValue: String(item.value),
-      scope,
       minicodeHome,
     });
     saved.push({ key: item.key, value: item.value });
   }
 
   return {
-    path: getConfigPathForScope(cwd, scope, minicodeHome),
+    path: getGlobalConfigPath(minicodeHome),
     saved,
   };
 }

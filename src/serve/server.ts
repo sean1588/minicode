@@ -1,3 +1,4 @@
+import process from "node:process";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import type { Socket } from "node:net";
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { AgentBridge } from "./agent-bridge.js";
 import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
-import { formatConfigForDisplay } from "../agent/config.js";
+import { formatConfigForDisplay, getConfigMissing } from "../agent/config.js";
 import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../agent/editable-config.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
 import type { ServerMessage } from "./types.js";
@@ -30,23 +31,21 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json",
 };
 
-interface WebSettingsEntry {
-  key: string;
-  type: "string" | "number" | "boolean" | "enum";
-  description: string;
-  envVar: string;
-  values?: readonly string[];
-  effectiveValue: string | number | boolean | null;
-  persistedValue: string | number | boolean | null;
-  envValue: string | null;
-  envSource: "process" | "home-dotenv" | "project-dotenv" | "cwd-dotenv" | null;
-  envSourcePath: string | null;
-  overriddenByEnv: boolean;
-}
-
 interface WebSettingsPayload {
   configPath: string;
-  entries: WebSettingsEntry[];
+  entries: Array<{
+    key: string;
+    type: "string" | "number" | "boolean" | "enum";
+    description: string;
+    envVar: string;
+    values?: readonly string[];
+    effectiveValue: string | number | boolean | null;
+    persistedValue: string | number | boolean | null;
+    envValue: string | null;
+    envSource: "process" | "home-dotenv" | null;
+    envSourcePath: string | null;
+    overriddenByEnv: boolean;
+  }>;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -88,31 +87,9 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
 
 async function buildWebSettingsPayload(
   config: ReturnType<AgentBridge["getConfig"]>,
-  cwd: string,
   minicodeHome?: string,
 ): Promise<WebSettingsPayload> {
-  const structured = await buildStructuredConfigPayload(
-    config,
-    cwd,
-    minicodeHome,
-    { includeWorkspaceEnv: false },
-  );
-  return {
-    configPath: structured.globalConfigPath,
-    entries: structured.entries.map((entry) => ({
-      key: entry.key,
-      type: entry.type,
-      description: entry.description,
-      envVar: entry.envVar,
-      ...(entry.values ? { values: entry.values } : {}),
-      effectiveValue: entry.effectiveValue,
-      persistedValue: entry.globalValue,
-      envValue: entry.envValue,
-      envSource: entry.envSource,
-      envSourcePath: entry.envSourcePath,
-      overriddenByEnv: entry.overriddenByEnv,
-    })),
-  };
+  return buildStructuredConfigPayload(config, minicodeHome);
 }
 
 interface RequestHandlerOptions {
@@ -126,7 +103,6 @@ export function createRequestHandler(
   options: RequestHandlerOptions = {},
 ): (req: IncomingMessage, res: ServerResponse) => void {
   const config = bridge.getConfig();
-  const configCwd = config.workspaceRoot;
   const emitFn = emit ?? (() => {});
   const minicodeHome = options.minicodeHome;
 
@@ -154,11 +130,14 @@ export function createRequestHandler(
 
       // Minicode REST API
       if (pathname === "/api/status" && method === "GET") {
+        const missing = getConfigMissing(config);
         sendJson(res, 200, {
           status: bridge.isBusy() ? "busy" : "ready",
           workspace: config.workspaceRoot,
           model: config.model,
           provider: config.modelProvider,
+          needsSetup: missing.length > 0,
+          missing,
         });
         return;
       }
@@ -181,13 +160,17 @@ export function createRequestHandler(
       }
 
       if (pathname === "/api/context" && method === "GET") {
+        if (!bridge.isReady()) {
+          sendJson(res, 200, { contextTokens: 0, maxContextTokens: 0 });
+          return;
+        }
         const status = bridge.getAgent().getContextStatus();
         sendJson(res, 200, status);
         return;
       }
 
       if (pathname === "/api/config" && method === "GET") {
-        const structured = await buildWebSettingsPayload(config, configCwd, minicodeHome);
+        const structured = await buildWebSettingsPayload(config, minicodeHome);
         sendJson(res, 200, {
           config: formatConfigForDisplay(config),
           settings: structured,
@@ -199,26 +182,19 @@ export function createRequestHandler(
 
       if (pathname === "/api/config" && method === "POST") {
         const body = JSON.parse(await readBody(req)) as {
-          scope?: "workspace" | "global";
           updates?: Record<string, string | number | boolean | null>;
         };
         if (!body.updates || typeof body.updates !== "object") {
           sendJson(res, 400, { error: "updates object is required" });
           return;
         }
-        if (body.scope && body.scope !== "global") {
-          sendJson(res, 400, { error: "Web settings currently support only global scope." });
-          return;
-        }
 
         try {
           const result = await applyPersistedConfigUpdates({
-            cwd: configCwd,
-            scope: "global",
             updates: body.updates,
             ...(minicodeHome ? { minicodeHome } : {}),
           });
-          const structured = await buildWebSettingsPayload(config, configCwd, minicodeHome);
+          const structured = await buildWebSettingsPayload(config, minicodeHome);
           sendJson(res, 200, {
             ok: true,
             scope: "global",

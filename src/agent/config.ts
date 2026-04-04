@@ -1,9 +1,7 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
-
 import dotenv from "dotenv";
 
 import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
@@ -43,10 +41,53 @@ export function formatConfigForDisplay(config: AgentConfig): string {
   return lines.join("\n");
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const envPath = __dirname.includes(`${path.sep}dist${path.sep}`)
-  ? path.resolve(__dirname, "../../../.env")
-  : path.resolve(__dirname, "../../.env");
+/**
+ * Check if the config has enough information to connect to a model provider.
+ * Returns null if valid, or a user-facing setup message if not.
+ */
+/**
+ * Return a list of missing config items that prevent the agent from running.
+ * Empty array means the config is valid.
+ */
+export function getConfigMissing(config: AgentConfig): string[] {
+  const missing: string[] = [];
+
+  if (!config.model) {
+    missing.push("MODEL is not set");
+  }
+
+  if (config.modelProvider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+    missing.push("ANTHROPIC_API_KEY is not set");
+  }
+
+  return missing;
+}
+
+export function getConfigSetupMessage(config: AgentConfig): string | null {
+  const missing = getConfigMissing(config);
+
+  if (missing.length === 0) {
+    return null;
+  }
+
+  return [
+    "minicode is not configured yet. Missing:",
+    ...missing.map((m) => `  - ${m}`),
+    "",
+    `Set these in ~/.minicode/.env or as environment variables.`,
+    `Edit ~/.minicode/agent.config.json for non-secret settings.`,
+    "",
+    "Example ~/.minicode/.env for a local model:",
+    "  MODEL_PROVIDER=openai-compatible",
+    "  OPENAI_BASE_URL=http://localhost:1234/v1",
+    "  MODEL=your-model-name",
+    "",
+    "Example for Anthropic:",
+    "  MODEL_PROVIDER=anthropic",
+    "  ANTHROPIC_API_KEY=sk-ant-...",
+    "  MODEL=claude-sonnet-4-20250514",
+  ].join("\n");
+}
 
 const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
   /\brm\s+-rf\s+\//i,
@@ -96,23 +137,17 @@ export interface AgentConfigFile {
 }
 
 export interface LoadAgentConfigOptions {
-  includeWorkspaceConfig?: boolean;
   minicodeHome?: string;
-  includeWorkspaceEnv?: boolean;
 }
 
 export type ConfigEnvSource =
   | "process"
-  | "home-dotenv"
-  | "project-dotenv"
-  | "cwd-dotenv";
+  | "home-dotenv";
 
 export interface ResolvedConfigEnv {
   values: Record<string, string>;
   sources: Record<string, ConfigEnvSource>;
   homeEnvPath: string;
-  projectEnvPath: string;
-  cwdEnvPath: string;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -195,34 +230,23 @@ function applyProcessEnv(
 }
 
 export async function resolveConfigEnv(
-  cwd = process.cwd(),
   options: LoadAgentConfigOptions = {},
 ): Promise<ResolvedConfigEnv> {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
-  const includeWorkspaceEnv = options.includeWorkspaceEnv ?? true;
   const homeEnvPath = path.join(minicodeHome, ".env");
-  const projectEnvPath = envPath;
-  const cwdEnvPath = path.resolve(cwd, ".env");
 
   const values: Record<string, string> = {};
   const sources: Record<string, ConfigEnvSource> = {};
 
-  if (includeWorkspaceEnv) {
-    applyProcessEnv(values, sources);
-    applyEnvLayer(values, sources, await loadDotenvFile(homeEnvPath), "home-dotenv", false);
-    applyEnvLayer(values, sources, await loadDotenvFile(projectEnvPath), "project-dotenv", true);
-    applyEnvLayer(values, sources, await loadDotenvFile(cwdEnvPath), "cwd-dotenv", true);
-  } else {
-    applyEnvLayer(values, sources, await loadDotenvFile(homeEnvPath), "home-dotenv", true);
-    applyProcessEnv(values, sources);
-  }
+  // Base: ~/.minicode/.env
+  applyEnvLayer(values, sources, await loadDotenvFile(homeEnvPath), "home-dotenv", true);
+  // Override: shell environment variables take precedence
+  applyProcessEnv(values, sources);
 
   return {
     values,
     sources,
     homeEnvPath,
-    projectEnvPath,
-    cwdEnvPath,
   };
 }
 
@@ -257,21 +281,35 @@ function parseModelProvider(
   return "anthropic";
 }
 
+const DEFAULT_CONFIG_CONTENT = `{
+  "modelProvider": "openai-compatible",
+  "model": "",
+  "openAiBaseUrl": "http://localhost:1234/v1",
+  "maxSteps": 50,
+  "maxTokens": 4096,
+  "maxContextTokens": 32000
+}
+`;
+
+async function ensureMinicodeHome(minicodeHome: string): Promise<void> {
+  await mkdir(minicodeHome, { recursive: true });
+  const configPath = path.join(minicodeHome, "agent.config.json");
+  try {
+    await access(configPath);
+  } catch {
+    await writeFile(configPath, DEFAULT_CONFIG_CONTENT, "utf8");
+  }
+}
+
 export async function loadAgentConfig(
   cwd = process.cwd(),
   options: LoadAgentConfigOptions = {},
 ): Promise<AgentConfig> {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
-  const includeWorkspaceConfig = options.includeWorkspaceConfig ?? true;
-  const includeWorkspaceEnv = options.includeWorkspaceEnv ?? true;
+  await ensureMinicodeHome(minicodeHome);
   const homeConfigPath = path.join(minicodeHome, "agent.config.json");
-  const workspaceConfigPath = path.resolve(cwd, "agent.config.json");
-  const homeConfig = await loadConfigFile(homeConfigPath);
-  const workspaceConfig = includeWorkspaceConfig
-    ? await loadConfigFile(workspaceConfigPath)
-    : {};
-  const fileConfig: AgentConfigFile = { ...homeConfig, ...workspaceConfig };
-  const env = (await resolveConfigEnv(cwd, { minicodeHome, includeWorkspaceEnv })).values;
+  const fileConfig = await loadConfigFile(homeConfigPath);
+  const env = (await resolveConfigEnv({ minicodeHome })).values;
 
   const rawWorkspaceRoot =
     env.WORKSPACE_ROOT ?? fileConfig.workspaceRoot ?? cwd;
@@ -300,7 +338,7 @@ export async function loadAgentConfig(
     model:
       env.MODEL ??
       fileConfig.model ??
-      "zai-org/glm-4.7-flash",
+      "",
     maxSteps: parseNumber(
       env.MAX_STEPS,
       fileConfig.maxSteps ?? 50,

@@ -57,6 +57,38 @@
 
     <div id="workspace">
       <div id="chat-pane">
+        <div id="config-overlay" class="config-overlay hidden">
+          <div class="config-overlay-content">
+            <h2>Agent not connected</h2>
+            <p id="config-missing" class="config-missing hidden"></p>
+            <p>minicode needs a model provider to run. Configure one of the following:</p>
+            <div class="config-overlay-options">
+              <div class="config-overlay-option">
+                <strong>Local model (LM Studio, Ollama, etc.)</strong>
+                <p>Start your local server, then set in <code>~/.minicode/.env</code>:</p>
+                <pre>MODEL_PROVIDER=openai-compatible
+OPENAI_BASE_URL=http://localhost:1234/v1
+MODEL=your-model-name</pre>
+              </div>
+              <div class="config-overlay-option">
+                <strong>Anthropic API</strong>
+                <p>Set in <code>~/.minicode/.env</code> or your shell environment:</p>
+                <pre>MODEL_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+MODEL=claude-sonnet-4-20250514</pre>
+              </div>
+              <div class="config-overlay-option">
+                <strong>OpenRouter / remote OpenAI-compatible</strong>
+                <p>Set in <code>~/.minicode/.env</code> or your shell environment:</p>
+                <pre>MODEL_PROVIDER=openai-compatible
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=sk-or-...
+MODEL=your-model-name</pre>
+              </div>
+            </div>
+            <p class="config-overlay-footer">After updating your config, restart <code>minicode serve</code>.</p>
+          </div>
+        </div>
         <main id="messages"></main>
         <footer>
           <form id="chat-form">
