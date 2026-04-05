@@ -12,17 +12,20 @@
  *   --out <path>        Write the JSON report to a file
  *
  * Environment:
- *   MODEL_PROVIDER, MODEL, OPENAI_BASE_URL, OPENAI_API_KEY, ANTHROPIC_API_KEY
- *   — same as minicode runtime config.
+ *   MODEL_PROVIDER, MODEL, OPENAI_BASE_URL, OPENAI_API_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY
+ *   — benchmark-layer overrides for benchmarks/benchmark.config.json.
  */
 
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
 import { writeFile } from "node:fs/promises";
 
 import {
   createModelClient,
 } from "@minicode/agent-sdk";
 import type { AgentConfig } from "@minicode/agent-sdk";
+import { parse as parseDotenv } from "dotenv";
 
 import { loadBenchmarkTasks, loadBenchmarkTask } from "../src/benchmark/task-loader.js";
 import { runBenchmarkSuite } from "../src/benchmark/runner.js";
@@ -40,6 +43,27 @@ export interface BenchmarkCLIArgs {
   task?: string;
   variant: string;
   out?: string;
+}
+
+interface BenchmarkConfigFile {
+  modelProvider?: "anthropic" | "openai-compatible" | undefined;
+  model?: string | undefined;
+  openAiBaseUrl?: string | undefined;
+  maxSteps?: number | undefined;
+  maxTokens?: number | undefined;
+  maxContextTokens?: number | undefined;
+  commandTimeoutMs?: number | undefined;
+  maxFileSizeBytes?: number | undefined;
+  keepRecentMessages?: number | undefined;
+  loopDetectionWindow?: number | undefined;
+  maxToolOutputChars?: number | undefined;
+}
+
+export interface BuildBenchmarkConfigOptions {
+  repoRoot?: string;
+  env?: NodeJS.ProcessEnv;
+  homeEnvPath?: string;
+  configPath?: string;
 }
 
 export function parseArgs(argv: string[]): BenchmarkCLIArgs {
@@ -70,27 +94,86 @@ export function parseArgs(argv: string[]): BenchmarkCLIArgs {
 /*  Config builder                                                     */
 /* ------------------------------------------------------------------ */
 
-export function buildConfig(): AgentConfig {
-  const provider = (process.env.MODEL_PROVIDER ?? "openai-compatible") as
-    "anthropic" | "openai-compatible";
-  const model = process.env.MODEL ?? "test-model";
+export function getBenchmarkConfigPath(repoRoot = process.cwd()): string {
+  return path.resolve(repoRoot, "benchmarks", "benchmark.config.json");
+}
 
+function loadJsonConfigFile<T>(configPath: string): Partial<T> {
+  if (!existsSync(configPath)) {
+    return {};
+  }
+  return JSON.parse(readFileSync(configPath, "utf8")) as Partial<T>;
+}
+
+function loadHomeEnvVars(homeEnvPath: string): Record<string, string> {
+  if (!existsSync(homeEnvPath)) {
+    return {};
+  }
+  return parseDotenv(readFileSync(homeEnvPath, "utf8"));
+}
+
+function firstDefined(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value != null && value.length > 0);
+}
+
+function getNumberSetting(
+  envValue: string | undefined,
+  fileValue: number | undefined,
+  fallback: number,
+): number {
+  if (envValue != null && envValue.length > 0) {
+    return Number(envValue);
+  }
+  return fileValue ?? fallback;
+}
+
+export function buildConfig(options: BuildBenchmarkConfigOptions = {}): AgentConfig {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const env = options.env ?? process.env;
+  const homeEnvPath = options.homeEnvPath ?? path.join(homedir(), ".minicode", ".env");
+  const configPath = options.configPath ?? getBenchmarkConfigPath(repoRoot);
+  const fileConfig = loadJsonConfigFile<BenchmarkConfigFile>(configPath);
+  const homeEnv = loadHomeEnvVars(homeEnvPath);
+
+  const getShellOverride = (key: string): string | undefined => env[key];
+  const getSecret = (key: string): string | undefined => firstDefined(env[key], homeEnv[key]);
+
+  const provider = (firstDefined(
+    getShellOverride("MODEL_PROVIDER"),
+    fileConfig.modelProvider,
+    "openai-compatible",
+  ) ?? "openai-compatible") as "anthropic" | "openai-compatible";
+  const model = firstDefined(
+    getShellOverride("MODEL"),
+    fileConfig.model,
+    "test-model",
+  ) ?? "test-model";
+  const openAiBaseUrl = firstDefined(
+    getShellOverride("OPENAI_BASE_URL"),
+    fileConfig.openAiBaseUrl,
+    "http://localhost:1234/v1",
+  ) ?? "http://localhost:1234/v1";
+  const openAiApiKey = provider === "openai-compatible"
+    ? (openAiBaseUrl.includes("openrouter.ai")
+        ? firstDefined(getSecret("OPENROUTER_API_KEY"), getSecret("OPENAI_API_KEY"))
+        : getSecret("OPENAI_API_KEY"))
+    : undefined;
   return {
     modelProvider: provider,
     model,
-    maxSteps: Number(process.env.MAX_STEPS ?? "50"),
-    maxTokens: Number(process.env.MAX_TOKENS ?? "4096"),
-    maxContextTokens: Number(process.env.MAX_CONTEXT_TOKENS ?? "32000"),
-    workspaceRoot: process.cwd(),
-    commandTimeoutMs: Number(process.env.COMMAND_TIMEOUT_MS ?? "30000"),
-    maxFileSizeBytes: Number(process.env.MAX_FILE_SIZE_BYTES ?? "1000000"),
+    maxSteps: getNumberSetting(getShellOverride("MAX_STEPS"), fileConfig.maxSteps, 50),
+    maxTokens: getNumberSetting(getShellOverride("MAX_TOKENS"), fileConfig.maxTokens, 4096),
+    maxContextTokens: getNumberSetting(getShellOverride("MAX_CONTEXT_TOKENS"), fileConfig.maxContextTokens, 32000),
+    workspaceRoot: repoRoot,
+    commandTimeoutMs: getNumberSetting(getShellOverride("COMMAND_TIMEOUT_MS"), fileConfig.commandTimeoutMs, 30000),
+    maxFileSizeBytes: getNumberSetting(getShellOverride("MAX_FILE_SIZE_BYTES"), fileConfig.maxFileSizeBytes, 1000000),
     commandDenylist: [],
     confirmDestructive: false,
-    keepRecentMessages: Number(process.env.KEEP_RECENT_MESSAGES ?? "12"),
-    loopDetectionWindow: Number(process.env.LOOP_DETECTION_WINDOW ?? "6"),
-    maxToolOutputChars: Number(process.env.MAX_TOOL_OUTPUT_CHARS ?? "8000"),
-    openAiBaseUrl: process.env.OPENAI_BASE_URL ?? "http://localhost:1234/v1",
-    ...(process.env.OPENAI_API_KEY ? { openAiApiKey: process.env.OPENAI_API_KEY } : {}),
+    keepRecentMessages: getNumberSetting(getShellOverride("KEEP_RECENT_MESSAGES"), fileConfig.keepRecentMessages, 12),
+    loopDetectionWindow: getNumberSetting(getShellOverride("LOOP_DETECTION_WINDOW"), fileConfig.loopDetectionWindow, 6),
+    maxToolOutputChars: getNumberSetting(getShellOverride("MAX_TOOL_OUTPUT_CHARS"), fileConfig.maxToolOutputChars, 8000),
+    openAiBaseUrl,
+    ...(openAiApiKey ? { openAiApiKey } : {}),
   };
 }
 
@@ -128,8 +211,9 @@ export async function loadTasks(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const config = buildConfig();
-  const tasksDir = path.resolve(process.cwd(), "benchmarks", "tasks");
+  const repoRoot = process.cwd();
+  const config = buildConfig({ repoRoot });
+  const tasksDir = path.resolve(repoRoot, "benchmarks", "tasks");
 
   console.log(`Benchmark runner starting...`);
   console.log(`  Provider: ${config.modelProvider}`);
@@ -146,7 +230,7 @@ async function main(): Promise<void> {
     modelClient,
     config,
     variant: args.variant,
-    repoRoot: process.cwd(),
+    repoRoot,
     isolateWorkspace: true,
     createToolset: async (taskConfig) => {
       const projectIndex = await buildProjectIndex(taskConfig.workspaceRoot);
