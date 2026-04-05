@@ -70,6 +70,8 @@ function makeTrace(overrides: Partial<BenchmarkTrace> = {}): BenchmarkTrace {
     model: "test-model",
     variant: "baseline",
     commitSha: "abc123",
+    sourceWorkspaceRoot: "/workspace/source",
+    workspaceRoot: "/tmp/minicode-benchmark/task",
     response: "Found foo in src/foo.ts at line 10.",
     toolCalls: [
       { name: "search", input: { query: "foo" }, output: "src/foo.ts:10", durationMs: 50 },
@@ -190,6 +192,28 @@ test("loadBenchmarkTask loads a single task by id", async () => {
     assert.equal(task.category, "navigation");
   } finally {
     await rm(tmpDir, { recursive: true });
+  }
+});
+
+test("loadBenchmarkTask preserves workspaceRoot when provided", async () => {
+  const tmpDir = await mkdtemp(path.join(tmpdir(), "bench-workspace-root-"));
+  await mkdir(path.join(tmpDir, "navigation", "fixture-task"), { recursive: true });
+  await writeFile(
+    path.join(tmpDir, "navigation", "fixture-task", "task.json"),
+    JSON.stringify({
+      title: "Fixture task",
+      prompt: "Use a fixture workspace",
+      workspaceRoot: "test-programs/benchmark-index",
+      rubric: {},
+    }),
+  );
+
+  try {
+    const task = await loadBenchmarkTask(tmpDir, "navigation/fixture-task");
+    assert.ok(task);
+    assert.equal(task.workspaceRoot, "test-programs/benchmark-index");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
   }
 });
 
@@ -495,6 +519,96 @@ test("runBenchmarkTask tracks symbols from structural tools", async () => {
   });
 
   assert.ok(trace.symbolsQueried.includes("CodingAgent"));
+});
+
+test("runBenchmarkTask resolves task workspace overrides and isolates the run", async () => {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), "bench-repo-root-"));
+  const sourceWorkspace = path.join(repoRoot, "fixtures", "sample-project");
+  await mkdir(path.join(sourceWorkspace, "src"), { recursive: true });
+  await writeFile(path.join(sourceWorkspace, "src", "index.ts"), "export const answer = 42;\n");
+
+  const task: BenchmarkTask = {
+    id: "navigation/workspace-root",
+    title: "Workspace root test",
+    category: "navigation",
+    prompt: "Inspect the fixture workspace",
+    workspaceRoot: "fixtures/sample-project",
+    rubric: {},
+  };
+
+  try {
+    const config = createTestAgentConfig(repoRoot);
+    const trace = await runBenchmarkTask(task, {
+      modelClient: new MockModelClient("done"),
+      config,
+      tools: [],
+      variant: "test",
+      repoRoot,
+    });
+
+    assert.equal(trace.sourceWorkspaceRoot, sourceWorkspace);
+    assert.notEqual(trace.workspaceRoot, sourceWorkspace);
+    assert.ok(trace.workspaceRoot.includes("minicode-benchmark-"));
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("runBenchmarkTask uses project index metadata to count read_symbol as a file read", async () => {
+  const workspaceRoot = path.resolve(import.meta.dirname, "..");
+  const task: BenchmarkTask = {
+    id: "navigation/structural-file-tracking",
+    title: "Structural file tracking",
+    category: "navigation",
+    prompt: "Read the CodingAgent symbol",
+    rubric: {},
+  };
+
+  let callCount = 0;
+  const mockClient: ModelClient = {
+    async chat(params) {
+      void params;
+      callCount += 1;
+      if (callCount === 1) {
+        return {
+          text: "Looking up symbol",
+          toolCalls: [{ id: "t1", name: "read_symbol", input: { name: "CodingAgent" } }],
+          stopReason: "tool_use" as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+        };
+      }
+      return {
+        text: "Found CodingAgent",
+        toolCalls: [],
+        stopReason: "end_turn" as const,
+        usage: { inputTokens: 100, outputTokens: 50 },
+      };
+    },
+  };
+
+  const config = createTestAgentConfig(workspaceRoot);
+  const trace = await runBenchmarkTask(task, {
+    modelClient: mockClient,
+    config,
+    variant: "v1",
+    isolateWorkspace: false,
+    createToolset: async (taskConfig) => {
+      const { buildProjectIndex } = await import("../src/indexer/project-index.js");
+      const { createToolRegistry } = await import("../src/tools/registry.js");
+      const projectIndex = await buildProjectIndex(taskConfig.workspaceRoot);
+      const toolRegistry = createToolRegistry(taskConfig, projectIndex);
+      return {
+        tools: toolRegistry.getDefinitions(),
+        projectIndex,
+      };
+    },
+  });
+
+  assert.ok(trace.symbolsQueried.includes("CodingAgent"));
+  assert.ok(
+    trace.filesRead.some((file) => file.endsWith("packages/agent-sdk/src/agent/agent.ts")),
+    "read_symbol should count the owning file as read",
+  );
 });
 
 // ─── Reporter Tests ────────────────────────────────────────────

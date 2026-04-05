@@ -21,7 +21,7 @@ export interface BenchmarkTask {
   category: BenchmarkCategory;
   /** The prompt sent to the agent. */
   prompt: string;
-  /** Optional workspace root override (relative to repo root). Defaults to fixture or repo root. */
+  /** Optional workspace root override (relative to the benchmark repo root). */
   workspaceRoot?: string | undefined;
   /** Rubric for evaluating the result. */
   rubric: BenchmarkRubric;
@@ -63,6 +63,10 @@ export interface BenchmarkTrace {
   variant: string;
   /** Git commit SHA of the codebase under test. */
   commitSha: string;
+  /** Source workspace selected for the task before isolation. */
+  sourceWorkspaceRoot: string;
+  /** Actual workspace path used during the run. */
+  workspaceRoot: string;
   /** Agent's final text response. */
   response: string;
   /** Ordered list of tool calls made during the run. */
