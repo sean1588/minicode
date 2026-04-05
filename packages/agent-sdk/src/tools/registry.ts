@@ -59,6 +59,10 @@ export class ToolRegistry {
     return [...this.toolsByName.values()].map(toToolSchema);
   }
 
+  getDefinitions(): ToolDefinition[] {
+    return [...this.toolsByName.values()];
+  }
+
   async execute(name: string, input: unknown): Promise<string> {
     const tool = this.toolsByName.get(name);
     if (!tool) {

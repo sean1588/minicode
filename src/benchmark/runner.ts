@@ -6,6 +6,9 @@
  */
 
 import { execSync } from "node:child_process";
+import { cp, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import {
   CodingAgent,
@@ -23,18 +26,38 @@ import type {
   BenchmarkTrace,
   CapturedToolCall,
 } from "./types.js";
+import type { ProjectIndex } from "../indexer/types.js";
+
+const COPY_SKIP_NAMES = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+]);
 
 export interface RunnerOptions {
   /** Model client to use. */
   modelClient: ModelClient;
   /** Base agent config (workspace root will be overridden per task). */
   config: AgentConfig;
-  /** Tool definitions to register. */
-  tools: ToolDefinition[];
+  /** Static tool definitions to register. */
+  tools?: ToolDefinition[];
+  /** Optional factory for building task-specific tools and index metadata. */
+  createToolset?: (config: AgentConfig, task: BenchmarkTask) => Promise<BenchmarkToolset>;
   /** Variant label for this run (e.g. "baseline"). */
   variant: string;
+  /** Repo root used for resolving task.workspaceRoot overrides. */
+  repoRoot?: string;
+  /** Whether each task should run in an isolated temp workspace copy. Defaults to true. */
+  isolateWorkspace?: boolean;
   /** Optional callback after each task completes. */
   onTaskComplete?: (taskId: string, trace: BenchmarkTrace) => void;
+}
+
+export interface BenchmarkToolset {
+  tools: ToolDefinition[];
+  projectIndex?: ProjectIndex | undefined;
 }
 
 function getGitCommitSha(): string {
@@ -50,7 +73,90 @@ const STRUCTURAL_TOOLS = new Set([
   "find_references",
   "get_dependencies",
   "search_code_map",
+  "find_path",
 ]);
+
+function sanitizeTaskId(taskId: string): string {
+  return taskId.replace(/[^a-z0-9-_]+/gi, "-");
+}
+
+function resolveSourceWorkspaceRoot(
+  task: BenchmarkTask,
+  options: RunnerOptions,
+): string {
+  if (!task.workspaceRoot) {
+    return path.resolve(options.config.workspaceRoot);
+  }
+
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return path.resolve(repoRoot, task.workspaceRoot);
+}
+
+function shouldCopyPath(src: string): boolean {
+  const name = path.basename(src);
+  return !COPY_SKIP_NAMES.has(name);
+}
+
+async function prepareTaskWorkspace(
+  task: BenchmarkTask,
+  options: RunnerOptions,
+): Promise<{ sourceWorkspaceRoot: string; workspaceRoot: string; cleanup: () => Promise<void> }> {
+  const sourceWorkspaceRoot = resolveSourceWorkspaceRoot(task, options);
+  if (options.isolateWorkspace === false) {
+    return {
+      sourceWorkspaceRoot,
+      workspaceRoot: sourceWorkspaceRoot,
+      cleanup: async () => {},
+    };
+  }
+
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "minicode-benchmark-"));
+  const isolatedWorkspaceRoot = path.join(tempRoot, sanitizeTaskId(task.id));
+  await cp(sourceWorkspaceRoot, isolatedWorkspaceRoot, {
+    recursive: true,
+    filter: shouldCopyPath,
+  });
+
+  return {
+    sourceWorkspaceRoot,
+    workspaceRoot: isolatedWorkspaceRoot,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+function getTrackedSymbolNames(
+  toolName: string,
+  input: Record<string, unknown>,
+): string[] {
+  if (toolName === "find_path") {
+    const names = [input.from, input.to]
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+    return [...new Set(names)];
+  }
+
+  const name = input.symbol ?? input.symbolName ?? input.name ?? input.query;
+  return typeof name === "string" && name.length > 0 ? [name] : [];
+}
+
+function trackStructuralFileReads(
+  toolName: string,
+  projectIndex: ProjectIndex | undefined,
+  input: Record<string, unknown>,
+  filesRead: Set<string>,
+): void {
+  if (!projectIndex || !STRUCTURAL_TOOLS.has(toolName)) {
+    return;
+  }
+
+  for (const symbolName of getTrackedSymbolNames(toolName, input)) {
+    const symbol = projectIndex.getSymbol(symbolName);
+    if (symbol) {
+      filesRead.add(symbol.filePath);
+    }
+  }
+}
 
 /**
  * Run a single benchmark task and return the captured trace.
@@ -59,80 +165,97 @@ export async function runBenchmarkTask(
   task: BenchmarkTask,
   options: RunnerOptions,
 ): Promise<BenchmarkTrace> {
+  const workspace = await prepareTaskWorkspace(task, options);
   const captured: CapturedToolCall[] = [];
   const filesRead = new Set<string>();
   const symbolsQueried = new Set<string>();
 
-  // Wrap each tool to capture calls
-  const instrumentedTools: ToolDefinition[] = options.tools.map((tool) => ({
-    ...tool,
-    execute: async (input: Record<string, unknown>) => {
-      const start = performance.now();
-      const output = await tool.execute(input);
-      const durationMs = performance.now() - start;
+  try {
+    const taskConfig: AgentConfig = {
+      ...options.config,
+      workspaceRoot: workspace.workspaceRoot,
+    };
+    const toolset = options.createToolset
+      ? await options.createToolset(taskConfig, task)
+      : { tools: options.tools ?? [] };
 
-      captured.push({
-        name: tool.name,
-        input,
-        output:
-          output.length > 2000 ? output.slice(0, 2000) + "…[truncated]" : output,
-        durationMs,
-      });
+    // Wrap each tool to capture calls
+    const instrumentedTools: ToolDefinition[] = toolset.tools.map((tool) => ({
+      ...tool,
+      execute: async (input: Record<string, unknown>) => {
+        const start = performance.now();
+        const output = await tool.execute(input);
+        const durationMs = performance.now() - start;
 
-      // Track files read
-      if (tool.name === "read_file" || tool.name === "read_symbol") {
-        const filePath = input.path ?? input.file_path ?? input.filePath;
-        if (typeof filePath === "string") filesRead.add(filePath);
-      }
+        captured.push({
+          name: tool.name,
+          input,
+          output:
+            output.length > 2000 ? output.slice(0, 2000) + "…[truncated]" : output,
+          durationMs,
+        });
 
-      // Track symbol queries
-      if (STRUCTURAL_TOOLS.has(tool.name)) {
-        const sym =
-          input.symbol ?? input.symbolName ?? input.name ?? input.query;
-        if (typeof sym === "string") symbolsQueried.add(sym);
-      }
+        if (tool.name === "read_file") {
+          const filePath = input.path ?? input.file_path ?? input.filePath;
+          if (typeof filePath === "string") {
+            filesRead.add(filePath);
+          }
+        }
 
-      return output;
-    },
-  }));
+        trackStructuralFileReads(tool.name, toolset.projectIndex, input, filesRead);
 
-  const registry = new ToolRegistry(instrumentedTools);
-  const session = new Session();
+        if (STRUCTURAL_TOOLS.has(tool.name)) {
+          for (const symbolName of getTrackedSymbolNames(tool.name, input)) {
+            symbolsQueried.add(symbolName);
+          }
+        }
 
-  const agent = new CodingAgent({
-    config: options.config,
-    modelClient: options.modelClient,
-    toolRegistry: registry,
-    session,
-  });
+        return output;
+      },
+    }));
 
-  const startedAt = new Date().toISOString();
-  const start = performance.now();
+    const registry = new ToolRegistry(instrumentedTools);
+    const session = new Session();
 
-  const { text, usage } = await agent.runTurn(task.prompt);
+    const agent = new CodingAgent({
+      config: taskConfig,
+      modelClient: options.modelClient,
+      toolRegistry: registry,
+      session,
+    });
 
-  const durationMs = performance.now() - start;
+    const startedAt = new Date().toISOString();
+    const start = performance.now();
 
-  const trace: BenchmarkTrace = {
-    taskId: task.id,
-    model: options.config.model,
-    variant: options.variant,
-    commitSha: getGitCommitSha(),
-    response: text,
-    toolCalls: captured,
-    filesRead: [...filesRead],
-    symbolsQueried: [...symbolsQueried],
-    usage: {
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
-      totalTokens: (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
-    },
-    durationMs,
-    startedAt,
-  };
+    const { text, usage } = await agent.runTurn(task.prompt);
 
-  options.onTaskComplete?.(task.id, trace);
-  return trace;
+    const durationMs = performance.now() - start;
+
+    const trace: BenchmarkTrace = {
+      taskId: task.id,
+      model: taskConfig.model,
+      variant: options.variant,
+      commitSha: getGitCommitSha(),
+      sourceWorkspaceRoot: workspace.sourceWorkspaceRoot,
+      workspaceRoot: workspace.workspaceRoot,
+      response: text,
+      toolCalls: captured,
+      filesRead: [...filesRead],
+      symbolsQueried: [...symbolsQueried],
+      usage: {
+        inputTokens: usage?.inputTokens ?? 0,
+        outputTokens: usage?.outputTokens ?? 0,
+        totalTokens: (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+      },
+      durationMs,
+      startedAt,
+    };
+
+    options.onTaskComplete?.(task.id, trace);
+    return trace;
+  } finally {
+    await workspace.cleanup();
+  }
 }
 
 /**

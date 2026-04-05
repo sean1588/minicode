@@ -21,19 +21,15 @@ import { writeFile } from "node:fs/promises";
 
 import {
   createModelClient,
-  createReadFileTool,
-  createWriteFileTool,
-  createEditFileTool,
-  createSearchTool,
-  createListFilesTool,
-  createRunCommandTool,
 } from "@minicode/agent-sdk";
-import type { AgentConfig, ToolDefinition } from "@minicode/agent-sdk";
+import type { AgentConfig } from "@minicode/agent-sdk";
 
 import { loadBenchmarkTasks, loadBenchmarkTask } from "../src/benchmark/task-loader.js";
 import { runBenchmarkSuite } from "../src/benchmark/runner.js";
 import { buildReport, formatReport } from "../src/benchmark/reporter.js";
 import type { BenchmarkTask } from "../src/benchmark/types.js";
+import { buildProjectIndex } from "../src/indexer/project-index.js";
+import { createToolRegistry } from "../src/tools/registry.js";
 
 /* ------------------------------------------------------------------ */
 /*  CLI argument parsing                                               */
@@ -145,20 +141,21 @@ async function main(): Promise<void> {
   console.log("");
 
   const modelClient = createModelClient(config);
-  const tools: ToolDefinition[] = [
-    createReadFileTool(config),
-    createWriteFileTool(config),
-    createEditFileTool(config),
-    createSearchTool(config),
-    createListFilesTool(config),
-    createRunCommandTool(config),
-  ];
 
   const traces = await runBenchmarkSuite(tasks, {
     modelClient,
     config,
-    tools,
     variant: args.variant,
+    repoRoot: process.cwd(),
+    isolateWorkspace: true,
+    createToolset: async (taskConfig) => {
+      const projectIndex = await buildProjectIndex(taskConfig.workspaceRoot);
+      const toolRegistry = createToolRegistry(taskConfig, projectIndex);
+      return {
+        tools: toolRegistry.getDefinitions(),
+        projectIndex,
+      };
+    },
     onTaskComplete: (taskId, trace) => {
       const dur = (trace.durationMs / 1000).toFixed(1);
       console.log(`  [done] ${taskId} (${dur}s, ${trace.toolCalls.length} tool calls)`);
