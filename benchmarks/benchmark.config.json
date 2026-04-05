@@ -1,0 +1,13 @@
+{
+  "modelProvider": "openai-compatible",
+  "model": "google/gemini-3-flash-preview",
+  "openAiBaseUrl": "https://openrouter.ai/api/v1",
+  "maxSteps": 50,
+  "maxTokens": 4096,
+  "maxContextTokens": 32000,
+  "commandTimeoutMs": 30000,
+  "maxFileSizeBytes": 1000000,
+  "keepRecentMessages": 12,
+  "loopDetectionWindow": 6,
+  "maxToolOutputChars": 8000
+}

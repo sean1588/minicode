@@ -4,7 +4,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 
-import { parseArgs, buildConfig, loadTasks } from "../scripts/run-benchmarks.js";
+import { parseArgs, buildConfig, loadTasks, getBenchmarkConfigPath } from "../scripts/run-benchmarks.js";
 
 // ─── parseArgs ────────────────────────────────────────────────────
 
@@ -54,48 +54,158 @@ test("parseArgs: ignores unknown flags", () => {
 
 // ─── buildConfig ──────────────────────────────────────────────────
 
-test("buildConfig: returns defaults when no env vars set", () => {
-  const originalProvider = process.env.MODEL_PROVIDER;
-  const originalModel = process.env.MODEL;
-  delete process.env.MODEL_PROVIDER;
-  delete process.env.MODEL;
+test("getBenchmarkConfigPath resolves under benchmarks/", () => {
+  const repoRoot = "/tmp/minicode-repo";
+  assert.equal(
+    getBenchmarkConfigPath(repoRoot),
+    path.join(repoRoot, "benchmarks", "benchmark.config.json"),
+  );
+});
+
+test("buildConfig: reads benchmark config file defaults", async () => {
+  const tmpRoot = await mkdtemp(path.join(tmpdir(), "bench-config-root-"));
+  const configPath = path.join(tmpRoot, "benchmarks", "benchmark.config.json");
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      modelProvider: "openai-compatible",
+      model: "google/gemini-3-flash-preview",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+      maxSteps: 42,
+      maxContextTokens: 12345,
+    }),
+  );
 
   try {
-    const config = buildConfig();
+    const config = buildConfig({
+      repoRoot: tmpRoot,
+      env: {},
+      homeEnvPath: path.join(tmpRoot, ".missing-home-env"),
+      configPath,
+    });
     assert.equal(config.modelProvider, "openai-compatible");
-    assert.equal(config.model, "test-model");
-    assert.equal(config.maxSteps, 50);
-    assert.equal(config.maxTokens, 4096);
-    assert.equal(config.maxContextTokens, 32000);
-    assert.equal(config.confirmDestructive, false);
+    assert.equal(config.model, "google/gemini-3-flash-preview");
+    assert.equal(config.openAiBaseUrl, "https://openrouter.ai/api/v1");
+    assert.equal(config.maxSteps, 42);
+    assert.equal(config.maxContextTokens, 12345);
   } finally {
-    if (originalProvider !== undefined) process.env.MODEL_PROVIDER = originalProvider;
-    if (originalModel !== undefined) process.env.MODEL = originalModel;
+    await rm(tmpRoot, { recursive: true, force: true });
   }
 });
 
-test("buildConfig: reads MODEL_PROVIDER and MODEL from env", () => {
-  const originalProvider = process.env.MODEL_PROVIDER;
-  const originalModel = process.env.MODEL;
-  process.env.MODEL_PROVIDER = "anthropic";
-  process.env.MODEL = "claude-test";
+test("buildConfig: home .env provides benchmark API keys", async () => {
+  const tmpRoot = await mkdtemp(path.join(tmpdir(), "bench-config-home-env-"));
+  const configPath = path.join(tmpRoot, "benchmarks", "benchmark.config.json");
+  const homeEnvPath = path.join(tmpRoot, "home.env");
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      modelProvider: "openai-compatible",
+      model: "google/gemini-3-flash-preview",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+    }),
+  );
+  await writeFile(homeEnvPath, "OPENROUTER_API_KEY=test-openrouter-key\n");
 
   try {
-    const config = buildConfig();
+    const config = buildConfig({
+      repoRoot: tmpRoot,
+      env: {},
+      homeEnvPath,
+      configPath,
+    });
+    assert.equal(config.openAiApiKey, "test-openrouter-key");
+  } finally {
+    await rm(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildConfig: benchmark config wins over home .env for non-secret settings", async () => {
+  const tmpRoot = await mkdtemp(path.join(tmpdir(), "bench-config-env-"));
+  const configPath = path.join(tmpRoot, "benchmarks", "benchmark.config.json");
+  const homeEnvPath = path.join(tmpRoot, "home.env");
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      modelProvider: "openai-compatible",
+      model: "google/gemini-3-flash-preview",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+      maxContextTokens: 32000,
+    }),
+  );
+  await writeFile(
+    homeEnvPath,
+    "MODEL=google/gemini-home\nOPENAI_BASE_URL=https://example.invalid/v1\nOPENROUTER_API_KEY=home-openrouter-key\n",
+  );
+
+  try {
+    const config = buildConfig({
+      repoRoot: tmpRoot,
+      env: {},
+      homeEnvPath,
+      configPath,
+    });
+    assert.equal(config.modelProvider, "openai-compatible");
+    assert.equal(config.model, "google/gemini-3-flash-preview");
+    assert.equal(config.openAiBaseUrl, "https://openrouter.ai/api/v1");
+    assert.equal(config.openAiApiKey, "home-openrouter-key");
+    assert.equal(config.maxContextTokens, 32000);
+  } finally {
+    await rm(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildConfig: shell env overrides benchmark config and home env", async () => {
+  const tmpRoot = await mkdtemp(path.join(tmpdir(), "bench-config-shell-env-"));
+  const configPath = path.join(tmpRoot, "benchmarks", "benchmark.config.json");
+  const homeEnvPath = path.join(tmpRoot, "home.env");
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      modelProvider: "openai-compatible",
+      model: "google/gemini-3-flash-preview",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+      maxContextTokens: 32000,
+    }),
+  );
+  await writeFile(homeEnvPath, "OPENROUTER_API_KEY=home-openrouter-key\n");
+
+  try {
+    const config = buildConfig({
+      repoRoot: tmpRoot,
+      env: {
+        MODEL_PROVIDER: "anthropic",
+        MODEL: "claude-test",
+        OPENAI_BASE_URL: "https://override.example/v1",
+        MAX_CONTEXT_TOKENS: "64000",
+      },
+      homeEnvPath,
+      configPath,
+    });
     assert.equal(config.modelProvider, "anthropic");
     assert.equal(config.model, "claude-test");
+    assert.equal(config.openAiBaseUrl, "https://override.example/v1");
+    assert.equal(config.maxContextTokens, 64000);
   } finally {
-    if (originalProvider !== undefined) {
-      process.env.MODEL_PROVIDER = originalProvider;
-    } else {
-      delete process.env.MODEL_PROVIDER;
-    }
-    if (originalModel !== undefined) {
-      process.env.MODEL = originalModel;
-    } else {
-      delete process.env.MODEL;
-    }
+    await rm(tmpRoot, { recursive: true, force: true });
   }
+});
+
+test("buildConfig: falls back to hardcoded defaults when config file is missing", () => {
+  const config = buildConfig({
+    repoRoot: "/tmp/bench-missing-config",
+    env: {},
+    homeEnvPath: "/tmp/bench-missing-home-env",
+    configPath: "/tmp/bench-missing-config/benchmarks/missing.json",
+  });
+  assert.equal(config.modelProvider, "openai-compatible");
+  assert.equal(config.model, "test-model");
+  assert.equal(config.openAiBaseUrl, "http://localhost:1234/v1");
+  assert.equal(config.maxSteps, 50);
 });
 
 // ─── loadTasks ────────────────────────────────────────────────────
