@@ -1,5 +1,6 @@
 import type { AgentConfig, ToolDefinition, ToolSchema } from "../agent/types.js";
 import type { EditFileHooks } from "./edit-file.js";
+import type { RunCommandHooks } from "./run-command.js";
 import type { WriteFileHooks } from "./write-file.js";
 import { createEditFileTool } from "./edit-file.js";
 import { createListFilesTool } from "./list-files.js";
@@ -26,6 +27,7 @@ function toToolSchema(tool: ToolDefinition): ToolSchema {
 export interface CoreToolHooks {
   afterWrite?: WriteFileHooks["afterWrite"];
   afterEdit?: EditFileHooks["afterEdit"];
+  afterCommand?: RunCommandHooks["afterCommand"];
 }
 
 export class ToolRegistry {
@@ -50,7 +52,7 @@ export class ToolRegistry {
       createEditFileTool(config, hooks ? { afterEdit: hooks.afterEdit } : undefined),
       createSearchTool(config),
       createListFilesTool(config),
-      createRunCommandTool(config),
+      createRunCommandTool(config, hooks ? { afterCommand: hooks.afterCommand } : undefined),
     ];
     return new ToolRegistry(tools);
   }

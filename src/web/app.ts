@@ -1,4 +1,5 @@
 import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
+import { createLatestRequestTracker } from './request-tracker.ts';
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
 interface ServerMessage {
@@ -105,6 +106,7 @@ let assistantText = "";
 let hadToolCalls = false;
 let settingsPayload: SettingsPayload | null = null;
 let activeSavedSession: SessionMeta | null = null;
+const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
 
@@ -770,6 +772,7 @@ saveBtn.addEventListener("click", async () => {
   const isUpdatingCurrentSession =
     !!activeSavedSession && (requestedLabel.length === 0 || requestedLabel === activeSavedSession.label);
   try {
+    saveBtn.setAttribute("disabled", "true");
     const res = await fetch("/api/sessions/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -782,10 +785,12 @@ saveBtn.addEventListener("click", async () => {
         `${isUpdatingCurrentSession ? "Session updated" : "Session saved"}: "${data.label}"`,
         "thinking",
       );
-      void refreshSessionList();
+      await refreshSessionList();
     }
   } catch {
     // ignore
+  } finally {
+    saveBtn.removeAttribute("disabled");
   }
 });
 
@@ -797,9 +802,13 @@ saveLabelInput.addEventListener("keydown", (e: KeyboardEvent) => {
 });
 
 async function refreshSessionList(): Promise<void> {
+  const requestToken = sessionRefreshTracker.begin();
   try {
     const res = await fetch("/api/sessions");
     const data = await res.json() as SessionsResponse;
+    if (!sessionRefreshTracker.isCurrent(requestToken)) {
+      return;
+    }
     const sessions = data.sessions;
     activeSavedSession =
       sessions.find((session) => session.id === data.currentSessionId) ?? null;
@@ -831,6 +840,9 @@ async function refreshSessionList(): Promise<void> {
       sessionList.appendChild(el);
     }
   } catch {
+    if (!sessionRefreshTracker.isCurrent(requestToken)) {
+      return;
+    }
     activeSavedSession = null;
     sessionUpdateRow.classList.add("hidden");
     sessionList.innerHTML = '<div class="dropdown-empty">Failed to load sessions</div>';

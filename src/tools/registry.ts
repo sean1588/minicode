@@ -31,6 +31,9 @@ export function createToolRegistry(
           projectIndex.reindexFile(relPath, content),
         afterEdit: (relPath: string, content: string) =>
           projectIndex.reindexFile(relPath, content),
+        afterCommand: async () => {
+          await projectIndex.refreshFromWorkspace();
+        },
       }
     : undefined;
 
@@ -40,7 +43,7 @@ export function createToolRegistry(
     createEditFileTool(config, hooks ? { afterEdit: hooks.afterEdit } : undefined),
     createSearchTool(config),
     createListFilesTool(config),
-    createRunCommandTool(config),
+    createRunCommandTool(config, hooks ? { afterCommand: hooks.afterCommand } : undefined),
   ];
 
   if (projectIndex) {

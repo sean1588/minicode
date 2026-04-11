@@ -45,7 +45,7 @@ export { createWriteFileTool, type WriteFileHooks } from "./tools/write-file.js"
 export { createEditFileTool, type EditFileHooks } from "./tools/edit-file.js";
 export { createSearchTool } from "./tools/search.js";
 export { createListFilesTool } from "./tools/list-files.js";
-export { createRunCommandTool } from "./tools/run-command.js";
+export { createRunCommandTool, type RunCommandHooks } from "./tools/run-command.js";
 
 // Tool helpers
 export {

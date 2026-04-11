@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { createEditFileTool, createReadFileTool } from "@minicode/agent-sdk";
+import { createEditFileTool, createReadFileTool, createRunCommandTool, createWriteFileTool } from "@minicode/agent-sdk";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
@@ -76,6 +76,65 @@ test("edit_file triggers reindex when projectIndex provided", async () => {
 
   const after = index.getSymbol("add");
   assert.ok(after?.signature.includes("c?: number"), "index should reflect edit");
+});
+
+test("write_file triggers reindex when projectIndex provided", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const writeTool = createWriteFileTool(
+    createTestAgentConfig(workspaceRoot),
+    { afterWrite: (relPath, content) => index.reindexFile(relPath, content) },
+  );
+
+  await writeTool.execute({
+    path: "src/util.ts",
+    content: `export function add(a: number, b: number): number {\n  return a + b;\n}\n`,
+  });
+
+  const added = index.getSymbol("add");
+  assert.ok(added?.signature.includes("a: number, b: number"), "index should reflect newly written file");
+});
+
+test("run_command refreshes index after shell-created file changes", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const runTool = createRunCommandTool(
+    createTestAgentConfig(workspaceRoot),
+    { afterCommand: async () => index.refreshFromWorkspace() },
+  );
+
+  await runTool.execute({
+    command: "mkdir -p src && cat <<'EOF' > src/util.ts\nexport function add(a: number, b: number): number {\n  return a + b;\n}\nEOF",
+  });
+
+  const added = index.getSymbol("add");
+  assert.ok(added?.signature.includes("a: number, b: number"), "index should reflect shell-created file");
+});
+
+test("run_command refresh removes deleted files from the index", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const { mkdir } = await import("node:fs/promises");
+  const filePath = path.join(workspaceRoot, "src", "util.ts");
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(
+    filePath,
+    `export function add(a: number, b: number): number {\n  return a + b;\n}\n`,
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  assert.ok(index.getSymbol("add"));
+
+  const runTool = createRunCommandTool(
+    createTestAgentConfig(workspaceRoot),
+    { afterCommand: async () => index.refreshFromWorkspace() },
+  );
+
+  await runTool.execute({ command: "rm src/util.ts" });
+
+  assert.equal(index.getSymbol("add"), undefined, "deleted file should be removed from the index");
 });
 
 test("read_file supports negative offset and line limits", async () => {
