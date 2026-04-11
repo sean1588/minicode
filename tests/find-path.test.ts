@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
-import { createProjectIndex } from "../src/indexer/project-index.js";
+import { buildProjectIndex, createProjectIndex } from "../src/indexer/project-index.js";
 import { createFindPathTool } from "../src/tools/find-path.js";
 import type { DependencyEdge, IndexedSymbol } from "../src/indexer/types.js";
 
@@ -202,7 +204,6 @@ test("find_path tool reports no path when symbols are disconnected", async () =>
 });
 
 test("find_path tool works with real project index", async () => {
-  const { buildProjectIndex } = await import("../src/indexer/project-index.js");
   const root = path.resolve(import.meta.dirname, "..");
   const projectIndex = await buildProjectIndex(root);
   const tool = createFindPathTool(projectIndex);
@@ -214,4 +215,60 @@ test("find_path tool works with real project index", async () => {
   });
   assert.ok(result.includes("# Path from createModelClient to AgentConfig"));
   assert.ok(result.includes("symbols"));
+});
+
+test("find_path returns disambiguation list for ambiguous bare target symbols", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-find-path-collisions-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export type Review = { id: string };
+
+export class Review {
+  constructor(public id: string) {}
+}
+
+export function createReview(id: string) {
+  return new Review(id);
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createFindPathTool(projectIndex);
+
+  const result = await tool.execute({ from: "createReview", to: "Review" });
+
+  assert.ok(result.includes('Symbol "Review" is ambiguous'));
+  assert.ok(result.includes("Review (type)"));
+  assert.ok(result.includes("Review (class)"));
+  assert.ok(result.includes("qualified: Review#type"));
+  assert.ok(result.includes("qualified: Review#class"));
+});
+
+test("find_path accepts qualified names for colliding symbols", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-find-path-qualified-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export type Review = { id: string };
+
+export class Review {
+  constructor(public id: string) {}
+}
+
+export function createReview(id: string) {
+  return new Review(id);
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createFindPathTool(projectIndex);
+
+  const result = await tool.execute({ from: "createReview", to: "Review#class" });
+
+  assert.ok(result.includes("# Path from createReview to Review (class)"));
+  assert.ok(result.includes("[function] createReview"));
+  assert.ok(result.includes("[class] Review (class)"));
 });

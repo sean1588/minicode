@@ -8,21 +8,13 @@ import {
   expectOptionalBoolean,
 } from "@minicode/agent-sdk";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
-import type { IndexedSymbol, ProjectIndex } from "../indexer/types.js";
+import type { ProjectIndex } from "../indexer/types.js";
+import {
+  formatAmbiguousSymbolMatches,
+  resolveSymbolInput,
+} from "../shared/symbol-resolution.js";
 
 const LEADING_CONTEXT_LINES = 3;
-
-function formatAmbiguousSymbolMatches(name: string, matches: IndexedSymbol[]): string {
-  return [
-    `Symbol "${name}" is ambiguous; ${matches.length} matches were found.`,
-    "Re-run read_symbol with one of these qualified or disambiguated names:",
-    "",
-    ...matches.map(
-      (match) =>
-        `- ${getSymbolDisplayName(match)} (${match.kind}) — ${match.filePath}:${match.startLine} — qualified: ${match.qualifiedName}`,
-    ),
-  ].join("\n");
-}
 
 export function createReadSymbolTool(
   config: AgentConfig,
@@ -56,14 +48,14 @@ export function createReadSymbolTool(
       const name = expectNonEmptyString(input, "name");
       const includeBody = expectOptionalBoolean(input, "includeBody") ?? true;
 
-      const matches = projectIndex.getSymbolMatches(name);
-      if (matches.length === 0) {
+      const resolution = resolveSymbolInput(projectIndex, name);
+      if (resolution.status === "missing") {
         return `Symbol "${name}" not found in the project index. Try using search to find it, or use read_file to read the full file.`;
       }
-      if (matches.length > 1) {
-        return formatAmbiguousSymbolMatches(name, matches);
+      if (resolution.status === "ambiguous") {
+        return formatAmbiguousSymbolMatches("read_symbol", name, resolution.matches);
       }
-      const symbol = matches[0]!;
+      const symbol = resolution.symbol;
 
       const filePath = resolveWorkspacePath(
         symbol.filePath,
@@ -128,7 +120,7 @@ export function createReadSymbolTool(
           parts.push("", "## Calls", "", calls.map((s) => `- ${s}`).join("\n"));
         }
 
-        const cone = projectIndex.getDependencyCone(name, 1);
+        const cone = projectIndex.getDependencyCone(symbol.qualifiedName, 1);
         const typeRefs = cone.filter(
           (s) =>
             s.qualifiedName !== symbol.qualifiedName &&

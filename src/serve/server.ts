@@ -11,6 +11,7 @@ import { handleChatCompletions, handleModels } from "./openai-compat.js";
 import { formatConfigForDisplay, getConfigMissing } from "../agent/config.js";
 import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../agent/editable-config.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
+import { serializeSymbolMatch } from "../shared/symbol-resolution.js";
 import type { ServerMessage } from "./types.js";
 import type { WebSocketServer } from "ws";
 import { handleMcpRequest } from "./mcp-server.js";
@@ -253,7 +254,19 @@ export function createRequestHandler(
         const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/dependencies".length));
         const depthParam = url.searchParams.get("depth");
         const depth = depthParam ? Number(depthParam) : undefined;
-        const result = bridge.getDependencies(name, depth);
+        const matches = bridge.getSymbolMatches(name);
+        if (matches.length === 0) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found` });
+          return;
+        }
+        if (matches.length > 1) {
+          sendJson(res, 409, {
+            error: `Symbol "${name}" is ambiguous`,
+            candidates: matches.map(serializeSymbolMatch),
+          });
+          return;
+        }
+        const result = bridge.getDependencies(matches[0]!.qualifiedName, depth);
         if (!result) {
           sendJson(res, 404, { error: `Symbol "${name}" not found` });
           return;
@@ -264,7 +277,19 @@ export function createRequestHandler(
 
       if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/references") && method === "GET") {
         const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/references".length));
-        const result = bridge.getReferences(name);
+        const matches = bridge.getSymbolMatches(name);
+        if (matches.length === 0) {
+          sendJson(res, 404, { error: `Symbol "${name}" not found` });
+          return;
+        }
+        if (matches.length > 1) {
+          sendJson(res, 409, {
+            error: `Symbol "${name}" is ambiguous`,
+            candidates: matches.map(serializeSymbolMatch),
+          });
+          return;
+        }
+        const result = bridge.getReferences(matches[0]!.qualifiedName);
         if (!result) {
           sendJson(res, 404, { error: `Symbol "${name}" not found` });
           return;
@@ -275,11 +300,19 @@ export function createRequestHandler(
 
       if (pathname.startsWith("/api/symbols/") && pathname.endsWith("/source") && method === "GET") {
         const name = decodeURIComponent(pathname.slice("/api/symbols/".length, -"/source".length));
-        const sym = bridge.getSymbol(name);
-        if (!sym) {
+        const matches = bridge.getSymbolMatches(name);
+        if (matches.length === 0) {
           sendJson(res, 404, { error: `Symbol "${name}" not found` });
           return;
         }
+        if (matches.length > 1) {
+          sendJson(res, 409, {
+            error: `Symbol "${name}" is ambiguous`,
+            candidates: matches.map(serializeSymbolMatch),
+          });
+          return;
+        }
+        const sym = matches[0]!;
         try {
           const fileContent = await readFile(path.resolve(config.workspaceRoot, sym.filePath), "utf8");
           const lines = fileContent.split(/\r?\n/);
