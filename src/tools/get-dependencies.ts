@@ -2,6 +2,10 @@ import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
+import {
+  formatAmbiguousSymbolMatches,
+  resolveSymbolInput,
+} from "../shared/symbol-resolution.js";
 
 export function createGetDependenciesTool(
   projectIndex: ProjectIndex,
@@ -42,12 +46,16 @@ export function createGetDependenciesTool(
       const skip = Math.max(0, expectOptionalNumber(input, "skip") ?? 0);
       const limit = Math.max(1, Math.min(100, expectOptionalNumber(input, "limit") ?? 50));
 
-      const symbol = projectIndex.getSymbol(name);
-      if (!symbol) {
+      const resolution = resolveSymbolInput(projectIndex, name);
+      if (resolution.status === "missing") {
         return `Symbol "${name}" not found in the project index.`;
       }
+      if (resolution.status === "ambiguous") {
+        return formatAmbiguousSymbolMatches("get_dependencies", name, resolution.matches);
+      }
+      const symbol = resolution.symbol;
 
-      const cone = projectIndex.getDependencyCone(name, depth);
+      const cone = projectIndex.getDependencyCone(symbol.qualifiedName, depth);
 
       const shown = cone.slice(skip, skip + limit);
       const lines = shown.map((s) => {

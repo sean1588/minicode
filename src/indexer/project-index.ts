@@ -67,18 +67,18 @@ function buildAdjacencyTo(edges: DependencyEdge[]): Map<string, DependencyEdge[]
   return map;
 }
 
-function resolveSymbol(
+function resolveSymbols(
   name: string,
   symbols: Map<string, IndexedSymbol>,
-): IndexedSymbol | undefined {
+): IndexedSymbol[] {
   const direct = symbols.get(name);
-  if (direct) return direct;
+  if (direct) return [direct];
 
   const matches = [...symbols.values()].filter((sym) =>
     getSymbolLookupNames(sym).includes(name),
   );
   if (matches.length === 0) {
-    return undefined;
+    return [];
   }
 
   matches.sort((a, b) =>
@@ -87,7 +87,14 @@ function resolveSymbol(
     a.startLine - b.startLine ||
     a.qualifiedName.localeCompare(b.qualifiedName),
   );
-  return matches[0];
+  return matches;
+}
+
+function resolveSymbol(
+  name: string,
+  symbols: Map<string, IndexedSymbol>,
+): IndexedSymbol | undefined {
+  return resolveSymbols(name, symbols)[0];
 }
 
 export function createProjectIndex(
@@ -160,6 +167,10 @@ export function createProjectIndex(
 
     getSymbol(name: string): IndexedSymbol | undefined {
       return resolveSymbol(name, symbols);
+    },
+
+    getSymbolMatches(name: string): IndexedSymbol[] {
+      return resolveSymbols(name, symbols);
     },
 
     getSymbolsInFile(filePath: string): IndexedSymbol[] {

@@ -7,6 +7,7 @@ import type { StructuralAnalysisReport } from "../src/analysis/structural-analys
 import { createRequestHandler, shutdownServe } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import type { UiUpdate } from "@minicode/agent-sdk";
+import type { IndexedSymbol } from "../src/indexer/types.js";
 import type { ServerMessage } from "../src/serve/types.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
@@ -99,11 +100,20 @@ class MockBridge extends AgentBridge {
     ];
   }
 
-  override getSymbol(name: string) {
-    const syms = this.getSymbols();
-    const match = syms.find((s) => s.qualifiedName === name || s.name === name);
+  override getSymbol(name: string): IndexedSymbol | undefined {
+    const [match] = this.getSymbolMatches(name);
     if (!match) return undefined;
-    return { ...match, dependencies: [], kind: match.kind as "function" | "class" | "method" } as never;
+    return match;
+  }
+
+  override getSymbolMatches(name: string): IndexedSymbol[] {
+    return this.getSymbols()
+      .filter((s) => s.qualifiedName === name || s.name === name)
+      .map((match) => ({
+        ...match,
+        dependencies: [],
+        kind: match.kind as "function" | "class" | "method",
+      }));
   }
 
   override getDependencies(symbolName: string) {
@@ -277,6 +287,48 @@ class MockBridge extends AgentBridge {
     }
     onEvent({ type: "streaming_chunk", content: `Interpreting ${findingId}...` } as UiUpdate);
     return `Interpreting ${findingId}...`;
+  }
+}
+
+class AmbiguousMockBridge extends MockBridge {
+  override getSymbols() {
+    return [
+      ...super.getSymbols(),
+      {
+        name: "Review (type)",
+        qualifiedName: "Review#type",
+        kind: "type",
+        filePath: "src/review.ts",
+        startLine: 1,
+        endLine: 1,
+        signature: "type Review = { id: string }",
+        exported: true,
+      },
+      {
+        name: "Review (class)",
+        qualifiedName: "Review#class",
+        kind: "class",
+        filePath: "src/review.ts",
+        startLine: 3,
+        endLine: 7,
+        signature: "class Review",
+        exported: true,
+      },
+    ];
+  }
+
+  override getSymbolMatches(name: string): IndexedSymbol[] {
+    if (name === "Review") {
+      return this.getSymbols()
+        .filter((symbol) => symbol.qualifiedName.startsWith("Review#"))
+        .map((match) => ({
+          ...match,
+          dependencies: [],
+          kind: match.kind as IndexedSymbol["kind"],
+        }));
+    }
+
+    return super.getSymbolMatches(name);
   }
 }
 
@@ -739,6 +791,24 @@ test("GET /api/symbols/:name/dependencies returns 404 for unknown symbol", async
   assert.equal(res.status, 404);
 });
 
+test("GET /api/symbols/:name/dependencies returns 409 for ambiguous symbol", async () => {
+  const bridge = new AmbiguousMockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/Review/dependencies`);
+  assert.equal(res.status, 409);
+
+  const body = (await res.json()) as {
+    error: string;
+    candidates: Array<{ qualifiedName: string }>;
+  };
+  assert.equal(body.error, 'Symbol "Review" is ambiguous');
+  assert.deepEqual(
+    body.candidates.map((candidate) => candidate.qualifiedName).sort(),
+    ["Review#class", "Review#type"],
+  );
+});
+
 test("GET /api/symbols/:name/references returns references", async () => {
   const bridge = new MockBridge();
   const base = await startTestServer(bridge);
@@ -758,6 +828,24 @@ test("GET /api/symbols/:name/references returns 404 for unknown symbol", async (
 
   const res = await fetch(`${base}/api/symbols/nonexistent/references`);
   assert.equal(res.status, 404);
+});
+
+test("GET /api/symbols/:name/references returns 409 for ambiguous symbol", async () => {
+  const bridge = new AmbiguousMockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/Review/references`);
+  assert.equal(res.status, 409);
+
+  const body = (await res.json()) as {
+    error: string;
+    candidates: Array<{ qualifiedName: string }>;
+  };
+  assert.equal(body.error, 'Symbol "Review" is ambiguous');
+  assert.deepEqual(
+    body.candidates.map((candidate) => candidate.qualifiedName).sort(),
+    ["Review#class", "Review#type"],
+  );
 });
 
 test("GET /api/code-map returns code map", async () => {
@@ -954,6 +1042,24 @@ test("GET /api/symbols/:name/source returns 404 for unknown symbol", async () =>
 
   const body = (await res.json()) as { error: string };
   assert.ok(body.error.includes("nonexistent"));
+});
+
+test("GET /api/symbols/:name/source returns 409 for ambiguous symbol", async () => {
+  const bridge = new AmbiguousMockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/symbols/Review/source`);
+  assert.equal(res.status, 409);
+
+  const body = (await res.json()) as {
+    error: string;
+    candidates: Array<{ qualifiedName: string }>;
+  };
+  assert.equal(body.error, 'Symbol "Review" is ambiguous');
+  assert.deepEqual(
+    body.candidates.map((candidate) => candidate.qualifiedName).sort(),
+    ["Review#class", "Review#type"],
+  );
 });
 
 test("GET /api/symbols/:name/source returns 500 when file is missing", async () => {

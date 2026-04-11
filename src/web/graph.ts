@@ -14,6 +14,12 @@ import {
   type StructuralAnalysisReport,
 } from './analysis-helpers.ts';
 import { KIND_COLORS, buildStylesheet } from '../shared/graph-styles.ts';
+import {
+  compareGraphNodeIds,
+  getGraphNodeLabel,
+  matchesGraphNodeQuery,
+  resolveGraphNodeIds,
+} from '../shared/graph-symbols.ts';
 
 declare const cytoscape: (opts: unknown) => CyInstance;
 declare const hljs: { highlightElement(el: HTMLElement): void };
@@ -191,7 +197,7 @@ export async function initGraph(): Promise<void> {
 
 export function highlightAgentActivity(symbolName: string): void {
   if (!cy) return;
-  void focusSymbolInGraph(symbolName, {
+  void focusResolvedSymbolsInGraph(symbolName, {
     maxDegrees: 0,
     pulse: true,
     pulseDuration: 2000,
@@ -285,6 +291,19 @@ interface FocusSymbolOptions {
 }
 
 async function focusSymbolInGraph(symbolId: string, options: FocusSymbolOptions = {}): Promise<void> {
+  await focusSymbolsInGraph([symbolId], options);
+}
+
+async function focusResolvedSymbolsInGraph(symbolName: string, options: FocusSymbolOptions = {}): Promise<void> {
+  const matches = resolveGraphNodeIds(graphNodes, symbolName);
+  if (matches.length === 0) {
+    return;
+  }
+
+  await focusSymbolsInGraph(matches, options);
+}
+
+async function focusSymbolsInGraph(symbolIds: string[], options: FocusSymbolOptions = {}): Promise<void> {
   if (!cy) return;
 
   const {
@@ -297,24 +316,45 @@ async function focusSymbolInGraph(symbolId: string, options: FocusSymbolOptions 
     openDetail = false,
   } = options;
 
-  renderNodeNeighborhoodAndLayout(symbolId, maxDegrees);
-  const node = findNode(symbolId);
-  if (!node) return;
-
-  if (animate) {
-    cy.animate({ center: { eles: node }, zoom }, { duration: 300 });
+  const uniqueIds = [...new Set(symbolIds)];
+  let addedNodes = false;
+  for (const symbolId of uniqueIds) {
+    const beforeNodeCount = cy.nodes().length;
+    addNodeNeighborhood(symbolId, maxDegrees);
+    if (cy.nodes().length > beforeNodeCount) {
+      addedNodes = true;
+    }
   }
 
-  if (pulse) {
-    node.addClass('agent-pulse');
-    setTimeout(() => node.removeClass('agent-pulse'), pulseDuration);
-  } else {
-    node.flashClass('highlighted', flashDuration);
+  connectExistingNodes();
+  refreshAnalysisGraphState();
+  if (addedNodes) {
+    runLayout();
   }
 
-  if (openDetail) {
+  const nodes = uniqueIds
+    .map((symbolId) => findNode(symbolId))
+    .filter((node): node is CyCollection => node !== null);
+  if (nodes.length === 0) return;
+  const primaryNode = nodes[0];
+
+  if (animate && primaryNode) {
+    cy.animate({ center: { eles: primaryNode }, zoom }, { duration: 300 });
+  }
+
+  for (const node of nodes) {
+    if (pulse) {
+      node.addClass('agent-pulse');
+      setTimeout(() => node.removeClass('agent-pulse'), pulseDuration);
+    } else {
+      node.flashClass('highlighted', flashDuration);
+    }
+  }
+
+  if (openDetail && primaryNode && uniqueIds.length === 1) {
     const detailEl = document.getElementById('symbol-detail');
     if (detailEl) {
+      const node = primaryNode;
       await showDetail(node, detailEl);
     }
   }
@@ -334,7 +374,7 @@ function addNodeToGraph(id: string): void {
   if (!nodeData) return;
 
   const kind = (nodeData.kind || 'function').toLowerCase();
-  const name = nodeData.name || id.split('.').pop() || id;
+  const name = getGraphNodeLabel(nodeData, id);
   const file = nodeData.filePath || nodeData.file || '';
 
   cy.add({
@@ -380,11 +420,10 @@ function findNode(name: string): CyCollection | null {
   if (!cy) return null;
   const node = cy.getElementById(name);
   if (node.length > 0) return node;
-  const match = cy.nodes().filter((n: CyElement) => {
-    const nName = (n.data('name') || '') as string;
-    const qName = (n.data('qualifiedName') || '') as string;
-    return nName === name || qName.endsWith('.' + name);
-  });
+  const matchingIds = new Set(resolveGraphNodeIds(graphNodes, name));
+  const match = cy.nodes().filter((n: CyElement) =>
+    matchingIds.has((n.data('qualifiedName') || n.data('id') || '') as string),
+  );
   return match.length > 0 ? match : null;
 }
 
@@ -1160,16 +1199,7 @@ function setupToolbar(): void {
   searchInput.parentNode!.appendChild(dropdown);
 
   // Rank symbols: exported first, then alphabetical by short name
-  const rankedSymbols = allSymbolNames.slice().sort((a, b) => {
-    const nodeA = graphNodes.get(a);
-    const nodeB = graphNodes.get(b);
-    const expA = nodeA ? !!nodeA.exported : false;
-    const expB = nodeB ? !!nodeB.exported : false;
-    if (expA !== expB) return expA ? -1 : 1;
-    const nameA = (a.split('.').pop() || '').toLowerCase();
-    const nameB = (b.split('.').pop() || '').toLowerCase();
-    return nameA.localeCompare(nameB);
-  });
+  const rankedSymbols = allSymbolNames.slice().sort((a, b) => compareGraphNodeIds(a, b, graphNodes));
 
   function showDropdownResults(matches: string[]): void {
     if (matches.length === 0) {
@@ -1180,7 +1210,7 @@ function setupToolbar(): void {
     dropdown.innerHTML = matches.map((name) => {
       const node = graphNodes.get(name);
       const kind = node ? (node.kind || '').toLowerCase() : '';
-      const shortName = name.split('.').pop() || name;
+      const shortName = getGraphNodeLabel(node || {}, name);
       const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind]!.border : '#565f89';
       return `<div class="search-result" data-id="${escapeHtml(name)}">
         <span class="search-result-name">${escapeHtml(shortName)}</span>
@@ -1222,8 +1252,7 @@ function setupToolbar(): void {
       }
 
       const matches = rankedSymbols.filter((name) => {
-        const shortName = (name.split('.').pop() || '').toLowerCase();
-        return shortName.includes(query) || name.toLowerCase().includes(query);
+        return matchesGraphNodeQuery(query, graphNodes.get(name) || {}, name);
       }).slice(0, 15);
 
       showDropdownResults(matches);

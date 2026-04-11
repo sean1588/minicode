@@ -83,6 +83,7 @@ export interface ProjectIndex {
   workspaceRoot: string;
 
   getSymbol(name: string): IndexedSymbol | undefined;
+  getSymbolMatches(name: string): IndexedSymbol[];
   getSymbolsInFile(filePath: string): IndexedSymbol[];
   getDependencyCone(symbolName: string, depth?: number): IndexedSymbol[];
   getCodeMap(tokenBudget?: number, focusSymbols?: Set<string>): CodeMapResult;

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createFindReferencesTool } from "../src/tools/find-references.js";
@@ -40,4 +42,67 @@ test("find_references appears in tool registry when projectIndex provided", asyn
   const findRefs = schemas.find((s) => s.name === "find_references");
 
   assert.ok(findRefs);
+});
+
+test("find_references returns disambiguation list for ambiguous bare symbol names", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-find-references-collisions-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export type Review = { id: string };
+
+export function serializeReview(review: Review) {
+  return review.id;
+}
+
+export class Review {
+  constructor(public id: string) {}
+}
+
+export function createReview(id: string) {
+  return new Review(id);
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createFindReferencesTool(projectIndex);
+
+  const result = await tool.execute({ name: "Review" });
+
+  assert.ok(result.includes('Symbol "Review" is ambiguous'));
+  assert.ok(result.includes("Review (type)"));
+  assert.ok(result.includes("Review (class)"));
+  assert.ok(result.includes("qualified: Review#type"));
+  assert.ok(result.includes("qualified: Review#class"));
+});
+
+test("find_references accepts qualified names for colliding symbols", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-find-references-qualified-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export type Review = { id: string };
+
+export function serializeReview(review: Review) {
+  return review.id;
+}
+
+export class Review {
+  constructor(public id: string) {}
+}
+
+export function createReview(id: string) {
+  return new Review(id);
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createFindReferencesTool(projectIndex);
+
+  const result = await tool.execute({ name: "Review#class" });
+
+  assert.ok(result.includes("# References to Review (class)"));
+  assert.ok(result.includes("createReview"));
 });

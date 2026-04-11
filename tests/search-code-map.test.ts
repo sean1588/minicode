@@ -66,4 +66,6 @@ export class Employee {
 
   assert.ok(result.includes("Employee (interface)"));
   assert.ok(result.includes("Employee (class)"));
+  assert.ok(result.includes("qualified: Employee#interface"));
+  assert.ok(result.includes("qualified: Employee#class"));
 });

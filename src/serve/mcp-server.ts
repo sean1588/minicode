@@ -12,6 +12,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
+import {
+  formatAmbiguousSymbolMatches,
+  resolveSymbolInput,
+} from "../shared/symbol-resolution.js";
 import type { AgentBridge } from "./agent-bridge.js";
 import type { ServerMessage } from "./types.js";
 
@@ -69,13 +73,20 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
     { name: z.string().describe("The symbol name or qualified name (e.g. 'Session' or 'Session.trim')") },
     async ({ name }) => {
       return wrapToolCall("read_symbol", { name }, async () => {
-        const sym = bridge.getSymbol(name);
-        if (!sym) {
+        const resolution = resolveSymbolInput(bridge, name);
+        if (resolution.status === "missing") {
           return { content: [{ type: "text" as const, text: `Symbol "${name}" not found in the project index.` }], isError: true };
         }
+        if (resolution.status === "ambiguous") {
+          return {
+            content: [{ type: "text" as const, text: formatAmbiguousSymbolMatches("read_symbol", name, resolution.matches) }],
+            isError: true,
+          };
+        }
+        const sym = resolution.symbol;
 
-        const deps = bridge.getDependencies(name, 1);
-        const refs = bridge.getReferences(name);
+        const deps = bridge.getDependencies(sym.qualifiedName, 1);
+        const refs = bridge.getReferences(sym.qualifiedName);
 
         const lines: string[] = [
           `## ${sym.kind}: ${getSymbolDisplayName(sym)}`,
@@ -122,17 +133,32 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
   server.tool(
     "find_references",
     "Find all symbols that call, import, or reference a given symbol. Essential for understanding impact before making changes.",
-    { name: z.string().describe("The symbol name to find references for") },
+    { name: z.string().describe("The symbol name or qualified name to find references for") },
     async ({ name }) => {
       return wrapToolCall("find_references", { name }, async () => {
-        const refs = bridge.getReferences(name);
+        const resolution = resolveSymbolInput(bridge, name);
+        if (resolution.status === "missing") {
+          return { content: [{ type: "text" as const, text: `Symbol "${name}" not found.` }], isError: true };
+        }
+        if (resolution.status === "ambiguous") {
+          return {
+            content: [{ type: "text" as const, text: formatAmbiguousSymbolMatches("find_references", name, resolution.matches) }],
+            isError: true,
+          };
+        }
+
+        const symbol = resolution.symbol;
+        const refs = bridge.getReferences(symbol.qualifiedName);
         if (!refs || refs.length === 0) {
           return { content: [{ type: "text" as const, text: `No references found for "${name}".` }] };
         }
 
-        const lines = [`References to "${name}":`, ...refs.map((r) => `  - ${r.name ?? r.from} (${r.kind})`)];
+        const lines = [
+          `References to ${getSymbolDisplayName(symbol)}:`,
+          ...refs.map((r) => `  - ${r.name ?? r.from} (${r.kind})`),
+        ];
 
-        const annotations = bridge.getAnnotationsForSymbol(name);
+        const annotations = bridge.getAnnotationsForSymbol(symbol.qualifiedName);
         if (annotations.length > 0) {
           lines.push("", `[User annotation: ${annotations.join("; ")}]`);
         }
@@ -146,22 +172,34 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
     "get_dependencies",
     "Get the dependency cone of a symbol — everything it calls, imports, extends, or references. Essential for understanding implementation and data flow.",
     {
-      name: z.string().describe("The symbol name to get dependencies for"),
+      name: z.string().describe("The symbol name or qualified name to get dependencies for"),
       depth: z.number().optional().default(2).describe("How many levels deep to traverse (default: 2)"),
     },
     async ({ name, depth }) => {
       return wrapToolCall("get_dependencies", { name, depth }, async () => {
-        const deps = bridge.getDependencies(name, depth);
+        const resolution = resolveSymbolInput(bridge, name);
+        if (resolution.status === "missing") {
+          return { content: [{ type: "text" as const, text: `Symbol "${name}" not found.` }], isError: true };
+        }
+        if (resolution.status === "ambiguous") {
+          return {
+            content: [{ type: "text" as const, text: formatAmbiguousSymbolMatches("get_dependencies", name, resolution.matches) }],
+            isError: true,
+          };
+        }
+
+        const symbol = resolution.symbol;
+        const deps = bridge.getDependencies(symbol.qualifiedName, depth);
         if (!deps || deps.length === 0) {
           return { content: [{ type: "text" as const, text: `No dependencies found for "${name}".` }] };
         }
 
         const lines = [
-          `Dependencies of "${name}" (depth=${depth}):`,
+          `Dependencies of ${getSymbolDisplayName(symbol)} (depth=${depth}):`,
           ...deps.map((d) => `  - ${d.qualifiedName} (${d.kind}) — ${d.filePath}`),
         ];
 
-        const annotations = bridge.getAnnotationsForSymbol(name);
+        const annotations = bridge.getAnnotationsForSymbol(symbol.qualifiedName);
         if (annotations.length > 0) {
           lines.push("", `[User annotation: ${annotations.join("; ")}]`);
         }
@@ -201,7 +239,9 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
 
         const lines = [
           `Found ${matches.length} symbol(s) matching "${query}":`,
-          ...matches.map((s) => `  - ${s.name} (${s.kind}) — ${s.filePath}:${s.startLine}${s.signature ? `\n    ${s.signature}` : ""}`),
+          ...matches.map((s) =>
+            `  - ${s.name} (${s.kind}) — ${s.filePath}:${s.startLine} — qualified: ${s.qualifiedName}${s.signature ? `\n    ${s.signature}` : ""}`,
+          ),
         ];
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
@@ -213,8 +253,8 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
     "find_path",
     "Find the shortest dependency path between two symbols, or trace a symbol back to an entry point. Useful for understanding how code connects.",
     {
-      from: z.string().describe("Source symbol name"),
-      to: z.string().optional().describe("Target symbol name. If omitted, traces back to the nearest entry point."),
+      from: z.string().describe("Source symbol name or qualified name"),
+      to: z.string().optional().describe("Target symbol name or qualified name. If omitted, traces back to the nearest entry point."),
     },
     async ({ from, to }) => {
       return wrapToolCall("find_path", { from, to }, async () => {
@@ -222,16 +262,28 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
           return { content: [{ type: "text" as const, text: "No project index available." }], isError: true };
         }
 
-        // Use the bridge's project index via getSymbol to verify symbols exist
-        const fromSym = bridge.getSymbol(from);
-        if (!fromSym) {
+        const fromResolution = resolveSymbolInput(bridge, from);
+        if (fromResolution.status === "missing") {
           return { content: [{ type: "text" as const, text: `Symbol "${from}" not found.` }], isError: true };
         }
+        if (fromResolution.status === "ambiguous") {
+          return {
+            content: [{ type: "text" as const, text: formatAmbiguousSymbolMatches("find_path", from, fromResolution.matches) }],
+            isError: true,
+          };
+        }
+        const fromSym = fromResolution.symbol;
 
         if (to) {
-          const toSym = bridge.getSymbol(to);
-          if (!toSym) {
+          const toResolution = resolveSymbolInput(bridge, to);
+          if (toResolution.status === "missing") {
             return { content: [{ type: "text" as const, text: `Symbol "${to}" not found.` }], isError: true };
+          }
+          if (toResolution.status === "ambiguous") {
+            return {
+              content: [{ type: "text" as const, text: formatAmbiguousSymbolMatches("find_path", to, toResolution.matches) }],
+              isError: true,
+            };
           }
         }
 
@@ -257,7 +309,11 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
         const startId = fromSym.qualifiedName;
 
         if (to) {
-          const toSym = bridge.getSymbol(to)!;
+          const toResolution = resolveSymbolInput(bridge, to);
+          if (toResolution.status !== "resolved") {
+            return { content: [{ type: "text" as const, text: `Symbol "${to}" could not be resolved.` }], isError: true };
+          }
+          const toSym = toResolution.symbol;
           const endId = toSym.qualifiedName;
           // BFS shortest path
           const visited = new Set<string>([startId]);

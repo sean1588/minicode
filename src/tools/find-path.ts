@@ -2,6 +2,10 @@ import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
+import {
+  formatAmbiguousSymbolMatches,
+  resolveSymbolInput,
+} from "../shared/symbol-resolution.js";
 
 export function createFindPathTool(
   projectIndex: ProjectIndex,
@@ -37,19 +41,31 @@ export function createFindPathTool(
       const to = typeof input.to === "string" && input.to.length > 0 ? input.to : undefined;
       const maxDepth = expectOptionalNumber(input, "max_depth");
 
-      const fromSymbol = projectIndex.getSymbol(from);
-      if (!fromSymbol) {
+      const fromResolution = resolveSymbolInput(projectIndex, from);
+      if (fromResolution.status === "missing") {
         return `Symbol "${from}" not found in the project index.`;
       }
+      if (fromResolution.status === "ambiguous") {
+        return formatAmbiguousSymbolMatches("find_path", from, fromResolution.matches);
+      }
+      const fromSymbol = fromResolution.symbol;
 
       if (to) {
         // Path between two symbols
-        const toSymbol = projectIndex.getSymbol(to);
-        if (!toSymbol) {
+        const toResolution = resolveSymbolInput(projectIndex, to);
+        if (toResolution.status === "missing") {
           return `Symbol "${to}" not found in the project index.`;
         }
+        if (toResolution.status === "ambiguous") {
+          return formatAmbiguousSymbolMatches("find_path", to, toResolution.matches);
+        }
+        const toSymbol = toResolution.symbol;
 
-        const path = projectIndex.findPath(from, to, maxDepth ?? 10);
+        const path = projectIndex.findPath(
+          fromSymbol.qualifiedName,
+          toSymbol.qualifiedName,
+          maxDepth ?? 10,
+        );
         if (path.length === 0) {
           return `No path found between "${from}" and "${to}".`;
         }
@@ -66,7 +82,7 @@ export function createFindPathTool(
         ].join("\n");
       } else {
         // Trace to entry point(s)
-        const paths = projectIndex.findPathToEntryPoint(from, maxDepth ?? 20);
+        const paths = projectIndex.findPathToEntryPoint(fromSymbol.qualifiedName, maxDepth ?? 20);
 
         if (paths.length === 0) {
           return `No entry point paths found for "${from}". It may itself be an entry point.`;

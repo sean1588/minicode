@@ -2,6 +2,10 @@ import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
+import {
+  formatAmbiguousSymbolMatches,
+  resolveSymbolInput,
+} from "../shared/symbol-resolution.js";
 
 const DEFAULT_LIMIT = 50;
 
@@ -38,10 +42,14 @@ export function createFindReferencesTool(
       const skip = Math.max(0, expectOptionalNumber(input, "skip") ?? 0);
       const limit = Math.max(1, Math.min(100, expectOptionalNumber(input, "limit") ?? DEFAULT_LIMIT));
 
-      const symbol = projectIndex.getSymbol(name);
-      if (!symbol) {
+      const resolution = resolveSymbolInput(projectIndex, name);
+      if (resolution.status === "missing") {
         return `Symbol "${name}" not found in the project index.`;
       }
+      if (resolution.status === "ambiguous") {
+        return formatAmbiguousSymbolMatches("find_references", name, resolution.matches);
+      }
+      const symbol = resolution.symbol;
 
       const refs = projectIndex.dependencyEdges.filter(
         (e) => e.to === symbol.qualifiedName || e.to === symbol.name,

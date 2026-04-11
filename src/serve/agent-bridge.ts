@@ -335,9 +335,16 @@ export class AgentBridge {
     return this.projectIndex.getSymbol(name);
   }
 
+  getSymbolMatches(name: string) {
+    if (!this.projectIndex) return [];
+    return this.projectIndex.getSymbolMatches(name);
+  }
+
   getDependencies(symbolName: string, depth?: number) {
     if (!this.projectIndex) return undefined;
-    const cone = this.projectIndex.getDependencyCone(symbolName, depth);
+    const matches = this.projectIndex.getSymbolMatches(symbolName);
+    if (matches.length !== 1) return undefined;
+    const cone = this.projectIndex.getDependencyCone(matches[0]!.qualifiedName, depth);
     if (cone.length === 0) return undefined;
     return cone.map((sym) => ({
       name: getSymbolDisplayName(sym),
@@ -350,8 +357,9 @@ export class AgentBridge {
 
   getReferences(symbolName: string) {
     if (!this.projectIndex) return undefined;
-    const sym = this.projectIndex.getSymbol(symbolName);
-    if (!sym) return undefined;
+    const matches = this.projectIndex.getSymbolMatches(symbolName);
+    if (matches.length !== 1) return undefined;
+    const sym = matches[0]!;
     // Find all edges pointing TO this symbol
     const refs = this.projectIndex.dependencyEdges
       .filter((e) => e.to === sym.qualifiedName || e.to === sym.name)
