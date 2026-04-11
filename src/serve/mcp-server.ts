@@ -69,10 +69,22 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
     { name: z.string().describe("The symbol name or qualified name (e.g. 'Session' or 'Session.trim')") },
     async ({ name }) => {
       return wrapToolCall("read_symbol", { name }, async () => {
-        const sym = bridge.getSymbol(name);
-        if (!sym) {
+        const matches = bridge.getSymbolMatches(name);
+        if (matches.length === 0) {
           return { content: [{ type: "text" as const, text: `Symbol "${name}" not found in the project index.` }], isError: true };
         }
+        if (matches.length > 1) {
+          const lines = [
+            `Symbol "${name}" is ambiguous; ${matches.length} matches were found.`,
+            "Re-run read_symbol with one of these qualified or disambiguated names:",
+            "",
+            ...matches.map((match) =>
+              `- ${getSymbolDisplayName(match)} (${match.kind}) — ${match.filePath}:${match.startLine} — qualified: ${match.qualifiedName}`,
+            ),
+          ];
+          return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: true };
+        }
+        const sym = matches[0]!;
 
         const deps = bridge.getDependencies(name, 1);
         const refs = bridge.getReferences(name);

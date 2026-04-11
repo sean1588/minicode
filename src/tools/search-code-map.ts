@@ -1,9 +1,26 @@
 import type { ToolDefinition } from "@minicode/agent-sdk";
 import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
 import { getSymbolDisplayName, getSymbolLookupNames } from "../indexer/symbol-names.js";
-import type { ProjectIndex } from "../indexer/types.js";
+import type { IndexedSymbol, ProjectIndex } from "../indexer/types.js";
 
 const DEFAULT_LIMIT = 30;
+
+function compareMatchedSymbols(pattern: string, a: IndexedSymbol, b: IndexedSymbol): number {
+  const lowerPattern = pattern.toLowerCase();
+  const aDisplay = getSymbolDisplayName(a).toLowerCase();
+  const bDisplay = getSymbolDisplayName(b).toLowerCase();
+  const aExact = Number(aDisplay === lowerPattern || a.qualifiedName.toLowerCase() === lowerPattern || a.name.toLowerCase() === lowerPattern);
+  const bExact = Number(bDisplay === lowerPattern || b.qualifiedName.toLowerCase() === lowerPattern || b.name.toLowerCase() === lowerPattern);
+  if (aExact !== bExact) {
+    return bExact - aExact;
+  }
+
+  return Number(b.exported) - Number(a.exported) ||
+    aDisplay.localeCompare(bDisplay) ||
+    a.filePath.localeCompare(b.filePath) ||
+    a.startLine - b.startLine ||
+    a.qualifiedName.localeCompare(b.qualifiedName);
+}
 
 function matchesPattern(
   text: string,
@@ -22,7 +39,7 @@ export function createSearchCodeMapTool(
     description:
       "Search the full project index for symbols by name or substring. " +
       "Use when the code map is truncated and you need to find a symbol not listed. " +
-      "Returns qualified names and file paths; use read_symbol with the result.",
+      "Returns disambiguated display names, qualified names, and file paths; use read_symbol with the result.",
     inputSchema: {
       type: "object",
       properties: {
@@ -73,11 +90,12 @@ export function createSearchCodeMapTool(
           return false;
         }
         return true;
-      });
+      }).sort((a, b) => compareMatchedSymbols(pattern, a, b));
 
       const shown = matches.slice(skip, skip + limit);
       const lines = shown.map(
-        (s) => `- ${getSymbolDisplayName(s)} (${s.kind}) — ${s.filePath}`,
+        (s) =>
+          `- ${getSymbolDisplayName(s)} (${s.kind}) — ${s.filePath}:${s.startLine} — qualified: ${s.qualifiedName}`,
       );
       const remaining = matches.length - skip - shown.length;
       const footer =

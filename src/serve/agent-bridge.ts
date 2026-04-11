@@ -335,6 +335,11 @@ export class AgentBridge {
     return this.projectIndex.getSymbol(name);
   }
 
+  getSymbolMatches(name: string) {
+    if (!this.projectIndex) return [];
+    return this.projectIndex.getSymbolMatches(name);
+  }
+
   getDependencies(symbolName: string, depth?: number) {
     if (!this.projectIndex) return undefined;
     const cone = this.projectIndex.getDependencyCone(symbolName, depth);

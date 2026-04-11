@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createReadSymbolTool } from "../src/tools/read-symbol.js";
 import { createToolRegistry } from "../src/tools/registry.js";
@@ -92,6 +95,55 @@ test("read_symbol includes Referenced Types section for createToolRegistry", asy
 
   assert.ok(result.includes("# createToolRegistry"));
   assert.ok(result.includes("src/tools/registry.ts"));
+});
+
+test("read_symbol returns disambiguation list for ambiguous bare symbol names", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-read-symbol-collisions-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export type Review = { id: string };
+
+export class Review {
+  constructor(public id: string) {}
+}
+`,
+    "utf8",
+  );
+
+  const config = createTestAgentConfig(workspaceRoot);
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createReadSymbolTool(config, projectIndex);
+
+  const result = await tool.execute({ name: "Review" });
+
+  assert.ok(result.includes('Symbol "Review" is ambiguous'));
+  assert.ok(result.includes("Review (type)"));
+  assert.ok(result.includes("Review (class)"));
+  assert.ok(result.includes("qualified: Review#type"));
+  assert.ok(result.includes("qualified: Review#class"));
+});
+
+test("read_symbol accepts qualified names for colliding symbols", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-read-symbol-qualified-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export type Review = { id: string };
+
+export class Review {
+  constructor(public id: string) {}
+}
+`,
+    "utf8",
+  );
+
+  const config = createTestAgentConfig(workspaceRoot);
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createReadSymbolTool(config, projectIndex);
+
+  const result = await tool.execute({ name: "Review#class", includeBody: false });
+
+  assert.ok(result.includes("# Review (class) (class)"));
+  assert.ok(result.includes("sample.ts"));
 });
 
 test("read_symbol is not in tool registry when projectIndex is undefined", () => {

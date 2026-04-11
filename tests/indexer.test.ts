@@ -306,6 +306,25 @@ export class Employee {
     resolved!.displayName === "Employee (class)" || resolved!.displayName === "Employee (interface)",
     "resolved symbol should use a disambiguated display name",
   );
+
+  const matches = index.getSymbolMatches("Employee");
+  assert.equal(matches.length, 2, "should list every colliding symbol for ambiguous lookups");
+  assert.deepEqual(
+    matches.map((symbol) => symbol.displayName).sort(),
+    ["Employee (class)", "Employee (interface)"].sort(),
+  );
+  assert.deepEqual(
+    matches.map((symbol) => symbol.qualifiedName).sort(),
+    [employeeClass!.qualifiedName, employeeInterface!.qualifiedName].sort(),
+  );
+  assert.deepEqual(
+    index.getSymbolMatches("Employee (class)").map((symbol) => symbol.qualifiedName),
+    [employeeClass!.qualifiedName],
+  );
+  assert.deepEqual(
+    index.getSymbolMatches("Employee#class").map((symbol) => symbol.qualifiedName),
+    [employeeClass!.qualifiedName],
+  );
 });
 
 test("TypeScript plugin indexes class expressions assigned to variables", () => {

@@ -8,9 +8,21 @@ import {
   expectOptionalBoolean,
 } from "@minicode/agent-sdk";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
-import type { ProjectIndex } from "../indexer/types.js";
+import type { IndexedSymbol, ProjectIndex } from "../indexer/types.js";
 
 const LEADING_CONTEXT_LINES = 3;
+
+function formatAmbiguousSymbolMatches(name: string, matches: IndexedSymbol[]): string {
+  return [
+    `Symbol "${name}" is ambiguous; ${matches.length} matches were found.`,
+    "Re-run read_symbol with one of these qualified or disambiguated names:",
+    "",
+    ...matches.map(
+      (match) =>
+        `- ${getSymbolDisplayName(match)} (${match.kind}) — ${match.filePath}:${match.startLine} — qualified: ${match.qualifiedName}`,
+    ),
+  ].join("\n");
+}
 
 export function createReadSymbolTool(
   config: AgentConfig,
@@ -21,6 +33,7 @@ export function createReadSymbolTool(
     description:
       "Read a specific function, class, or type definition by name. " +
       "Returns the symbol's source code, referenced types, callers, and callees. " +
+      "If a bare name matches multiple symbols, returns disambiguation candidates. " +
       "PREFER this over read_file for .ts/.tsx/.js/.jsx — use the code map to find symbol names.",
     inputSchema: {
       type: "object",
@@ -43,10 +56,14 @@ export function createReadSymbolTool(
       const name = expectNonEmptyString(input, "name");
       const includeBody = expectOptionalBoolean(input, "includeBody") ?? true;
 
-      const symbol = projectIndex.getSymbol(name);
-      if (!symbol) {
+      const matches = projectIndex.getSymbolMatches(name);
+      if (matches.length === 0) {
         return `Symbol "${name}" not found in the project index. Try using search to find it, or use read_file to read the full file.`;
       }
+      if (matches.length > 1) {
+        return formatAmbiguousSymbolMatches(name, matches);
+      }
+      const symbol = matches[0]!;
 
       const filePath = resolveWorkspacePath(
         symbol.filePath,
