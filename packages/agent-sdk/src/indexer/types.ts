@@ -95,4 +95,7 @@ export interface ProjectIndex {
 
   /** Re-index a file after it has been modified. Updates symbols and dependency edges. */
   reindexFile(filePath: string, content: string): void;
+
+  /** Re-scan the workspace from disk and rebuild indexed files, symbols, and dependency edges in place. */
+  refreshFromWorkspace(): Promise<void>;
 }

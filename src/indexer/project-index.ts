@@ -99,6 +99,7 @@ export function createProjectIndex(
   workspaceRoot: string,
 ): ProjectIndex {
   let adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
+  const root = path.resolve(workspaceRoot);
 
   function rebuildSymbolsMap(): void {
     const normalizedSymbols = normalizeIndexedSymbols(files);
@@ -106,6 +107,47 @@ export function createProjectIndex(
     for (const [qualifiedName, symbol] of normalizedSymbols) {
       symbols.set(qualifiedName, symbol);
     }
+  }
+
+  function rebuildDependencyEdges(): void {
+    for (const p of plugins) {
+      if (p.resolveDependencies) {
+        const allSymbols = [...symbols.values()];
+        const edges = p.resolveDependencies(allSymbols, projectFiles);
+        dependencyEdges.splice(0, dependencyEdges.length, ...edges);
+        adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
+        break;
+      }
+    }
+  }
+
+  async function refreshFromWorkspace(): Promise<void> {
+    const validExtensions = new Set(plugins.flatMap((p) => p.extensions));
+    const sourceFiles: string[] = [];
+    await collectSourceFiles(root, root, sourceFiles, validExtensions);
+
+    files.clear();
+    projectFiles.clear();
+
+    for (const relPath of sourceFiles) {
+      const plugin = getPluginForFile(relPath, plugins);
+      if (!plugin) continue;
+
+      const absPath = path.join(root, relPath);
+      let content: string;
+      try {
+        content = await readFile(absPath, "utf8");
+      } catch {
+        continue;
+      }
+
+      projectFiles.set(relPath, content);
+      const extracted = plugin.indexFile(relPath, content);
+      files.set(relPath, extracted);
+    }
+
+    rebuildSymbolsMap();
+    rebuildDependencyEdges();
   }
 
   return {
@@ -284,17 +326,10 @@ export function createProjectIndex(
       const extracted = plugin.indexFile(relPath, content);
       files.set(relPath, extracted);
       rebuildSymbolsMap();
-
-      for (const p of plugins) {
-        if (p.resolveDependencies) {
-          const allSymbols = [...symbols.values()];
-          const edges = p.resolveDependencies(allSymbols, projectFiles);
-          dependencyEdges.splice(0, dependencyEdges.length, ...edges);
-          adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
-          break;
-        }
-      }
+      rebuildDependencyEdges();
     },
+
+    refreshFromWorkspace,
   };
 }
 

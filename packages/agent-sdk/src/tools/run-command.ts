@@ -14,6 +14,10 @@ interface CommandExecutionResult {
   timedOut: boolean;
 }
 
+export interface RunCommandHooks {
+  afterCommand?: ((command: string, result: CommandExecutionResult) => Promise<void> | void) | undefined;
+}
+
 function executeBashCommand(
   command: string,
   cwd: string,
@@ -66,7 +70,10 @@ function parseTimeout(
   return Math.min(rawTimeout, 10 * 60 * 1000);
 }
 
-export function createRunCommandTool(config: AgentConfig): ToolDefinition {
+export function createRunCommandTool(
+  config: AgentConfig,
+  hooks?: RunCommandHooks,
+): ToolDefinition {
   return {
     name: "run_command",
     description:
@@ -104,6 +111,10 @@ export function createRunCommandTool(config: AgentConfig): ToolDefinition {
         config.workspaceRoot,
         timeoutMs,
       );
+
+      if (hooks?.afterCommand) {
+        await hooks.afterCommand(command, result);
+      }
 
       const maxStdoutChars = 8_000;
       const maxStderrChars = 4_000;
