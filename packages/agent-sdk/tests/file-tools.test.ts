@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import { createEditFileTool } from "../src/tools/edit-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
+import { createSearchTool } from "../src/tools/search.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
@@ -96,7 +97,7 @@ test("edit_file calls afterEdit hook", async () => {
   let hookCalled = false;
   let hookPath = "";
   const editTool = createEditFileTool(createTestAgentConfig(workspaceRoot), {
-    afterEdit: (path, _content) => {
+    afterEdit: (path) => {
       hookCalled = true;
       hookPath = path;
     },
@@ -147,4 +148,26 @@ test("write_file creates nested directories", async () => {
     "utf8",
   );
   assert.equal(content, "nested content");
+});
+
+test("search finds matches inside hidden files", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  await mkdir(path.join(workspaceRoot, ".github", "workflows"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, ".github", "workflows", "ci.yml"), "name: CI\nsteps:\n  - run: echo hello\n", "utf8");
+
+  const searchTool = createSearchTool(createTestAgentConfig(workspaceRoot));
+  const result = await searchTool.execute({ pattern: "echo hello" });
+
+  assert.ok(result.includes(".github/workflows/ci.yml"));
+});
+
+test("search finds matches inside gitignored files", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  await writeFile(path.join(workspaceRoot, ".gitignore"), "generated.txt\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "generated.txt"), "needle in ignored file\n", "utf8");
+
+  const searchTool = createSearchTool(createTestAgentConfig(workspaceRoot));
+  const result = await searchTool.execute({ pattern: "needle in ignored file" });
+
+  assert.ok(result.includes("generated.txt"));
 });

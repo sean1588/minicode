@@ -114,8 +114,10 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
         "--color",
         "never",
         "--no-heading",
-        "--binary-files",
-        "without-match",
+        "--hidden",
+        "--no-ignore",
+        "--glob",
+        "!.git/**",
         "--glob",
         "!.minicode/**",
         "--glob",
@@ -144,11 +146,14 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
           config.commandTimeoutMs,
         );
 
-        if (result.code === 1 || result.stdout.trim().length === 0) {
-          return "No matches found.";
-        }
         if (result.code !== 0) {
+          if (result.code === 1) {
+            return "No matches found.";
+          }
           throw new Error(result.stderr || "ripgrep search failed.");
+        }
+        if (result.stdout.trim().length === 0) {
+          return "No matches found.";
         }
         const output = result.stdout.trimEnd();
         if (output.length > maxOutputChars) {
@@ -182,11 +187,14 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
         config.workspaceRoot,
         config.commandTimeoutMs,
       );
-      if (fallbackResult.code === 1 || fallbackResult.stdout.trim().length === 0) {
-        return "No matches found.";
-      }
       if (fallbackResult.code !== 0) {
+        if (fallbackResult.code === 1) {
+          return "No matches found.";
+        }
         throw new Error(fallbackResult.stderr || "grep search failed.");
+      }
+      if (fallbackResult.stdout.trim().length === 0) {
+        return "No matches found.";
       }
       const fallbackOutput = fallbackResult.stdout.trimEnd();
       if (fallbackOutput.length > maxOutputChars) {

@@ -280,6 +280,22 @@ class MockBridge extends AgentBridge {
   }
 }
 
+class EmptySessionsBridge extends MockBridge {
+  override async listSess() {
+    return [];
+  }
+
+  override async saveSess(label?: string) {
+    return {
+      id: "sess-1",
+      label: label ?? "auto-label",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      savedAt: "2026-01-01T00:00:00.000Z",
+      messageCount: 1,
+    };
+  }
+}
+
 // ── Test harness ──
 
 let activeServer: Server | undefined;
@@ -393,6 +409,31 @@ test("POST /api/sessions/save saves a session", async () => {
 
   const body = (await res.json()) as { label: string };
   assert.equal(body.label, "my-save");
+});
+
+test("session APIs support the first save when no sessions exist yet", async () => {
+  const bridge = new EmptySessionsBridge();
+  const base = await startTestServer(bridge);
+
+  const listRes = await fetch(`${base}/api/sessions`);
+  assert.equal(listRes.status, 200);
+  const listBody = (await listRes.json()) as {
+    sessions: Array<{ id: string; label: string }>;
+    currentSessionId: string;
+  };
+  assert.equal(listBody.sessions.length, 0);
+  assert.equal(listBody.currentSessionId, "sess-1");
+
+  const saveRes = await fetch(`${base}/api/sessions/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(saveRes.status, 200);
+
+  const saveBody = (await saveRes.json()) as { id: string; label: string };
+  assert.equal(saveBody.id, "sess-1");
+  assert.equal(saveBody.label, "auto-label");
 });
 
 test("POST /api/sessions/load returns 404 for unknown session", async () => {

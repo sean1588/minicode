@@ -236,7 +236,8 @@ export class CodingAgent {
   }
 
   setReasoningEffort(effort: AgentConfig["reasoningEffort"]): void {
-    const { reasoningEffort: _, ...rest } = this.config;
+    const rest = { ...this.config };
+    delete rest.reasoningEffort;
     this.config = effort ? { ...rest, reasoningEffort: effort } : { ...rest };
   }
 
