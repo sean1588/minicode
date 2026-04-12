@@ -29,9 +29,11 @@ export type UiListener = (msg: ServerMessage) => void;
 export class AgentBridge {
   private agent: CodingAgent | undefined;
   private config!: Awaited<ReturnType<typeof loadAgentConfig>>;
+  private baseConfig!: Awaited<ReturnType<typeof loadAgentConfig>>;
   private modelClient: ReturnType<typeof createModelClient> | undefined;
   private projectIndex: ProjectIndex | undefined;
   private toolRegistry: ReturnType<typeof createToolRegistry> | undefined;
+  private sessionOpenRouterConnected = false;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
@@ -96,12 +98,36 @@ export class AgentBridge {
     };
 
     this.config = config;
+    this.baseConfig = AgentBridge.cloneConfig(config);
     this.projectIndex = projectIndex;
     this.toolRegistry = toolRegistry;
 
     if (this.modelClient) {
       this.agent = this.createAgent();
     }
+  }
+
+  private static cloneConfig(
+    config: Awaited<ReturnType<typeof loadAgentConfig>>,
+  ): Awaited<ReturnType<typeof loadAgentConfig>> {
+    return {
+      ...config,
+      commandDenylist: [...config.commandDenylist],
+    };
+  }
+
+  private static applyConfig(
+    target: Awaited<ReturnType<typeof loadAgentConfig>>,
+    source: Awaited<ReturnType<typeof loadAgentConfig>>,
+  ): void {
+    const targetRecord = target as unknown as Record<string, unknown>;
+    for (const key of Object.keys(targetRecord)) {
+      if (!(key in source)) {
+        delete targetRecord[key];
+      }
+    }
+
+    Object.assign(targetRecord, AgentBridge.cloneConfig(source));
   }
 
   private createAgent(
@@ -215,6 +241,10 @@ export class AgentBridge {
     return this.config;
   }
 
+  isOpenRouterSessionConnected(): boolean {
+    return this.sessionOpenRouterConnected;
+  }
+
   connectOpenRouter(apiKey: string): void {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) {
@@ -232,9 +262,33 @@ export class AgentBridge {
     }).modelProvider = "openai-compatible";
     (this.config as { openAiBaseUrl: string }).openAiBaseUrl = "https://openrouter.ai/api/v1";
     (this.config as { openAiApiKey: string }).openAiApiKey = trimmedKey;
+    this.sessionOpenRouterConnected = true;
 
     this.modelClient = createModelClient(this.config);
     this.agent = this.createAgent(currentSession);
+  }
+
+  disconnectOpenRouter(): boolean {
+    if (this.busy) {
+      throw new Error("busy");
+    }
+    if (!this.sessionOpenRouterConnected) {
+      return false;
+    }
+
+    const currentSession = this.agent?.getSession();
+    AgentBridge.applyConfig(this.config, this.baseConfig);
+    this.sessionOpenRouterConnected = false;
+
+    try {
+      this.modelClient = createModelClient(this.config);
+      this.agent = this.createAgent(currentSession);
+    } catch {
+      this.modelClient = undefined;
+      this.agent = undefined;
+    }
+
+    return true;
   }
 
   private requireAgent(): CodingAgent {

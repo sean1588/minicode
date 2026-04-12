@@ -55,6 +55,18 @@ interface OpenRouterConnectRequestBody {
   codeVerifier?: string;
 }
 
+interface OpenRouterDisconnectResponse {
+  ok: boolean;
+  disconnected: boolean;
+  sessionOnly: boolean;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  needsSetup: boolean;
+  missing: string[];
+  message: string;
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -109,7 +121,6 @@ export function createRequestHandler(
   emit?: (msg: ServerMessage) => void,
   options: RequestHandlerOptions = {},
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const config = bridge.getConfig();
   const emitFn = emit ?? (() => {});
   const minicodeHome = options.minicodeHome;
 
@@ -119,6 +130,7 @@ export function createRequestHandler(
     const pathname = url.pathname;
 
     const handle = async () => {
+      const config = bridge.getConfig();
       // MCP (Model Context Protocol) endpoint
       if (pathname === "/mcp") {
         await handleMcpRequest(req, res, bridge, emitFn);
@@ -143,6 +155,8 @@ export function createRequestHandler(
           workspace: config.workspaceRoot,
           model: config.model,
           provider: config.modelProvider,
+          baseUrl: config.openAiBaseUrl,
+          sessionOpenRouterConnected: bridge.isOpenRouterSessionConnected(),
           needsSetup: missing.length > 0,
           missing,
         });
@@ -220,12 +234,41 @@ export function createRequestHandler(
           sessionOnly: true,
           provider: config.modelProvider,
           model: config.model,
+          baseUrl: config.openAiBaseUrl,
           needsSetup: missing.length > 0,
           missing,
           message: onlyModelMissing
             ? "OpenRouter connected for this serve session. Select a model to continue."
             : "OpenRouter connected for this serve session.",
         });
+        return;
+      }
+
+      if (pathname === "/api/openrouter/disconnect" && method === "POST") {
+        let disconnected = false;
+        try {
+          disconnected = bridge.disconnectOpenRouter();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to remove OpenRouter session";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        const missing = getConfigMissing(config);
+        const body: OpenRouterDisconnectResponse = {
+          ok: true,
+          disconnected,
+          sessionOnly: true,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message: disconnected
+            ? "Removed the session-only OpenRouter connection and restored your original provider settings."
+            : "No session-only OpenRouter connection was active.",
+        };
+        sendJson(res, 200, body);
         return;
       }
 

@@ -17,6 +17,8 @@ interface ServerMessage {
 interface StatusResponse {
   model: string;
   provider: string;
+  baseUrl?: string;
+  sessionOpenRouterConnected?: boolean;
   needsSetup?: boolean;
   missing?: string[];
 }
@@ -108,6 +110,19 @@ interface ConfigSaveResponse {
 interface OpenRouterConnectResponse {
   ok: boolean;
   sessionOnly: boolean;
+  baseUrl: string;
+  provider: string;
+  model: string;
+  needsSetup: boolean;
+  missing: string[];
+  message: string;
+}
+
+interface OpenRouterDisconnectResponse {
+  ok: boolean;
+  disconnected: boolean;
+  sessionOnly: boolean;
+  baseUrl: string;
   provider: string;
   model: string;
   needsSetup: boolean;
@@ -141,8 +156,11 @@ const settingsCloseBtn = document.getElementById("settings-close") as HTMLButton
 const settingsPath = document.getElementById("settings-path")!;
 const settingsList = document.getElementById("settings-list")!;
 const settingsBanner = document.getElementById("settings-banner")!;
+const settingsOpenRouterSession = document.getElementById("settings-openrouter-session")!;
+const settingsOpenRouterSessionMeta = document.getElementById("settings-openrouter-session-meta")!;
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsResetBtn = document.getElementById("settings-reset") as HTMLButtonElement;
+const disconnectOpenRouterBtn = document.getElementById("disconnect-openrouter-btn") as HTMLButtonElement;
 const connectOpenRouterBtn = document.getElementById("connect-openrouter-btn") as HTMLButtonElement | null;
 const configConnectStatus = document.getElementById("config-connect-status");
 
@@ -152,6 +170,8 @@ let assistantText = "";
 let hadToolCalls = false;
 let settingsPayload: SettingsPayload | null = null;
 let activeSavedSession: SessionMeta | null = null;
+let activeBaseUrl = "";
+let sessionOpenRouterConnected = false;
 const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
@@ -285,6 +305,7 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
       throw new Error("error" in body ? body.error : `Failed to connect OpenRouter (${res.status})`);
     }
 
+    activeBaseUrl = body.baseUrl;
     addMessage(body.message, "thinking");
     setConfigConnectStatus(body.message, body.needsSetup ? "info" : "success");
     await fetchStatus();
@@ -308,6 +329,34 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
   }
 }
 
+async function disconnectOpenRouter(): Promise<void> {
+  disconnectOpenRouterBtn.disabled = true;
+  clearSettingsBanner();
+
+  try {
+    const res = await fetch("/api/openrouter/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await res.json() as OpenRouterDisconnectResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to disconnect OpenRouter (${res.status})`);
+    }
+
+    activeBaseUrl = body.baseUrl;
+    addMessage(body.message, "thinking");
+    setSettingsBanner(body.message, body.disconnected ? "success" : "info");
+    clearConfigConnectStatus();
+    await fetchStatus();
+    await refreshModelList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to disconnect OpenRouter";
+    setSettingsBanner(message, "error");
+  } finally {
+    disconnectOpenRouterBtn.disabled = false;
+  }
+}
+
 async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
@@ -315,6 +364,9 @@ async function fetchStatus(): Promise<void> {
     modelInfo.textContent = data.model || "Select model";
     modelInfo.classList.toggle("placeholder", !data.model);
     activeModel = data.model;
+    activeBaseUrl = data.baseUrl ?? "";
+    sessionOpenRouterConnected = data.sessionOpenRouterConnected ?? false;
+    renderOpenRouterSessionControls();
 
     if (data.needsSetup) {
       configOverlay.classList.remove("hidden");
@@ -642,6 +694,21 @@ function setSettingsBanner(message: string, tone: "info" | "success" | "error"):
 function clearSettingsBanner(): void {
   settingsBanner.textContent = "";
   settingsBanner.className = "settings-banner hidden";
+}
+
+function renderOpenRouterSessionControls(): void {
+  if (sessionOpenRouterConnected) {
+    settingsOpenRouterSession.classList.remove("hidden");
+    settingsOpenRouterSessionMeta.textContent = activeBaseUrl
+      ? `Endpoint: ${activeBaseUrl}. This session-only connection overrides your original provider settings until you disconnect or restart serve.`
+      : "This session-only connection overrides your original provider settings until you disconnect or restart serve.";
+    disconnectOpenRouterBtn.disabled = false;
+    return;
+  }
+
+  settingsOpenRouterSession.classList.add("hidden");
+  settingsOpenRouterSessionMeta.textContent = "";
+  disconnectOpenRouterBtn.disabled = false;
 }
 
 function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLElement {
@@ -1131,6 +1198,7 @@ settingsBackdrop.addEventListener("click", () => {
 settingsResetBtn.addEventListener("click", () => {
   clearSettingsBanner();
   renderSettings();
+  renderOpenRouterSessionControls();
 });
 
 settingsSaveBtn.addEventListener("click", async () => {
@@ -1186,6 +1254,10 @@ settingsList.addEventListener("input", () => {
 settingsList.addEventListener("change", () => {
   clearSettingsBanner();
   updateSettingsActions();
+});
+
+disconnectOpenRouterBtn.addEventListener("click", () => {
+  void disconnectOpenRouter();
 });
 
 document.addEventListener("keydown", (event: KeyboardEvent) => {

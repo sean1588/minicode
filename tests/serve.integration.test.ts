@@ -18,9 +18,11 @@ import { createTestAgentConfig } from "./test-utils.js";
 class MockBridge extends AgentBridge {
   private _busy = false;
   private _currentSessionId = "sess-1";
+  private readonly _baseConfig = createTestAgentConfig("/tmp/test-workspace");
   private readonly _config = createTestAgentConfig("/tmp/test-workspace");
   turnHistory: string[] = [];
   openRouterKey: string | undefined;
+  openRouterSessionActive = false;
 
   constructor() {
     super(() => {}, false);
@@ -99,9 +101,28 @@ class MockBridge extends AgentBridge {
 
   override connectOpenRouter(apiKey: string): void {
     this.openRouterKey = apiKey;
+    this.openRouterSessionActive = true;
     this._config.modelProvider = "openai-compatible";
     this._config.openAiBaseUrl = "https://openrouter.ai/api/v1";
     this._config.openAiApiKey = apiKey;
+  }
+
+  override disconnectOpenRouter(): boolean {
+    if (!this.openRouterSessionActive) {
+      return false;
+    }
+
+    this.openRouterSessionActive = false;
+    this.openRouterKey = undefined;
+    this._config.modelProvider = this._baseConfig.modelProvider;
+    this._config.model = this._baseConfig.model;
+    this._config.openAiBaseUrl = this._baseConfig.openAiBaseUrl;
+    delete this._config.openAiApiKey;
+    return true;
+  }
+
+  override isOpenRouterSessionConnected(): boolean {
+    return this.openRouterSessionActive;
   }
 
   setBusy(busy: boolean): void {
@@ -623,12 +644,14 @@ test("POST /api/openrouter/connect exchanges code and stores a session-only key"
     const body = await res.json() as {
       ok: boolean;
       sessionOnly: boolean;
+      baseUrl: string;
       needsSetup: boolean;
       missing: string[];
       message: string;
     };
     assert.equal(body.ok, true);
     assert.equal(body.sessionOnly, true);
+    assert.equal(body.baseUrl, "https://openrouter.ai/api/v1");
     assert.equal(body.needsSetup, false);
     assert.deepEqual(body.missing, []);
     assert.equal(body.message, "OpenRouter connected for this serve session.");
@@ -639,6 +662,58 @@ test("POST /api/openrouter/connect exchanges code and stores a session-only key"
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("POST /api/openrouter/disconnect removes the session-only OpenRouter connection", async () => {
+  const bridge = new MockBridge();
+  bridge.connectOpenRouter("sk-or-v1-session-key");
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/openrouter/disconnect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    ok: boolean;
+    disconnected: boolean;
+    sessionOnly: boolean;
+    baseUrl: string;
+    provider: string;
+    message: string;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.disconnected, true);
+  assert.equal(body.sessionOnly, true);
+  assert.equal(body.provider, "anthropic");
+  assert.equal(body.baseUrl, "http://localhost:1234/v1");
+  assert.equal(
+    body.message,
+    "Removed the session-only OpenRouter connection and restored your original provider settings.",
+  );
+  assert.equal(bridge.openRouterSessionActive, false);
+  assert.equal(bridge.getConfig().modelProvider, "anthropic");
+  assert.equal(bridge.getConfig().openAiBaseUrl, "http://localhost:1234/v1");
+  assert.equal(bridge.getConfig().openAiApiKey, undefined);
+});
+
+test("GET /api/status exposes OpenRouter session state and base URL", async () => {
+  const bridge = new MockBridge();
+  bridge.connectOpenRouter("sk-or-v1-session-key");
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/status`);
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    baseUrl: string;
+    sessionOpenRouterConnected: boolean;
+    provider: string;
+  };
+  assert.equal(body.provider, "openai-compatible");
+  assert.equal(body.baseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(body.sessionOpenRouterConnected, true);
 });
 
 test("POST /api/openrouter/connect returns 400 when code is missing", async () => {
