@@ -27,6 +27,40 @@ interface SessionMeta {
   messageCount: number;
 }
 
+interface SessionPreviewToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+interface SessionPreviewUserMessage {
+  role: "user";
+  content: string;
+}
+
+interface SessionPreviewAssistantMessage {
+  role: "assistant";
+  content: string;
+  toolCalls?: SessionPreviewToolCall[];
+}
+
+interface SessionPreviewToolMessage {
+  role: "tool";
+  toolCallId: string;
+  toolName: string;
+  content: string;
+}
+
+type SessionPreviewMessage =
+  | SessionPreviewUserMessage
+  | SessionPreviewAssistantMessage
+  | SessionPreviewToolMessage;
+
+interface LoadSessionResponse {
+  label: string;
+  messages: SessionPreviewMessage[];
+}
+
 interface SessionsResponse {
   sessions: SessionMeta[];
   currentSessionId: string;
@@ -297,6 +331,61 @@ function addMessage(text: string, type: string, markdown = false): HTMLElement {
   return el;
 }
 
+function clearChatTranscript(): void {
+  messagesEl.innerHTML = "";
+  currentAssistantEl = null;
+  assistantText = "";
+  hadToolCalls = false;
+}
+
+function stringifyToolInput(input: Record<string, unknown>): Record<string, string> {
+  const entries = Object.entries(input).flatMap(([key, value]) => {
+    if (value === undefined || value === null) {
+      return [];
+    }
+
+    if (typeof value === "string") {
+      return [[key, value] as const];
+    }
+
+    return [[key, JSON.stringify(value)] as const];
+  });
+
+  return Object.fromEntries(entries);
+}
+
+function addToolResultPreview(name: string, result: string): void {
+  const toolEls = messagesEl.querySelectorAll(`.tool-call[data-tool-name="${name}"]`);
+  if (toolEls.length === 0) {
+    addToolCall(name, {});
+  }
+  finalizeToolCall(name, result);
+}
+
+function renderLoadedSessionMessages(messages: SessionPreviewMessage[]): void {
+  clearChatTranscript();
+
+  for (const message of messages) {
+    if (message.role === "user") {
+      addMessage(message.content, "user");
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      if (message.content.trim().length > 0) {
+        addMessage(message.content, "assistant", true);
+      }
+
+      for (const toolCall of message.toolCalls ?? []) {
+        addToolCall(toolCall.name, stringifyToolInput(toolCall.input));
+      }
+      continue;
+    }
+
+    addToolResultPreview(message.toolName, message.content);
+  }
+}
+
 function summarizeToolInput(name: string, input: Record<string, string>): string {
   const key =
     input.path ?? input.file_path ?? input.command ?? input.query ??
@@ -347,14 +436,14 @@ function addToolCall(name: string, input: Record<string, string>): void {
   scrollToBottom();
 }
 
-function finalizeToolCall(name: string, result: string, elapsedMs: number): void {
+function finalizeToolCall(name: string, result: string, elapsedMs?: number): void {
   const toolEls = messagesEl.querySelectorAll(`.tool-call[data-tool-name="${name}"]`);
   const el = toolEls[toolEls.length - 1] as HTMLElement | undefined;
   if (!el) return;
 
   const timeEl = el.querySelector(".tool-time");
   if (timeEl) {
-    timeEl.textContent = `${elapsedMs}ms`;
+    timeEl.textContent = elapsedMs && elapsedMs > 0 ? `${elapsedMs}ms` : "";
   }
 
   const resultEl = el.querySelector(".tool-result");
@@ -857,9 +946,12 @@ async function loadSession(label: string): Promise<void> {
       body: JSON.stringify({ label }),
     });
     if (res.ok) {
+      const body = await res.json() as LoadSessionResponse;
       sessionDropdown.classList.add("hidden");
-      messagesEl.innerHTML = "";
-      addMessage(`Session "${label}" restored`, "thinking");
+      renderLoadedSessionMessages(body.messages);
+      if (body.messages.length === 0) {
+        addMessage(`Session "${body.label}" restored`, "thinking");
+      }
       void refreshSessionList();
     }
   } catch {

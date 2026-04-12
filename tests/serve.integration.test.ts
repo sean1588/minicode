@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import type { StructuralAnalysisReport } from "../src/analysis/structural-analysis.js";
 import { createRequestHandler, shutdownServe } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
-import type { UiUpdate } from "@minicode/agent-sdk";
+import { Session, type UiUpdate } from "@minicode/agent-sdk";
 import type { IndexedSymbol } from "../src/indexer/types.js";
 import type { ServerMessage } from "../src/serve/types.js";
 import { createTestAgentConfig } from "./test-utils.js";
@@ -77,7 +77,18 @@ class MockBridge extends AgentBridge {
 
   override async loadSess(label: string) {
     if (label === "nonexistent") return null;
-    return { session: {} as never, label };
+    const session = new Session("sess-1");
+    session.addMessage({
+      role: "user",
+      content: "[Conversation Summary — earlier messages were compacted to save context]\nOlder summary",
+    });
+    for (let i = 1; i <= 11; i += 1) {
+      session.addMessage({
+        role: i % 2 === 0 ? "assistant" : "user",
+        content: `message-${i}`,
+      });
+    }
+    return { session, label };
   }
 
   override getCurrentSessionId(): string {
@@ -511,8 +522,17 @@ test("POST /api/sessions/load returns success for known session", async () => {
   });
   assert.equal(res.status, 200);
 
-  const body = (await res.json()) as { label: string };
+  const body = (await res.json()) as {
+    label: string;
+    messages: Array<{ role: string; content: string }>;
+  };
   assert.equal(body.label, "test-session");
+  assert.equal(body.messages.length, 10);
+  assert.equal(body.messages[0]?.content, "message-2");
+  assert.equal(body.messages[9]?.content, "message-11");
+  assert.ok(
+    body.messages.every((message) => !message.content.startsWith("[Conversation Summary")),
+  );
 });
 
 test("POST /api/chat returns agent response", async () => {
