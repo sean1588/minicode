@@ -1126,6 +1126,7 @@ main::-webkit-scrollbar-thumb {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 6px 10px;
   cursor: pointer;
   font-size: 12px;
@@ -1136,14 +1137,39 @@ main::-webkit-scrollbar-thumb {
   background: var(--bg-hover);
 }
 
+.search-result-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .search-result-name {
   color: var(--text);
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-subtitle {
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .search-result-kind {
   font-size: 11px;
   opacity: 0.7;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.search-result-kind.file {
+  opacity: 0.9;
 }
 
 #cy {

@@ -15,9 +15,13 @@ import {
 } from './analysis-helpers.ts';
 import { KIND_COLORS, buildStylesheet } from '../shared/graph-styles.ts';
 import {
+  buildGraphFileIndex,
+  buildGraphSearchResults,
+  type GraphSearchResult,
+} from '../shared/graph-search.ts';
+import {
   compareGraphNodeIds,
   getGraphNodeLabel,
-  matchesGraphNodeQuery,
   resolveGraphNodeIds,
 } from '../shared/graph-symbols.ts';
 
@@ -92,6 +96,7 @@ interface RawEdge {
 let cy: CyInstance | null = null;
 const graphNodes = new Map<string, GraphNode>();
 let graphEdges: GraphEdge[] = [];
+let fileToSymbolIds = new Map<string, string[]>();
 // Adjacency index: node id → edges touching that node (O(1) neighbor lookup)
 const edgeIndex = new Map<string, GraphEdge[]>();
 const pinnedNames = new Set<string>();
@@ -157,6 +162,7 @@ export async function initGraph(): Promise<void> {
       kind: (e.kind || e.type || 'references').toLowerCase(),
     }));
     buildEdgeIndex();
+    fileToSymbolIds = buildGraphFileIndex(graphNodes);
 
     allSymbolNames = Array.from(graphNodes.keys()).sort();
 
@@ -220,7 +226,7 @@ function showOnboardingHint(container: HTMLElement): void {
   hint.innerHTML =
     '<div class="graph-onboarding-icon">&#9670; &#8212; &#9670;</div>' +
     '<div class="graph-onboarding-title">Code dependency graph</div>' +
-    '<div class="graph-onboarding-subtitle">Search for a symbol above to start exploring.<br/>Nodes expand on click to reveal connections.</div>';
+    '<div class="graph-onboarding-subtitle">Search for a symbol or file above to start exploring.<br/>Nodes expand on click to reveal connections.</div>';
   container.appendChild(hint);
 }
 
@@ -278,6 +284,28 @@ function renderNodeNeighborhoodAndLayout(symbolId: string, maxDegrees = 1): void
   if (cy.nodes().length > beforeNodeCount) {
     runLayout();
   }
+}
+
+function focusFileInGraph(filePath: string): void {
+  if (!cy) return;
+
+  const symbolIds = fileToSymbolIds.get(filePath) || [];
+  cy.elements().remove();
+  document.getElementById('symbol-detail')?.classList.add('hidden');
+
+  if (symbolIds.length === 0) {
+    const cyEl = document.getElementById('cy');
+    if (cyEl) showOnboardingHint(cyEl);
+    refreshAnalysisGraphState();
+    return;
+  }
+
+  for (const symbolId of symbolIds) {
+    addNodeToGraph(symbolId);
+  }
+  connectExistingNodes();
+  refreshAnalysisGraphState();
+  runLayout();
 }
 
 interface FocusSymbolOptions {
@@ -1201,20 +1229,22 @@ function setupToolbar(): void {
   // Rank symbols: exported first, then alphabetical by short name
   const rankedSymbols = allSymbolNames.slice().sort((a, b) => compareGraphNodeIds(a, b, graphNodes));
 
-  function showDropdownResults(matches: string[]): void {
-    if (matches.length === 0) {
+  function showDropdownResults(results: GraphSearchResult[]): void {
+    if (results.length === 0) {
       dropdown.classList.add('hidden');
       return;
     }
 
-    dropdown.innerHTML = matches.map((name) => {
-      const node = graphNodes.get(name);
-      const kind = node ? (node.kind || '').toLowerCase() : '';
-      const shortName = getGraphNodeLabel(node || {}, name);
-      const kindColor = KIND_COLORS[kind] ? KIND_COLORS[kind]!.border : '#565f89';
-      return `<div class="search-result" data-id="${escapeHtml(name)}">
-        <span class="search-result-name">${escapeHtml(shortName)}</span>
-        <span class="search-result-kind" style="color:${kindColor}">${kind}</span>
+    dropdown.innerHTML = results.map((result) => {
+      const kindColor = result.type === 'file'
+        ? 'var(--accent)'
+        : (KIND_COLORS[result.kind] ? KIND_COLORS[result.kind]!.border : '#565f89');
+      return `<div class="search-result" data-id="${escapeHtml(result.id)}" data-type="${result.type}">
+        <div class="search-result-body">
+          <span class="search-result-name">${escapeHtml(result.label)}</span>
+          <span class="search-result-subtitle">${escapeHtml(result.subtitle)}</span>
+        </div>
+        <span class="search-result-kind${result.type === 'file' ? ' file' : ''}" style="color:${kindColor}">${escapeHtml(result.kind)}</span>
       </div>`;
     }).join('');
 
@@ -1223,8 +1253,13 @@ function setupToolbar(): void {
     dropdown.querySelectorAll('.search-result').forEach((el) => {
       el.addEventListener('click', () => {
         const id = (el as HTMLElement).dataset.id || '';
+        const type = (el as HTMLElement).dataset.type || 'symbol';
         searchInput.value = '';
         dropdown.classList.add('hidden');
+        if (type === 'file') {
+          focusFileInGraph(id);
+          return;
+        }
         void focusSymbolInGraph(id, {
           maxDegrees: 1,
           animate: true,
@@ -1236,26 +1271,24 @@ function setupToolbar(): void {
     });
   }
 
+  function updateDropdownResults(): void {
+    const results = buildGraphSearchResults({
+      query: searchInput.value,
+      symbolIds: rankedSymbols,
+      nodes: graphNodes,
+      fileIndex: fileToSymbolIds,
+    });
+    showDropdownResults(results);
+  }
+
   searchInput.addEventListener('focus', () => {
-    if (searchInput.value.trim().length < 2) {
-      showDropdownResults(rankedSymbols.slice(0, 20));
-    }
+    updateDropdownResults();
   });
 
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
-      const query = searchInput.value.trim().toLowerCase();
-      if (query.length < 2) {
-        showDropdownResults(rankedSymbols.slice(0, 20));
-        return;
-      }
-
-      const matches = rankedSymbols.filter((name) => {
-        return matchesGraphNodeQuery(query, graphNodes.get(name) || {}, name);
-      }).slice(0, 15);
-
-      showDropdownResults(matches);
+      updateDropdownResults();
     }, 150);
   });
 
