@@ -61,6 +61,17 @@
           <div class="config-overlay-content">
             <h2>Agent not connected</h2>
             <p id="config-missing" class="config-missing hidden"></p>
+            <div class="config-overlay-spotlight">
+              <div class="config-overlay-spotlight-copy">
+                <span class="config-overlay-spotlight-badge">Fastest way to start</span>
+                <strong>Try minicode for free with OpenRouter</strong>
+                <p>Create a free OpenRouter account, connect it to this <code>minicode serve</code> session, and use free models without editing config files first.</p>
+              </div>
+              <div class="config-overlay-actions config-overlay-spotlight-actions">
+                <button id="connect-openrouter-btn" class="dropdown-action" type="button">Connect OpenRouter</button>
+                <span class="config-overlay-action-note">Session-only. Nothing is written to disk.</span>
+              </div>
+            </div>
             <p>minicode needs a model provider to run. Configure one of the following:</p>
             <div class="config-overlay-options">
               <div class="config-overlay-option">
@@ -79,11 +90,7 @@ MODEL=claude-sonnet-4-20250514</pre>
               </div>
               <div class="config-overlay-option">
                 <strong>OpenRouter / remote OpenAI-compatible</strong>
-                <p>Connect OpenRouter for this <code>minicode serve</code> session, or set it manually in <code>~/.minicode/.env</code> or your shell environment:</p>
-                <div class="config-overlay-actions">
-                  <button id="connect-openrouter-btn" class="dropdown-action" type="button">Connect OpenRouter</button>
-                  <span class="config-overlay-action-note">Session-only. Nothing is written to disk.</span>
-                </div>
+                <p>Set it manually in <code>~/.minicode/.env</code> or your shell environment:</p>
                 <pre>MODEL_PROVIDER=openai-compatible
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=sk-or-...

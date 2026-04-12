@@ -10,6 +10,7 @@ test("built HTML contains settings entry point and modal shell", () => {
   assert.ok(html.includes('id="settings-btn"'), "HTML should contain the settings button");
   assert.ok(html.includes('id="settings-modal"'), "HTML should contain the settings modal");
   assert.ok(html.includes('id="connect-openrouter-btn"'), "HTML should contain the OpenRouter connect button");
+  assert.ok(html.includes("Try minicode for free with OpenRouter"), "HTML should promote the free OpenRouter quick start");
   assert.ok(html.includes('id="disconnect-openrouter-btn"'), "HTML should contain the OpenRouter disconnect button");
   assert.ok(!html.includes('id="settings-scope"'), "HTML should no longer contain the settings scope selector");
   assert.ok(html.includes('id="settings-save"'), "HTML should contain the settings save action");
@@ -21,6 +22,7 @@ test("built CSS contains modal and settings layout styles", () => {
   assert.ok(css.includes(".settings-list"), "CSS should contain settings list styles");
   assert.ok(css.includes(".settings-item-meta"), "CSS should contain settings metadata grid styles");
   assert.ok(css.includes(".settings-help-warning"), "CSS should contain warning styling for env overrides");
+  assert.ok(css.includes(".config-overlay-spotlight"), "CSS should style the OpenRouter quick-start spotlight");
   assert.ok(css.includes(".config-connect-status.success"), "CSS should style OpenRouter connect success state");
   assert.ok(css.includes(".settings-session-banner"), "CSS should style the OpenRouter session banner");
   assert.ok(css.includes("body.modal-open"), "CSS should lock scroll while the settings modal is open");
