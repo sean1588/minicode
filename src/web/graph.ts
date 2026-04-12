@@ -301,7 +301,7 @@ function focusFileInGraph(filePath: string): void {
   }
 
   for (const symbolId of symbolIds) {
-    addNodeToGraph(symbolId);
+    addNodeNeighborhood(symbolId, 1);
   }
   connectExistingNodes();
   refreshAnalysisGraphState();

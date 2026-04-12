@@ -95,7 +95,7 @@ test('built JS auto-opens symbol details for agent activity and graph search sel
   );
 });
 
-test('built JS supports file search results and file-local subgraph rendering', () => {
+test('built JS supports file search results and file-centered neighborhood rendering', () => {
   const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
   assert.ok(
     js.includes('focusFileInGraph'),
@@ -108,5 +108,9 @@ test('built JS supports file search results and file-local subgraph rendering', 
   assert.ok(
     js.includes('el.dataset.type') && js.includes('focusFileInGraph(id)'),
     'JS should branch on file search results when handling selection',
+  );
+  assert.ok(
+    js.includes('addNodeNeighborhood(symbolId, 1)'),
+    'file-focused graph seeding should render one-hop connections for file symbols',
   );
 });
