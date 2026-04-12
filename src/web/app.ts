@@ -105,6 +105,16 @@ interface ConfigSaveResponse {
   settings: SettingsPayload;
 }
 
+interface OpenRouterConnectResponse {
+  ok: boolean;
+  sessionOnly: boolean;
+  provider: string;
+  model: string;
+  needsSetup: boolean;
+  missing: string[];
+  message: string;
+}
+
 const messagesEl = document.getElementById("messages")!;
 const chatForm = document.getElementById("chat-form") as HTMLFormElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
@@ -133,6 +143,8 @@ const settingsList = document.getElementById("settings-list")!;
 const settingsBanner = document.getElementById("settings-banner")!;
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsResetBtn = document.getElementById("settings-reset") as HTMLButtonElement;
+const connectOpenRouterBtn = document.getElementById("connect-openrouter-btn") as HTMLButtonElement | null;
+const configConnectStatus = document.getElementById("config-connect-status");
 
 let ws: WebSocket;
 let currentAssistantEl: HTMLElement | null = null;
@@ -143,6 +155,7 @@ let activeSavedSession: SessionMeta | null = null;
 const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
+const OPENROUTER_PKCE_VERIFIER_KEY = "minicode:openrouter:pkce-verifier";
 
 function connect(): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -183,6 +196,118 @@ function setBusy(busy: boolean): void {
 
 const configOverlay = document.getElementById("config-overlay")!;
 
+function setConfigConnectStatus(message: string, tone: "info" | "success" | "error"): void {
+  if (!configConnectStatus) {
+    return;
+  }
+  configConnectStatus.textContent = message;
+  configConnectStatus.className = `config-connect-status ${tone}`;
+}
+
+function clearConfigConnectStatus(): void {
+  if (!configConnectStatus) {
+    return;
+  }
+  configConnectStatus.textContent = "";
+  configConnectStatus.className = "config-connect-status hidden";
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createPkceVerifier(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return encodeBase64Url(bytes);
+}
+
+async function createPkceChallenge(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return encodeBase64Url(new Uint8Array(digest));
+}
+
+async function startOpenRouterConnect(): Promise<void> {
+  const verifier = createPkceVerifier();
+  const challenge = await createPkceChallenge(verifier);
+  sessionStorage.setItem(OPENROUTER_PKCE_VERIFIER_KEY, verifier);
+  setConfigConnectStatus("Redirecting to OpenRouter…", "info");
+
+  const callbackUrl = new URL(location.pathname, location.origin).toString();
+  const authUrl = new URL("https://openrouter.ai/auth");
+  authUrl.searchParams.set("callback_url", callbackUrl);
+  authUrl.searchParams.set("code_challenge", challenge);
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  location.assign(authUrl.toString());
+}
+
+async function maybeHandleOpenRouterCallback(): Promise<void> {
+  const url = new URL(location.href);
+  const code = url.searchParams.get("code");
+  if (!code) {
+    return;
+  }
+
+  const cleanedUrl = `${url.pathname}${url.hash}`;
+  history.replaceState({}, document.title, cleanedUrl);
+
+  const codeVerifier = sessionStorage.getItem(OPENROUTER_PKCE_VERIFIER_KEY);
+  sessionStorage.removeItem(OPENROUTER_PKCE_VERIFIER_KEY);
+
+  if (!codeVerifier) {
+    setConfigConnectStatus(
+      "OpenRouter sign-in could not be completed because the local PKCE verifier was missing. Start the connect flow again.",
+      "error",
+    );
+    return;
+  }
+
+  if (connectOpenRouterBtn) {
+    connectOpenRouterBtn.disabled = true;
+  }
+  setConfigConnectStatus("Connecting OpenRouter to this serve session…", "info");
+
+  try {
+    const res = await fetch("/api/openrouter/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, codeVerifier }),
+    });
+    const body = await res.json() as OpenRouterConnectResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to connect OpenRouter (${res.status})`);
+    }
+
+    addMessage(body.message, "thinking");
+    setConfigConnectStatus(body.message, body.needsSetup ? "info" : "success");
+    await fetchStatus();
+    await refreshModelList();
+
+    const onlyModelMissing =
+      body.needsSetup &&
+      body.missing.length === 1 &&
+      body.missing[0]?.includes("MODEL");
+    if (onlyModelMissing) {
+      modelDropdown.classList.remove("hidden");
+      sessionDropdown.classList.add("hidden");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to connect OpenRouter";
+    setConfigConnectStatus(message, "error");
+  } finally {
+    if (connectOpenRouterBtn) {
+      connectOpenRouterBtn.disabled = false;
+    }
+  }
+}
+
 async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
@@ -208,6 +333,12 @@ async function fetchStatus(): Promise<void> {
     } else {
       configOverlay.classList.add("hidden");
       chatInput.disabled = false;
+      sendBtn.disabled = false;
+      const missingEl = document.getElementById("config-missing");
+      if (missingEl) {
+        missingEl.classList.add("hidden");
+        missingEl.innerHTML = "";
+      }
     }
   } catch {
     // ignore
@@ -1063,6 +1194,10 @@ document.addEventListener("keydown", (event: KeyboardEvent) => {
   }
 });
 
+connectOpenRouterBtn?.addEventListener("click", () => {
+  void startOpenRouterConnect();
+});
+
 // -- Resizable pane divider --
 
 const chatPane = document.getElementById('chat-pane')!;
@@ -1112,3 +1247,4 @@ graphToggle.addEventListener('click', () => {
 
 connect();
 initGraph();
+void maybeHandleOpenRouterCallback();

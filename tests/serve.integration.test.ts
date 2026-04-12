@@ -18,7 +18,9 @@ import { createTestAgentConfig } from "./test-utils.js";
 class MockBridge extends AgentBridge {
   private _busy = false;
   private _currentSessionId = "sess-1";
+  private readonly _config = createTestAgentConfig("/tmp/test-workspace");
   turnHistory: string[] = [];
+  openRouterKey: string | undefined;
 
   constructor() {
     super(() => {}, false);
@@ -29,7 +31,7 @@ class MockBridge extends AgentBridge {
   }
 
   override getConfig() {
-    return createTestAgentConfig("/tmp/test-workspace");
+    return this._config;
   }
 
   override async runTurn(message: string) {
@@ -93,6 +95,13 @@ class MockBridge extends AgentBridge {
 
   override getCurrentSessionId(): string {
     return this._currentSessionId;
+  }
+
+  override connectOpenRouter(apiKey: string): void {
+    this.openRouterKey = apiKey;
+    this._config.modelProvider = "openai-compatible";
+    this._config.openAiBaseUrl = "https://openrouter.ai/api/v1";
+    this._config.openAiApiKey = apiKey;
   }
 
   setBusy(busy: boolean): void {
@@ -575,6 +584,100 @@ test("POST /api/chat returns 429 when agent is busy", async () => {
     body: JSON.stringify({ message: "hello" }),
   });
   assert.equal(res.status, 429);
+});
+
+test("POST /api/openrouter/connect exchanges code and stores a session-only key", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/auth/keys") {
+      return originalFetch(input, init);
+    }
+
+    assert.equal(init?.method, "POST");
+    assert.equal((init?.headers as Record<string, string>)["Content-Type"], "application/json");
+    const body = JSON.parse(String(init?.body)) as {
+      code: string;
+      code_verifier: string;
+      code_challenge_method: string;
+    };
+    assert.equal(body.code, "oauth-code");
+    assert.equal(body.code_verifier, "pkce-verifier");
+    assert.equal(body.code_challenge_method, "S256");
+    return new Response(
+      JSON.stringify({ key: "sk-or-v1-session-key" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const res = await originalFetch(`${base}/api/openrouter/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "oauth-code", codeVerifier: "pkce-verifier" }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json() as {
+      ok: boolean;
+      sessionOnly: boolean;
+      needsSetup: boolean;
+      missing: string[];
+      message: string;
+    };
+    assert.equal(body.ok, true);
+    assert.equal(body.sessionOnly, true);
+    assert.equal(body.needsSetup, false);
+    assert.deepEqual(body.missing, []);
+    assert.equal(body.message, "OpenRouter connected for this serve session.");
+    assert.equal(bridge.openRouterKey, "sk-or-v1-session-key");
+    assert.equal(bridge.getConfig().modelProvider, "openai-compatible");
+    assert.equal(bridge.getConfig().openAiBaseUrl, "https://openrouter.ai/api/v1");
+    assert.equal(bridge.getConfig().openAiApiKey, "sk-or-v1-session-key");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("POST /api/openrouter/connect returns 400 when code is missing", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/openrouter/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codeVerifier: "pkce-verifier" }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("POST /api/openrouter/connect surfaces exchange failures", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/auth/keys") {
+      return originalFetch(input, init);
+    }
+    return new Response("Invalid code", { status: 403 });
+  };
+
+  try {
+    const res = await originalFetch(`${base}/api/openrouter/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "bad-code", codeVerifier: "pkce-verifier" }),
+    });
+    assert.equal(res.status, 403);
+    const body = await res.json() as { error: string };
+    assert.ok(body.error.includes("OpenRouter OAuth exchange failed"));
+    assert.ok(body.error.includes("Invalid code"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ── OpenAI-compatible API tests ──

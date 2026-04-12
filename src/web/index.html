@@ -79,13 +79,18 @@ MODEL=claude-sonnet-4-20250514</pre>
               </div>
               <div class="config-overlay-option">
                 <strong>OpenRouter / remote OpenAI-compatible</strong>
-                <p>Set in <code>~/.minicode/.env</code> or your shell environment:</p>
+                <p>Connect OpenRouter for this <code>minicode serve</code> session, or set it manually in <code>~/.minicode/.env</code> or your shell environment:</p>
+                <div class="config-overlay-actions">
+                  <button id="connect-openrouter-btn" class="dropdown-action" type="button">Connect OpenRouter</button>
+                  <span class="config-overlay-action-note">Session-only. Nothing is written to disk.</span>
+                </div>
                 <pre>MODEL_PROVIDER=openai-compatible
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=sk-or-...
 MODEL=your-model-name</pre>
               </div>
             </div>
+            <p id="config-connect-status" class="config-connect-status hidden"></p>
             <p class="config-overlay-footer">After updating your config, restart <code>minicode serve</code>.</p>
           </div>
         </div>

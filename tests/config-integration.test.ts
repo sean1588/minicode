@@ -504,6 +504,28 @@ describe("getConfigMissing and getConfigSetupMessage", () => {
     });
   });
 
+  test("returns OPENROUTER_API_KEY missing for OpenRouter without a key", () => {
+    const config = {
+      ...createTestAgentConfig("/tmp"),
+      modelProvider: "openai-compatible" as const,
+      model: "google/gemini-2.5-flash",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+    };
+    const missing = getConfigMissing(config);
+    assert.ok(missing.some((m) => m.includes("OPENROUTER_API_KEY")));
+  });
+
+  test("does not require OPENROUTER_API_KEY when OpenRouter key is present in config", () => {
+    const config = {
+      ...createTestAgentConfig("/tmp"),
+      modelProvider: "openai-compatible" as const,
+      model: "google/gemini-2.5-flash",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+      openAiApiKey: "sk-or-v1-test",
+    };
+    assert.deepEqual(getConfigMissing(config), []);
+  });
+
   test("can return multiple missing items simultaneously", async () => {
     await withEnv({ ANTHROPIC_API_KEY: undefined }, async () => {
       const config = {
@@ -608,6 +630,27 @@ describe("loadAgentConfig → getConfigMissing integration", () => {
       assert.ok(missing.some((m) => m.includes("ANTHROPIC_API_KEY")));
     });
   });
+
+  test("OpenRouter provider without API key reports missing", async () => {
+    const home = await createTestHome({
+      config: {
+        modelProvider: "openai-compatible",
+        model: "google/gemini-2.5-flash",
+        openAiBaseUrl: "https://openrouter.ai/api/v1",
+      },
+    });
+
+    await withEnv({
+      OPENROUTER_API_KEY: undefined,
+      OPENAI_API_KEY: undefined,
+      MODEL: undefined,
+      MODEL_PROVIDER: undefined,
+    }, async () => {
+      const config = await loadAgentConfig("/tmp", { minicodeHome: home });
+      const missing = getConfigMissing(config);
+      assert.ok(missing.some((m) => m.includes("OPENROUTER_API_KEY")));
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -661,6 +704,22 @@ describe("/api/status needsSetup", () => {
       assert.equal(body.needsSetup, true);
       assert.ok(body.missing.some((m: string) => m.includes("ANTHROPIC_API_KEY")));
     });
+  });
+
+  test("returns needsSetup: true for OpenRouter without API key", async () => {
+    const config = {
+      ...createTestAgentConfig("/tmp"),
+      modelProvider: "openai-compatible" as const,
+      model: "google/gemini-2.5-flash",
+      openAiBaseUrl: "https://openrouter.ai/api/v1",
+    };
+    const bridge = new ConfigurableBridge(config);
+    const base = await startServer(bridge);
+
+    const res = await fetch(`${base}/api/status`);
+    const body = await res.json() as { needsSetup: boolean; missing: string[] };
+    assert.equal(body.needsSetup, true);
+    assert.ok(body.missing.some((m: string) => m.includes("OPENROUTER_API_KEY")));
   });
 
   test("status endpoint includes model and provider info", async () => {

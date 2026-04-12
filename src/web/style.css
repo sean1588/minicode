@@ -408,6 +408,44 @@ h1 {
   word-break: break-all;
 }
 
+.config-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.config-overlay-action-note {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.config-connect-status {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-top: 14px;
+}
+
+.config-connect-status.info {
+  color: var(--text);
+  background: rgba(122, 162, 247, 0.14);
+  border: 1px solid rgba(122, 162, 247, 0.28);
+}
+
+.config-connect-status.success {
+  color: var(--green);
+  background: rgba(158, 206, 106, 0.12);
+  border: 1px solid rgba(158, 206, 106, 0.28);
+}
+
+.config-connect-status.error {
+  color: var(--red, #f7768e);
+  background: rgba(247, 118, 142, 0.12);
+  border: 1px solid rgba(247, 118, 142, 0.28);
+}
+
 .config-overlay-footer {
   margin-top: 16px;
   color: var(--text-dim);

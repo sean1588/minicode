@@ -50,6 +50,11 @@ interface WebSettingsPayload {
   }>;
 }
 
+interface OpenRouterConnectRequestBody {
+  code?: string;
+  codeVerifier?: string;
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -147,6 +152,80 @@ export function createRequestHandler(
       if (pathname === "/api/models" && method === "GET") {
         const models = sortModelsAlphabetically(await bridge.listModels());
         sendJson(res, 200, { models, activeModel: config.model });
+        return;
+      }
+
+      if (pathname === "/api/openrouter/connect" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as OpenRouterConnectRequestBody;
+        if (!body.code || typeof body.code !== "string") {
+          sendJson(res, 400, { error: "code is required" });
+          return;
+        }
+        if (!body.codeVerifier || typeof body.codeVerifier !== "string") {
+          sendJson(res, 400, { error: "codeVerifier is required" });
+          return;
+        }
+
+        let exchangeResponse: Response;
+        try {
+          exchangeResponse = await fetch("https://openrouter.ai/api/v1/auth/keys", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              code: body.code,
+              code_verifier: body.codeVerifier,
+              code_challenge_method: "S256",
+            }),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "OpenRouter OAuth exchange failed";
+          sendJson(res, 502, { error: message });
+          return;
+        }
+
+        if (!exchangeResponse.ok) {
+          const message = await exchangeResponse.text();
+          sendJson(
+            res,
+            exchangeResponse.status,
+            {
+              error: message.trim().length > 0
+                ? `OpenRouter OAuth exchange failed: ${message}`
+                : `OpenRouter OAuth exchange failed (${exchangeResponse.status})`,
+            },
+          );
+          return;
+        }
+
+        const payload = await exchangeResponse.json() as { key?: string };
+        if (!payload.key || typeof payload.key !== "string") {
+          sendJson(res, 502, { error: "OpenRouter OAuth exchange did not return an API key." });
+          return;
+        }
+
+        try {
+          bridge.connectOpenRouter(payload.key);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to configure OpenRouter";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        const missing = getConfigMissing(config);
+        const onlyModelMissing = missing.length === 1 && missing[0] === "MODEL is not set";
+        sendJson(res, 200, {
+          ok: true,
+          sessionOnly: true,
+          provider: config.modelProvider,
+          model: config.model,
+          needsSetup: missing.length > 0,
+          missing,
+          message: onlyModelMissing
+            ? "OpenRouter connected for this serve session. Select a model to continue."
+            : "OpenRouter connected for this serve session.",
+        });
         return;
       }
 

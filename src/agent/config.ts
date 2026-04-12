@@ -51,9 +51,16 @@ export function formatConfigForDisplay(config: AgentConfig): string {
  */
 export function getConfigMissing(config: AgentConfig): string[] {
   const missing: string[] = [];
+  const isOpenRouter =
+    config.modelProvider === "openai-compatible" &&
+    config.openAiBaseUrl.includes("openrouter");
 
   if (!config.model) {
     missing.push("MODEL is not set");
+  }
+
+  if (isOpenRouter && !config.openAiApiKey?.trim()) {
+    missing.push("OPENROUTER_API_KEY is not set");
   }
 
   if (config.modelProvider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
