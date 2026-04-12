@@ -24,4 +24,6 @@ test("built JS contains active saved session update logic", () => {
   assert.ok(js.includes("Session updated:"), "JS should emit the update confirmation message");
   assert.ok(js.includes("sessionRefreshTracker"), "JS should guard session list refreshes against stale responses");
   assert.ok(js.includes('saveBtn.setAttribute("disabled", "true")'), "JS should disable saving while the first save is in flight");
+  assert.ok(js.includes("renderLoadedSessionMessages"), "JS should render session previews after load");
+  assert.ok(js.includes("body.messages"), "JS should read preview messages from the load session response");
 });

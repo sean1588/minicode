@@ -15,6 +15,7 @@ import { serializeSymbolMatch } from "../shared/symbol-resolution.js";
 import type { ServerMessage } from "./types.js";
 import type { WebSocketServer } from "ws";
 import { handleMcpRequest } from "./mcp-server.js";
+import { buildSessionPreview } from "../session/session-preview.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -235,7 +236,10 @@ export function createRequestHandler(
           sendJson(res, 404, { error: "Session not found" });
           return;
         }
-        sendJson(res, 200, { label: result.label });
+        sendJson(res, 200, {
+          label: result.label,
+          messages: buildSessionPreview(result.session.getMessages()),
+        });
         return;
       }
 
