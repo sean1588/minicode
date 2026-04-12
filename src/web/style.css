@@ -335,7 +335,7 @@ h1 {
   inset: 0;
   z-index: 50;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   background: rgba(26, 27, 38, 0.92);
   backdrop-filter: blur(4px);
@@ -348,6 +348,7 @@ h1 {
 .config-overlay-content {
   max-width: 520px;
   width: 100%;
+  margin: 0 auto;
 }
 
 .config-overlay-content h2 {
@@ -857,6 +858,10 @@ footer {
   overflow: hidden;
 }
 
+.modal-panel-compact {
+  width: min(640px, calc(100vw - 32px));
+}
+
 .modal-header,
 .modal-footer,
 .settings-toolbar {
@@ -1151,6 +1156,58 @@ footer {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.openrouter-connect-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.openrouter-connect-lead {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.openrouter-connect-note {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(122, 162, 247, 0.22);
+  background: rgba(122, 162, 247, 0.08);
+}
+
+.openrouter-connect-note strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.openrouter-connect-note p,
+.openrouter-connect-help {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.openrouter-persist-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(26, 27, 38, 0.72);
+  cursor: pointer;
+}
+
+.openrouter-persist-toggle input {
+  margin-top: 2px;
+}
+
+.openrouter-persist-toggle span {
+  font-size: 12px;
+  color: var(--text);
 }
 
 @media (max-width: 760px) {
@@ -1943,6 +2000,10 @@ main::-webkit-scrollbar-thumb {
   .settings-item-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .openrouter-persist-toggle {
+    align-items: flex-start;
   }
 
   .settings-path-group {

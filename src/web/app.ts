@@ -110,6 +110,9 @@ interface ConfigSaveResponse {
 interface OpenRouterConnectResponse {
   ok: boolean;
   sessionOnly: boolean;
+  persistedToEnv: boolean;
+  persistedEnvPath: string | null;
+  persistWarning: string | null;
   baseUrl: string;
   provider: string;
   model: string;
@@ -153,6 +156,12 @@ const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement
 const settingsModal = document.getElementById("settings-modal")!;
 const settingsBackdrop = document.getElementById("settings-backdrop")!;
 const settingsCloseBtn = document.getElementById("settings-close") as HTMLButtonElement;
+const openRouterConnectModal = document.getElementById("openrouter-connect-modal")!;
+const openRouterConnectBackdrop = document.getElementById("openrouter-connect-backdrop")!;
+const openRouterConnectCloseBtn = document.getElementById("openrouter-connect-close") as HTMLButtonElement;
+const openRouterConnectCancelBtn = document.getElementById("openrouter-connect-cancel") as HTMLButtonElement;
+const openRouterConnectContinueBtn = document.getElementById("openrouter-connect-continue") as HTMLButtonElement;
+const openRouterPersistCheckbox = document.getElementById("openrouter-persist-checkbox") as HTMLInputElement;
 const settingsPath = document.getElementById("settings-path")!;
 const settingsList = document.getElementById("settings-list")!;
 const settingsBanner = document.getElementById("settings-banner")!;
@@ -161,7 +170,9 @@ const settingsOpenRouterSessionMeta = document.getElementById("settings-openrout
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsResetBtn = document.getElementById("settings-reset") as HTMLButtonElement;
 const disconnectOpenRouterBtn = document.getElementById("disconnect-openrouter-btn") as HTMLButtonElement;
-const connectOpenRouterBtn = document.getElementById("connect-openrouter-btn") as HTMLButtonElement | null;
+const connectOpenRouterButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-openrouter-connect]"),
+);
 const configConnectStatus = document.getElementById("config-connect-status");
 
 let ws: WebSocket;
@@ -176,6 +187,7 @@ const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
 const OPENROUTER_PKCE_VERIFIER_KEY = "minicode:openrouter:pkce-verifier";
+const OPENROUTER_PERSIST_TO_ENV_KEY = "minicode:openrouter:persist-to-env";
 
 function connect(): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -254,10 +266,11 @@ async function createPkceChallenge(verifier: string): Promise<string> {
   return encodeBase64Url(new Uint8Array(digest));
 }
 
-async function startOpenRouterConnect(): Promise<void> {
+async function startOpenRouterConnect(persistToEnv: boolean): Promise<void> {
   const verifier = createPkceVerifier();
   const challenge = await createPkceChallenge(verifier);
   sessionStorage.setItem(OPENROUTER_PKCE_VERIFIER_KEY, verifier);
+  sessionStorage.setItem(OPENROUTER_PERSIST_TO_ENV_KEY, persistToEnv ? "1" : "0");
   setConfigConnectStatus("Redirecting to OpenRouter…", "info");
 
   const callbackUrl = new URL(location.pathname, location.origin).toString();
@@ -279,7 +292,9 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
   history.replaceState({}, document.title, cleanedUrl);
 
   const codeVerifier = sessionStorage.getItem(OPENROUTER_PKCE_VERIFIER_KEY);
+  const persistToEnv = sessionStorage.getItem(OPENROUTER_PERSIST_TO_ENV_KEY) === "1";
   sessionStorage.removeItem(OPENROUTER_PKCE_VERIFIER_KEY);
+  sessionStorage.removeItem(OPENROUTER_PERSIST_TO_ENV_KEY);
 
   if (!codeVerifier) {
     setConfigConnectStatus(
@@ -289,8 +304,8 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
     return;
   }
 
-  if (connectOpenRouterBtn) {
-    connectOpenRouterBtn.disabled = true;
+  for (const button of connectOpenRouterButtons) {
+    button.disabled = true;
   }
   setConfigConnectStatus("Connecting OpenRouter to this serve session…", "info");
 
@@ -298,7 +313,7 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
     const res = await fetch("/api/openrouter/connect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, codeVerifier }),
+      body: JSON.stringify({ code, codeVerifier, persistToEnv }),
     });
     const body = await res.json() as OpenRouterConnectResponse | { error: string };
     if (!res.ok) {
@@ -307,7 +322,10 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
 
     activeBaseUrl = body.baseUrl;
     addMessage(body.message, "thinking");
-    setConfigConnectStatus(body.message, body.needsSetup ? "info" : "success");
+    const statusTone = body.persistWarning
+      ? "info"
+      : (body.needsSetup ? "info" : "success");
+    setConfigConnectStatus(body.message, statusTone);
     await fetchStatus();
     await refreshModelList();
 
@@ -323,8 +341,8 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
     const message = error instanceof Error ? error.message : "Failed to connect OpenRouter";
     setConfigConnectStatus(message, "error");
   } finally {
-    if (connectOpenRouterBtn) {
-      connectOpenRouterBtn.disabled = false;
+    for (const button of connectOpenRouterButtons) {
+      button.disabled = false;
     }
   }
 }
@@ -682,6 +700,15 @@ function isSettingsModalOpen(): boolean {
   return !settingsModal.classList.contains("hidden");
 }
 
+function isOpenRouterConnectModalOpen(): boolean {
+  return !openRouterConnectModal.classList.contains("hidden");
+}
+
+function syncModalOpenState(): void {
+  const anyModalOpen = isSettingsModalOpen() || isOpenRouterConnectModalOpen();
+  document.body.classList.toggle("modal-open", anyModalOpen);
+}
+
 function formatSettingsValue(value: SettingsValue): string {
   return value === null ? "(unset)" : String(value);
 }
@@ -940,15 +967,31 @@ function openSettings(): void {
   closeHeaderMenus();
   settingsModal.classList.remove("hidden");
   settingsModal.setAttribute("aria-hidden", "false");
-  document.body.classList.add("modal-open");
+  syncModalOpenState();
   void loadSettings();
 }
 
 function closeSettings(): void {
   settingsModal.classList.add("hidden");
   settingsModal.setAttribute("aria-hidden", "true");
-  document.body.classList.remove("modal-open");
+  syncModalOpenState();
   clearSettingsBanner();
+}
+
+function openOpenRouterConnectModal(): void {
+  closeHeaderMenus();
+  openRouterConnectModal.classList.remove("hidden");
+  openRouterConnectModal.setAttribute("aria-hidden", "false");
+  openRouterPersistCheckbox.checked = false;
+  openRouterConnectContinueBtn.disabled = false;
+  syncModalOpenState();
+}
+
+function closeOpenRouterConnectModal(): void {
+  openRouterConnectModal.classList.add("hidden");
+  openRouterConnectModal.setAttribute("aria-hidden", "true");
+  openRouterConnectContinueBtn.disabled = false;
+  syncModalOpenState();
 }
 
 // Form handling
@@ -1195,6 +1238,18 @@ settingsBackdrop.addEventListener("click", () => {
   closeSettings();
 });
 
+openRouterConnectBackdrop.addEventListener("click", () => {
+  closeOpenRouterConnectModal();
+});
+
+openRouterConnectCloseBtn.addEventListener("click", () => {
+  closeOpenRouterConnectModal();
+});
+
+openRouterConnectCancelBtn.addEventListener("click", () => {
+  closeOpenRouterConnectModal();
+});
+
 settingsResetBtn.addEventListener("click", () => {
   clearSettingsBanner();
   renderSettings();
@@ -1261,13 +1316,28 @@ disconnectOpenRouterBtn.addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event: KeyboardEvent) => {
-  if (event.key === "Escape" && isSettingsModalOpen()) {
+  if (event.key !== "Escape") {
+    return;
+  }
+  if (isOpenRouterConnectModalOpen()) {
+    closeOpenRouterConnectModal();
+    return;
+  }
+  if (isSettingsModalOpen()) {
     closeSettings();
   }
 });
 
-connectOpenRouterBtn?.addEventListener("click", () => {
-  void startOpenRouterConnect();
+for (const button of connectOpenRouterButtons) {
+  button.addEventListener("click", () => {
+    openOpenRouterConnectModal();
+  });
+}
+
+openRouterConnectContinueBtn.addEventListener("click", () => {
+  openRouterConnectContinueBtn.disabled = true;
+  closeOpenRouterConnectModal();
+  void startOpenRouterConnect(openRouterPersistCheckbox.checked);
 });
 
 // -- Resizable pane divider --

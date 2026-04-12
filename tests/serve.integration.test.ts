@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test, afterEach } from "node:test";
 import type { Server } from "node:http";
 import { createServer } from "node:http";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { StructuralAnalysisReport } from "../src/analysis/structural-analysis.js";
 import { createRequestHandler, shutdownServe } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
@@ -393,8 +395,11 @@ class EmptySessionsBridge extends MockBridge {
 
 let activeServer: Server | undefined;
 
-function startTestServer(bridge: MockBridge): Promise<string> {
-  const handler = createRequestHandler(bridge);
+function startTestServer(
+  bridge: MockBridge,
+  options: Parameters<typeof createRequestHandler>[2] = {},
+): Promise<string> {
+  const handler = createRequestHandler(bridge, undefined, options);
   const server = createServer(handler);
   activeServer = server;
   return new Promise((resolve) => {
@@ -644,6 +649,9 @@ test("POST /api/openrouter/connect exchanges code and stores a session-only key"
     const body = await res.json() as {
       ok: boolean;
       sessionOnly: boolean;
+      persistedToEnv: boolean;
+      persistedEnvPath: string | null;
+      persistWarning: string | null;
       baseUrl: string;
       needsSetup: boolean;
       missing: string[];
@@ -651,6 +659,9 @@ test("POST /api/openrouter/connect exchanges code and stores a session-only key"
     };
     assert.equal(body.ok, true);
     assert.equal(body.sessionOnly, true);
+    assert.equal(body.persistedToEnv, false);
+    assert.equal(body.persistedEnvPath, null);
+    assert.equal(body.persistWarning, null);
     assert.equal(body.baseUrl, "https://openrouter.ai/api/v1");
     assert.equal(body.needsSetup, false);
     assert.deepEqual(body.missing, []);
@@ -661,6 +672,52 @@ test("POST /api/openrouter/connect exchanges code and stores a session-only key"
     assert.equal(bridge.getConfig().openAiApiKey, "sk-or-v1-session-key");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("POST /api/openrouter/connect can persist OpenRouter setup to ~/.minicode/.env", async () => {
+  const bridge = new MockBridge();
+  const minicodeHome = mkdtempSync(path.join(os.tmpdir(), "minicode-openrouter-home-"));
+  const base = await startTestServer(bridge, { minicodeHome });
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/auth/keys") {
+      return originalFetch(input, init);
+    }
+
+    return new Response(
+      JSON.stringify({ key: "sk-or-v1-session-key" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const res = await originalFetch(`${base}/api/openrouter/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "oauth-code", codeVerifier: "pkce-verifier", persistToEnv: true }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json() as {
+      persistedToEnv: boolean;
+      persistedEnvPath: string | null;
+      persistWarning: string | null;
+      message: string;
+    };
+    assert.equal(body.persistedToEnv, true);
+    assert.equal(body.persistWarning, null);
+    assert.equal(body.persistedEnvPath, path.join(minicodeHome, ".env"));
+    assert.match(body.message, /saved to ~\/\.minicode\/\.env/);
+
+    const envContents = readFileSync(path.join(minicodeHome, ".env"), "utf8");
+    assert.match(envContents, /^MODEL_PROVIDER=openai-compatible$/m);
+    assert.match(envContents, /^OPENAI_BASE_URL=https:\/\/openrouter\.ai\/api\/v1$/m);
+    assert.match(envContents, /^OPENROUTER_API_KEY=sk-or-v1-session-key$/m);
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(minicodeHome, { recursive: true, force: true });
   }
 });
 

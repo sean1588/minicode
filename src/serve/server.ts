@@ -10,6 +10,7 @@ import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
 import { formatConfigForDisplay, getConfigMissing } from "../agent/config.js";
 import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../agent/editable-config.js";
+import { getHomeEnvPath, upsertHomeEnvValues } from "../agent/home-env.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
 import { serializeSymbolMatch } from "../shared/symbol-resolution.js";
 import type { ServerMessage } from "./types.js";
@@ -53,6 +54,7 @@ interface WebSettingsPayload {
 interface OpenRouterConnectRequestBody {
   code?: string;
   codeVerifier?: string;
+  persistToEnv?: boolean;
 }
 
 interface OpenRouterDisconnectResponse {
@@ -227,19 +229,56 @@ export function createRequestHandler(
           return;
         }
 
+        let persistedToEnv = false;
+        let persistedEnvPath: string | null = null;
+        let persistWarning: string | null = null;
+
+        if (body.persistToEnv === true) {
+          try {
+            const result = await upsertHomeEnvValues({
+              values: {
+                MODEL_PROVIDER: "openai-compatible",
+                OPENAI_BASE_URL: "https://openrouter.ai/api/v1",
+                OPENROUTER_API_KEY: payload.key,
+              },
+              ...(minicodeHome ? { minicodeHome } : {}),
+            });
+            persistedToEnv = true;
+            persistedEnvPath = result.path;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+            persistedEnvPath = getHomeEnvPath(minicodeHome);
+            persistWarning = `OpenRouter connected for this serve session, but minicode could not update ${persistedEnvPath}: ${message}`;
+          }
+        }
+
         const missing = getConfigMissing(config);
         const onlyModelMissing = missing.length === 1 && missing[0] === "MODEL is not set";
+        const message = persistWarning
+          ? `${persistWarning}${onlyModelMissing ? " Select a model to continue." : ""}`
+          : persistedToEnv
+            ? (
+              onlyModelMissing
+                ? "OpenRouter connected for this serve session and saved to ~/.minicode/.env. Select a model to continue."
+                : "OpenRouter connected for this serve session and saved to ~/.minicode/.env for future runs."
+            )
+            : (
+              onlyModelMissing
+                ? "OpenRouter connected for this serve session. Select a model to continue."
+                : "OpenRouter connected for this serve session."
+            );
         sendJson(res, 200, {
           ok: true,
           sessionOnly: true,
+          persistedToEnv,
+          persistedEnvPath,
+          persistWarning,
           provider: config.modelProvider,
           model: config.model,
           baseUrl: config.openAiBaseUrl,
           needsSetup: missing.length > 0,
           missing,
-          message: onlyModelMissing
-            ? "OpenRouter connected for this serve session. Select a model to continue."
-            : "OpenRouter connected for this serve session.",
+          message,
         });
         return;
       }

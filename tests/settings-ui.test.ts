@@ -11,6 +11,8 @@ test("built HTML contains settings entry point and modal shell", () => {
   assert.ok(html.includes('id="settings-modal"'), "HTML should contain the settings modal");
   assert.ok(html.includes('id="connect-openrouter-btn"'), "HTML should contain the OpenRouter connect button");
   assert.ok(html.includes("Try minicode for free with OpenRouter"), "HTML should promote the free OpenRouter quick start");
+  assert.ok(html.includes('id="openrouter-connect-modal"'), "HTML should contain the OpenRouter consent modal");
+  assert.ok(html.includes('id="openrouter-persist-checkbox"'), "HTML should contain the OpenRouter persistence checkbox");
   assert.ok(html.includes('id="disconnect-openrouter-btn"'), "HTML should contain the OpenRouter disconnect button");
   assert.ok(!html.includes('id="settings-scope"'), "HTML should no longer contain the settings scope selector");
   assert.ok(html.includes('id="settings-save"'), "HTML should contain the settings save action");
@@ -22,7 +24,9 @@ test("built CSS contains modal and settings layout styles", () => {
   assert.ok(css.includes(".settings-list"), "CSS should contain settings list styles");
   assert.ok(css.includes(".settings-item-meta"), "CSS should contain settings metadata grid styles");
   assert.ok(css.includes(".settings-help-warning"), "CSS should contain warning styling for env overrides");
+  assert.ok(css.includes("align-items: flex-start;"), "CSS should top-align scrollable setup overlay content");
   assert.ok(css.includes(".config-overlay-spotlight"), "CSS should style the OpenRouter quick-start spotlight");
+  assert.ok(css.includes(".openrouter-connect-body"), "CSS should style the OpenRouter consent modal body");
   assert.ok(css.includes(".config-connect-status.success"), "CSS should style OpenRouter connect success state");
   assert.ok(css.includes(".settings-session-banner"), "CSS should style the OpenRouter session banner");
   assert.ok(css.includes("body.modal-open"), "CSS should lock scroll while the settings modal is open");
@@ -35,6 +39,7 @@ test("built JS contains config loading and saving logic for settings", () => {
   assert.ok(js.includes("/api/openrouter/disconnect"), "JS should call the OpenRouter disconnect API");
   assert.ok(js.includes("code_challenge_method"), "JS should generate an OpenRouter PKCE auth request");
   assert.ok(js.includes("sessionStorage"), "JS should persist the PKCE verifier for the OAuth callback");
+  assert.ok(js.includes("minicode:openrouter:persist-to-env"), "JS should persist the optional OpenRouter env-write choice across OAuth");
   assert.ok(js.includes("sessionOpenRouterConnected"), "JS should track session-only OpenRouter state");
   assert.ok(js.includes("Save settings"), "JS should contain the settings save action text");
   assert.ok(js.includes("settingsPayload"), "JS should track settings payload state");
