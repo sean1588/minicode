@@ -20,6 +20,10 @@ import {
   type GraphSearchResult,
 } from '../shared/graph-search.ts';
 import {
+  buildFileFocusedSelection,
+  buildGraphEdgeIndex,
+} from '../shared/graph-selection.ts';
+import {
   compareGraphNodeIds,
   getGraphNodeLabel,
   resolveGraphNodeIds,
@@ -98,7 +102,7 @@ const graphNodes = new Map<string, GraphNode>();
 let graphEdges: GraphEdge[] = [];
 let fileToSymbolIds = new Map<string, string[]>();
 // Adjacency index: node id → edges touching that node (O(1) neighbor lookup)
-const edgeIndex = new Map<string, GraphEdge[]>();
+let edgeIndex = new Map<string, GraphEdge[]>();
 const pinnedNames = new Set<string>();
 let allSymbolNames: string[] = [];
 let initialized = false;
@@ -161,7 +165,7 @@ export async function initGraph(): Promise<void> {
       target: e.target || e.to || '',
       kind: (e.kind || e.type || 'references').toLowerCase(),
     }));
-    buildEdgeIndex();
+    edgeIndex = buildGraphEdgeIndex(graphEdges);
     fileToSymbolIds = buildGraphFileIndex(graphNodes);
 
     allSymbolNames = Array.from(graphNodes.keys()).sort();
@@ -235,18 +239,6 @@ function removeOnboardingHint(): void {
   if (hint) hint.remove();
 }
 
-function buildEdgeIndex(): void {
-  edgeIndex.clear();
-  for (const edge of graphEdges) {
-    let srcList = edgeIndex.get(edge.source);
-    if (!srcList) { srcList = []; edgeIndex.set(edge.source, srcList); }
-    srcList.push(edge);
-    let tgtList = edgeIndex.get(edge.target);
-    if (!tgtList) { tgtList = []; edgeIndex.set(edge.target, tgtList); }
-    tgtList.push(edge);
-  }
-}
-
 function addNodeNeighborhood(symbolId: string, maxDegrees = 1): void {
   const visited = new Set<string>();
   let frontier = new Set<string>([symbolId]);
@@ -289,21 +281,27 @@ function renderNodeNeighborhoodAndLayout(symbolId: string, maxDegrees = 1): void
 function focusFileInGraph(filePath: string): void {
   if (!cy) return;
 
-  const symbolIds = fileToSymbolIds.get(filePath) || [];
+  const selection = buildFileFocusedSelection({
+    filePath,
+    fileIndex: fileToSymbolIds,
+    edgeIndex,
+  });
   cy.elements().remove();
   document.getElementById('symbol-detail')?.classList.add('hidden');
 
-  if (symbolIds.length === 0) {
+  if (selection.nodeIds.length === 0) {
     const cyEl = document.getElementById('cy');
     if (cyEl) showOnboardingHint(cyEl);
     refreshAnalysisGraphState();
     return;
   }
 
-  for (const symbolId of symbolIds) {
-    addNodeNeighborhood(symbolId, 1);
+  for (const symbolId of selection.nodeIds) {
+    addNodeToGraph(symbolId);
   }
-  connectExistingNodes();
+  for (const edge of selection.edges) {
+    addEdgeToGraph(edge);
+  }
   refreshAnalysisGraphState();
   runLayout();
 }

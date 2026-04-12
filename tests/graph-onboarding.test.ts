@@ -110,7 +110,7 @@ test('built JS supports file search results and file-centered neighborhood rende
     'JS should branch on file search results when handling selection',
   );
   assert.ok(
-    js.includes('addNodeNeighborhood(symbolId, 1)'),
-    'file-focused graph seeding should render one-hop connections for file symbols',
+    js.includes('buildFileFocusedSelection'),
+    'file-focused graph seeding should use the shared file selection helper',
   );
 });
