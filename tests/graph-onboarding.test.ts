@@ -11,6 +11,7 @@ test('built CSS contains graph-onboarding styles', () => {
   assert.ok(css.includes('.graph-onboarding-icon'), 'CSS should contain .graph-onboarding-icon class');
   assert.ok(css.includes('.graph-onboarding-title'), 'CSS should contain .graph-onboarding-title class');
   assert.ok(css.includes('.graph-onboarding-subtitle'), 'CSS should contain .graph-onboarding-subtitle class');
+  assert.ok(css.includes('.search-result-subtitle'), 'CSS should contain secondary search result text styling');
   assert.ok(css.includes('pointer-events: none'), 'onboarding overlay should not block interactions');
   assert.ok(css.includes('width: 380px;'), 'symbol detail panel should have a wider default width');
 });
@@ -26,6 +27,7 @@ test('built HTML contains #cy graph container', () => {
   const html = readFileSync(join(distWeb, 'index.html'), 'utf-8');
   assert.ok(html.includes('id="cy"'), 'HTML should contain the #cy graph container');
   assert.ok(html.includes('id="graph-pane"'), 'HTML should contain the #graph-pane wrapper');
+  assert.ok(html.includes('Search symbols or files...'), 'HTML should expose mixed symbol/file search');
 });
 
 test('onboarding hint includes user-facing guidance text in built JS', () => {
@@ -35,7 +37,7 @@ test('onboarding hint includes user-facing guidance text in built JS', () => {
     'onboarding title should mention the code dependency graph',
   );
   assert.ok(
-    js.includes('Search for a symbol'),
+    js.includes('Search for a symbol or file'),
     'onboarding subtitle should guide users to search',
   );
 });
@@ -90,5 +92,25 @@ test('built JS auto-opens symbol details for agent activity and graph search sel
   assert.ok(
     js.includes('await showDetail(node, detailEl)'),
     'JS should populate the symbol detail panel when focus requests it',
+  );
+});
+
+test('built JS supports file search results and file-centered neighborhood rendering', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  assert.ok(
+    js.includes('focusFileInGraph'),
+    'JS should define a file-focused graph seeding helper',
+  );
+  assert.ok(
+    js.includes('buildGraphSearchResults'),
+    'JS should use the shared mixed search result helper',
+  );
+  assert.ok(
+    js.includes('el.dataset.type') && js.includes('focusFileInGraph(id)'),
+    'JS should branch on file search results when handling selection',
+  );
+  assert.ok(
+    js.includes('buildFileFocusedSelection'),
+    'file-focused graph seeding should use the shared file selection helper',
   );
 });
