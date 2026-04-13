@@ -192,7 +192,6 @@ let settingsPayload: SettingsPayload | null = null;
 let activeSavedSession: SessionMeta | null = null;
 let activeBaseUrl = "";
 let sessionOpenRouterConnected = false;
-let persistOpenRouterModelSelection = false;
 const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
@@ -206,6 +205,7 @@ function connect(): void {
   ws.onopen = () => {
     setStatus("ready");
     fetchStatus();
+    refreshModelList();
     fetchContext();
   };
 
@@ -343,13 +343,11 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
       body.needsSetup &&
       body.missing.length === 1 &&
       body.missing[0]?.includes("MODEL");
-    persistOpenRouterModelSelection = body.persistedToEnv && onlyModelMissing;
     if (onlyModelMissing) {
       modelDropdown.classList.remove("hidden");
       sessionDropdown.classList.add("hidden");
     }
   } catch (error) {
-    persistOpenRouterModelSelection = false;
     const message = error instanceof Error ? error.message : "Failed to connect OpenRouter";
     setConfigConnectStatus(message, "error");
   } finally {
@@ -383,7 +381,6 @@ async function disconnectOpenRouter(): Promise<void> {
     const message = error instanceof Error ? error.message : "Failed to disconnect OpenRouter";
     setSettingsBanner(message, "error");
   } finally {
-    persistOpenRouterModelSelection = false;
     disconnectOpenRouterBtn.disabled = false;
   }
 }
@@ -1071,10 +1068,21 @@ async function refreshModelList(): Promise<void> {
     const res = await fetch("/api/models");
     const data = await res.json() as { models: Array<{ id: string; name?: string }>; activeModel: string };
     activeModel = data.activeModel;
+    const hasActiveModel = !!activeModel && data.models.some((model) => model.id === activeModel);
 
     if (!data.models || data.models.length === 0) {
+      modelInfo.textContent = "Select model";
+      modelInfo.classList.add("placeholder");
       modelList.innerHTML = '<div class="dropdown-empty">No models available</div>';
       return;
+    }
+
+    if (hasActiveModel) {
+      modelInfo.textContent = activeModel;
+      modelInfo.classList.remove("placeholder");
+    } else {
+      modelInfo.textContent = "Select model";
+      modelInfo.classList.add("placeholder");
     }
 
     modelList.innerHTML = "";
@@ -1094,15 +1102,13 @@ async function refreshModelList(): Promise<void> {
 }
 
 async function switchModel(modelId: string): Promise<void> {
-  const shouldPersistModel = persistOpenRouterModelSelection;
-
   try {
     const res = await fetch("/api/model", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: modelId,
-        persistToHomeEnv: shouldPersistModel,
+        persistToHomeEnv: true,
       }),
     });
     const body = await res.json() as ModelSwitchResponse | { error: string };
@@ -1115,8 +1121,7 @@ async function switchModel(modelId: string): Promise<void> {
     activeModel = modelId;
     modelDropdown.classList.add("hidden");
 
-    if (shouldPersistModel && body.persistedToEnv) {
-      persistOpenRouterModelSelection = false;
+    if (body.persistedToEnv) {
       addMessage(`Model switched to: ${modelId}. Saved as the default in ~/.minicode/.env.`, "thinking");
     } else {
       addMessage(`Model switched to: ${modelId}`, "thinking");

@@ -98,7 +98,12 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
     const content = await readFile(filePath);
     const ext = path.extname(filePath);
     const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
-    res.writeHead(200, { "Content-Type": contentType });
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      // This local UI changes often during development. Avoid stale browser bundles
+      // causing the app to run an older client against a newer server.
+      "Cache-Control": "no-store",
+    });
     res.end(content);
   } catch {
     res.writeHead(404);
@@ -326,22 +331,20 @@ export function createRequestHandler(
         let persistedEnvPath: string | null = null;
         let message: string | undefined;
 
-        if (body.persistToHomeEnv === true) {
-          try {
-            const result = await upsertHomeEnvValues({
-              values: {
-                MODEL: body.model,
-              },
-              ...(minicodeHome ? { minicodeHome } : {}),
-            });
-            persistedToEnv = true;
-            persistedEnvPath = result.path;
-            message = `Saved MODEL=${body.model} to ~/.minicode/.env.`;
-          } catch (error) {
-            const persistMessage = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
-            sendJson(res, 500, { error: persistMessage });
-            return;
-          }
+        try {
+          const result = await upsertHomeEnvValues({
+            values: {
+              MODEL: body.model,
+            },
+            ...(minicodeHome ? { minicodeHome } : {}),
+          });
+          persistedToEnv = true;
+          persistedEnvPath = result.path;
+          message = `Saved MODEL=${body.model} to ~/.minicode/.env.`;
+        } catch (error) {
+          const persistMessage = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+          sendJson(res, 500, { error: persistMessage });
+          return;
         }
 
         sendJson(res, 200, { model: body.model, persistedToEnv, persistedEnvPath, message });

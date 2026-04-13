@@ -725,7 +725,7 @@ test("POST /api/openrouter/connect can persist OpenRouter setup to ~/.minicode/.
   }
 });
 
-test("POST /api/model can persist the selected model to ~/.minicode/.env", async () => {
+test("POST /api/model persists the selected model to ~/.minicode/.env", async () => {
   const bridge = new MockBridge();
   const minicodeHome = mkdtempSync(path.join(os.tmpdir(), "minicode-model-home-"));
   const envPath = path.join(minicodeHome, ".env");
@@ -745,7 +745,7 @@ test("POST /api/model can persist the selected model to ~/.minicode/.env", async
     const res = await fetch(`${base}/api/model`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "openrouter/test-model", persistToHomeEnv: true }),
+      body: JSON.stringify({ model: "openrouter/test-model" }),
     });
     assert.equal(res.status, 200);
 
@@ -994,6 +994,7 @@ test("GET / serves index.html", async () => {
   const res = await fetch(`${base}/`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "text/html");
+  assert.equal(res.headers.get("cache-control"), "no-store");
 
   const html = await res.text();
   assert.ok(html.includes("minicode"));
@@ -1006,6 +1007,7 @@ test("GET /style.css serves CSS file", async () => {
   const res = await fetch(`${base}/style.css`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "text/css");
+  assert.equal(res.headers.get("cache-control"), "no-store");
 });
 
 test("GET /app.js serves JS file", async () => {
@@ -1015,6 +1017,7 @@ test("GET /app.js serves JS file", async () => {
   const res = await fetch(`${base}/app.js`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "application/javascript");
+  assert.equal(res.headers.get("cache-control"), "no-store");
 });
 
 test("GET /nonexistent returns 404", async () => {
