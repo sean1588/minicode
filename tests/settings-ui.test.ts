@@ -10,6 +10,7 @@ test("built HTML contains settings entry point and modal shell", () => {
   assert.ok(html.includes('id="settings-btn"'), "HTML should contain the settings button");
   assert.ok(html.includes('id="settings-modal"'), "HTML should contain the settings modal");
   assert.ok(html.includes('id="connect-openrouter-btn"'), "HTML should contain the OpenRouter connect button");
+  assert.ok(html.includes('id="config-overlay-intro"'), "HTML should contain the setup overlay intro copy");
   assert.ok(html.includes("Try minicode for free with OpenRouter"), "HTML should promote the free OpenRouter quick start");
   assert.ok(html.includes('id="openrouter-connect-modal"'), "HTML should contain the OpenRouter consent modal");
   assert.ok(html.includes('id="openrouter-persist-checkbox"'), "HTML should contain the OpenRouter persistence checkbox");
@@ -37,6 +38,7 @@ test("built JS contains config loading and saving logic for settings", () => {
   assert.ok(js.includes("/api/config"), "JS should fetch the config API");
   assert.ok(js.includes("/api/openrouter/connect"), "JS should call the OpenRouter connect API");
   assert.ok(js.includes("/api/openrouter/disconnect"), "JS should call the OpenRouter disconnect API");
+  assert.ok(js.includes("persistToHomeEnv"), "JS should support persisting the selected model after OpenRouter setup");
   assert.ok(js.includes("code_challenge_method"), "JS should generate an OpenRouter PKCE auth request");
   assert.ok(js.includes("sessionStorage"), "JS should persist the PKCE verifier for the OAuth callback");
   assert.ok(js.includes("minicode:openrouter:persist-to-env"), "JS should persist the optional OpenRouter env-write choice across OAuth");

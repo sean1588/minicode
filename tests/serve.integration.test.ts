@@ -127,6 +127,10 @@ class MockBridge extends AgentBridge {
     return this.openRouterSessionActive;
   }
 
+  override switchModel(modelId: string): void {
+    this._config.model = modelId;
+  }
+
   setBusy(busy: boolean): void {
     this._busy = busy;
   }
@@ -717,6 +721,48 @@ test("POST /api/openrouter/connect can persist OpenRouter setup to ~/.minicode/.
     assert.match(envContents, /^OPENROUTER_API_KEY=sk-or-v1-session-key$/m);
   } finally {
     globalThis.fetch = originalFetch;
+    rmSync(minicodeHome, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/model can persist the selected model to ~/.minicode/.env", async () => {
+  const bridge = new MockBridge();
+  const minicodeHome = mkdtempSync(path.join(os.tmpdir(), "minicode-model-home-"));
+  const envPath = path.join(minicodeHome, ".env");
+  writeFileSync(
+    envPath,
+    [
+      "MODEL_PROVIDER=openai-compatible",
+      "OPENAI_BASE_URL=https://openrouter.ai/api/v1",
+      "OPENROUTER_API_KEY=sk-or-v1-session-key",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const base = await startTestServer(bridge, { minicodeHome });
+
+  try {
+    const res = await fetch(`${base}/api/model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "openrouter/test-model", persistToHomeEnv: true }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json() as {
+      model: string;
+      persistedToEnv: boolean;
+      persistedEnvPath: string | null;
+    };
+    assert.equal(body.model, "openrouter/test-model");
+    assert.equal(body.persistedToEnv, true);
+    assert.equal(body.persistedEnvPath, envPath);
+
+    const envContents = readFileSync(envPath, "utf8");
+    assert.match(envContents, /^MODEL=openrouter\/test-model$/m);
+    assert.match(envContents, /^OPENROUTER_API_KEY=sk-or-v1-session-key$/m);
+    assert.equal(bridge.getConfig().model, "openrouter/test-model");
+  } finally {
     rmSync(minicodeHome, { recursive: true, force: true });
   }
 });

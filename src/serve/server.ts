@@ -259,7 +259,7 @@ export function createRequestHandler(
           : persistedToEnv
             ? (
               onlyModelMissing
-                ? "OpenRouter connected for this serve session and saved to ~/.minicode/.env. Select a model to continue."
+                ? "OpenRouter connected for this serve session and saved to ~/.minicode/.env. Select a model to continue, and minicode will remember it for future runs."
                 : "OpenRouter connected for this serve session and saved to ~/.minicode/.env for future runs."
             )
             : (
@@ -312,13 +312,39 @@ export function createRequestHandler(
       }
 
       if (pathname === "/api/model" && method === "POST") {
-        const body = JSON.parse(await readBody(req)) as { model?: string };
+        const body = JSON.parse(await readBody(req)) as {
+          model?: string;
+          persistToHomeEnv?: boolean;
+        };
         if (!body.model || typeof body.model !== "string") {
           sendJson(res, 400, { error: "model is required" });
           return;
         }
         bridge.switchModel(body.model);
-        sendJson(res, 200, { model: body.model });
+
+        let persistedToEnv = false;
+        let persistedEnvPath: string | null = null;
+        let message: string | undefined;
+
+        if (body.persistToHomeEnv === true) {
+          try {
+            const result = await upsertHomeEnvValues({
+              values: {
+                MODEL: body.model,
+              },
+              ...(minicodeHome ? { minicodeHome } : {}),
+            });
+            persistedToEnv = true;
+            persistedEnvPath = result.path;
+            message = `Saved MODEL=${body.model} to ~/.minicode/.env.`;
+          } catch (error) {
+            const persistMessage = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+            sendJson(res, 500, { error: persistMessage });
+            return;
+          }
+        }
+
+        sendJson(res, 200, { model: body.model, persistedToEnv, persistedEnvPath, message });
         return;
       }
 

@@ -133,6 +133,13 @@ interface OpenRouterDisconnectResponse {
   message: string;
 }
 
+interface ModelSwitchResponse {
+  model: string;
+  persistedToEnv?: boolean;
+  persistedEnvPath?: string | null;
+  message?: string;
+}
+
 const messagesEl = document.getElementById("messages")!;
 const chatForm = document.getElementById("chat-form") as HTMLFormElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
@@ -173,6 +180,8 @@ const disconnectOpenRouterBtn = document.getElementById("disconnect-openrouter-b
 const connectOpenRouterButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-openrouter-connect]"),
 );
+const configOverlaySpotlight = document.getElementById("config-overlay-spotlight");
+const configOverlayIntro = document.getElementById("config-overlay-intro");
 const configConnectStatus = document.getElementById("config-connect-status");
 
 let ws: WebSocket;
@@ -183,6 +192,7 @@ let settingsPayload: SettingsPayload | null = null;
 let activeSavedSession: SessionMeta | null = null;
 let activeBaseUrl = "";
 let sessionOpenRouterConnected = false;
+let persistOpenRouterModelSelection = false;
 const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
@@ -333,11 +343,13 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
       body.needsSetup &&
       body.missing.length === 1 &&
       body.missing[0]?.includes("MODEL");
+    persistOpenRouterModelSelection = body.persistedToEnv && onlyModelMissing;
     if (onlyModelMissing) {
       modelDropdown.classList.remove("hidden");
       sessionDropdown.classList.add("hidden");
     }
   } catch (error) {
+    persistOpenRouterModelSelection = false;
     const message = error instanceof Error ? error.message : "Failed to connect OpenRouter";
     setConfigConnectStatus(message, "error");
   } finally {
@@ -371,6 +383,7 @@ async function disconnectOpenRouter(): Promise<void> {
     const message = error instanceof Error ? error.message : "Failed to disconnect OpenRouter";
     setSettingsBanner(message, "error");
   } finally {
+    persistOpenRouterModelSelection = false;
     disconnectOpenRouterBtn.disabled = false;
   }
 }
@@ -394,6 +407,13 @@ async function fetchStatus(): Promise<void> {
       const missingEl = document.getElementById("config-missing");
       if (missingEl && data.missing && data.missing.length > 0) {
         const isOnlyModelMissing = data.missing.length === 1 && data.missing[0]!.includes("MODEL");
+        const hasPersistedOpenRouter = isOnlyModelMissing && (data.baseUrl ?? "").includes("openrouter");
+        if (configOverlayIntro) {
+          configOverlayIntro.textContent = hasPersistedOpenRouter
+            ? "OpenRouter is already configured. Select a model to continue:"
+            : "minicode needs a model provider to run. Configure one of the following:";
+        }
+        configOverlaySpotlight?.classList.toggle("hidden", hasPersistedOpenRouter);
         const hint = isOnlyModelMissing
           ? ` — select one from the <strong>model dropdown</strong> above, or set it in config`
           : "";
@@ -409,6 +429,10 @@ async function fetchStatus(): Promise<void> {
         missingEl.classList.add("hidden");
         missingEl.innerHTML = "";
       }
+      if (configOverlayIntro) {
+        configOverlayIntro.textContent = "minicode needs a model provider to run. Configure one of the following:";
+      }
+      configOverlaySpotlight?.classList.remove("hidden");
     }
   } catch {
     // ignore
@@ -1059,7 +1083,9 @@ async function refreshModelList(): Promise<void> {
       el.className = "model-item" + (m.id === activeModel ? " active" : "");
       el.textContent = m.name ?? m.id;
       el.title = m.id;
-      el.addEventListener("click", () => switchModel(m.id));
+      el.addEventListener("click", () => {
+        void switchModel(m.id);
+      });
       modelList.appendChild(el);
     }
   } catch {
@@ -1067,15 +1093,40 @@ async function refreshModelList(): Promise<void> {
   }
 }
 
-function switchModel(modelId: string): void {
-  ws.send(JSON.stringify({ type: "switch_model", model: modelId }));
-  modelInfo.textContent = modelId || "Select model";
-  modelInfo.classList.toggle("placeholder", !modelId);
-  activeModel = modelId;
-  modelDropdown.classList.add("hidden");
-  addMessage(`Model switched to: ${modelId}`, "thinking");
-  // Re-check setup status so the overlay dismisses if model was the missing piece
-  void fetchStatus();
+async function switchModel(modelId: string): Promise<void> {
+  const shouldPersistModel = persistOpenRouterModelSelection;
+
+  try {
+    const res = await fetch("/api/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        persistToHomeEnv: shouldPersistModel,
+      }),
+    });
+    const body = await res.json() as ModelSwitchResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to switch model (${res.status})`);
+    }
+
+    modelInfo.textContent = modelId || "Select model";
+    modelInfo.classList.toggle("placeholder", !modelId);
+    activeModel = modelId;
+    modelDropdown.classList.add("hidden");
+
+    if (shouldPersistModel && body.persistedToEnv) {
+      persistOpenRouterModelSelection = false;
+      addMessage(`Model switched to: ${modelId}. Saved as the default in ~/.minicode/.env.`, "thinking");
+    } else {
+      addMessage(`Model switched to: ${modelId}`, "thinking");
+    }
+
+    await fetchStatus();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to switch model";
+    addMessage(message, "error");
+  }
 }
 
 // -- Session management --
