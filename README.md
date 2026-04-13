@@ -1,6 +1,6 @@
 # minicode
 
-> Now supports connecting to [OpenRouter](https://openrouter.ai/) account via minicode UI. Sign in with OpenRouter account. Use for free with compatible free tier OpenRouter hosted models from MiniMax, Nvidia, Qwen, Google, etc.
+> Now supports connecting to [OpenRouter](https://openrouter.ai/) account via minicode UI. Sign in with OpenRouter account. Use for free with compatible [free tier OpenRouter hosted models](https://openrouter.ai/models?q=free) from MiniMax, Nvidia, Qwen, Google, etc.
 
 A graph-native coding agent and code exploration environment built around structural context optimization that leverages symbol-aware retrieval, dependency graphs, and targeted context. It started as a way to make local models viable under tighter context budgets, and it now also works well with hosted frontier models through the same runtime, web UI, and OpenAI-compatible serve mode. 
 
