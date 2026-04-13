@@ -1,15 +1,12 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
-
 import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
 
 import {
-  loadConfigFile,
   MINICODE_HOME,
+  type ConfigEnvSource,
   resolveConfigEnv,
   type AgentConfigFile,
-  type ConfigEnvSource,
 } from "./config.js";
+import { getHomeEnvPath, loadHomeEnvValues, upsertHomeEnvValues } from "./home-env.js";
 
 type EditableConfigValue = string | number | boolean;
 type EditableConfigType = "string" | "number" | "boolean" | "enum";
@@ -271,10 +268,6 @@ function normalizePersistedValue(value: unknown): string | number | boolean | nu
   return null;
 }
 
-function isEmptyConfigFile(config: AgentConfigFile): boolean {
-  return Object.keys(config).length === 0;
-}
-
 export function listEditableConfigDefinitions(): readonly EditableConfigDefinition[] {
   return EDITABLE_CONFIG_DEFINITIONS;
 }
@@ -308,13 +301,33 @@ export function formatPersistedConfigValue(value: unknown): string {
 export function getGlobalConfigPath(
   minicodeHome = MINICODE_HOME,
 ): string {
-  return path.join(minicodeHome, "agent.config.json");
+  return getHomeEnvPath(minicodeHome);
 }
 
 export async function loadPersistedConfig(
   minicodeHome = MINICODE_HOME,
-): Promise<AgentConfigFile> {
-  return loadConfigFile(getGlobalConfigPath(minicodeHome));
+): Promise<Record<string, string>> {
+  return loadHomeEnvValues(minicodeHome);
+}
+
+function readPersistedEnvValue(
+  definition: EditableConfigDefinition,
+  persisted: Record<string, string>,
+): string | number | boolean | null {
+  const rawValue = persisted[definition.envVar];
+  if (rawValue === undefined) {
+    return null;
+  }
+
+  try {
+    return parseEditableValue(definition, rawValue);
+  } catch {
+    return rawValue;
+  }
+}
+
+function serializeEditableValue(value: EditableConfigValue): string {
+  return String(value);
 }
 
 export async function buildStructuredConfigPayload(
@@ -328,10 +341,11 @@ export async function buildStructuredConfigPayload(
   return {
     configPath,
     entries: EDITABLE_CONFIG_DEFINITIONS.map((definition) => {
-      const envValue = env.values[definition.envVar];
-      const envSource = env.sources[definition.envVar] ?? null;
-      const envSourcePath = envSource === "home-dotenv"
-        ? env.homeEnvPath
+      const envSource = env.sources[definition.envVar] === "process"
+        ? "process"
+        : null;
+      const envValue = envSource === "process"
+        ? (env.values[definition.envVar] ?? null)
         : null;
       return {
         key: definition.key,
@@ -340,11 +354,11 @@ export async function buildStructuredConfigPayload(
         envVar: definition.envVar,
         ...(definition.values ? { values: definition.values } : {}),
         effectiveValue: normalizePersistedValue(config[definition.key]),
-        persistedValue: normalizePersistedValue(persisted[definition.fileKey]),
-        envValue: envValue ?? null,
+        persistedValue: readPersistedEnvValue(definition, persisted),
+        envValue,
         envSource,
-        envSourcePath,
-        overriddenByEnv: envValue !== undefined,
+        envSourcePath: envSource === "process" ? null : null,
+        overriddenByEnv: envSource === "process",
       };
     }),
   };
@@ -358,13 +372,13 @@ export async function setPersistedConfigValue(options: {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(options.key);
   const configPath = getGlobalConfigPath(minicodeHome);
-  const nextFile = await loadConfigFile(configPath);
   const storedValue = parseEditableValue(definition, options.rawValue);
-
-  nextFile[definition.fileKey] = storedValue as never;
-
-  await mkdir(path.dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(nextFile, null, 2) + "\n", "utf8");
+  await upsertHomeEnvValues({
+    minicodeHome,
+    values: {
+      [definition.envVar]: serializeEditableValue(storedValue),
+    },
+  });
 
   return { path: configPath, storedValue };
 }
@@ -376,16 +390,12 @@ export async function unsetPersistedConfigValue(options: {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(options.key);
   const configPath = getGlobalConfigPath(minicodeHome);
-  const nextFile = await loadConfigFile(configPath);
-
-  delete nextFile[definition.fileKey];
-
-  if (isEmptyConfigFile(nextFile)) {
-    await rm(configPath, { force: true });
-  } else {
-    await mkdir(path.dirname(configPath), { recursive: true });
-    await writeFile(configPath, JSON.stringify(nextFile, null, 2) + "\n", "utf8");
-  }
+  await upsertHomeEnvValues({
+    minicodeHome,
+    values: {
+      [definition.envVar]: null,
+    },
+  });
 
   return { path: configPath };
 }
@@ -407,23 +417,24 @@ export async function applyPersistedConfigUpdates(options: {
   });
 
   const saved: Array<{ key: EditableConfigKey; value: string | number | boolean | null }> = [];
+  const envUpdates: Record<string, string | null> = {};
   for (const item of planned) {
+    const definition = getEditableConfigDefinition(item.key);
     if (item.value === null) {
-      await unsetPersistedConfigValue({
-        key: item.key,
-        minicodeHome,
-      });
+      envUpdates[definition.envVar] = null;
       saved.push({ key: item.key, value: null });
       continue;
     }
 
-    await setPersistedConfigValue({
-      key: item.key,
-      rawValue: String(item.value),
-      minicodeHome,
-    });
-    saved.push({ key: item.key, value: item.value });
+    const storedValue = parseEditableValue(definition, String(item.value));
+    envUpdates[definition.envVar] = serializeEditableValue(storedValue);
+    saved.push({ key: item.key, value: storedValue });
   }
+
+  await upsertHomeEnvValues({
+    minicodeHome,
+    values: envUpdates,
+  });
 
   return {
     path: getGlobalConfigPath(minicodeHome),

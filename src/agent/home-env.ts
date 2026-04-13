@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import dotenv from "dotenv";
 
 import { MINICODE_HOME } from "./config.js";
 
@@ -7,12 +8,25 @@ export function getHomeEnvPath(minicodeHome = MINICODE_HOME): string {
   return path.join(minicodeHome, ".env");
 }
 
+export async function loadHomeEnvValues(
+  minicodeHome = MINICODE_HOME,
+): Promise<Record<string, string>> {
+  const envPath = getHomeEnvPath(minicodeHome);
+
+  try {
+    const existing = await readFile(envPath, "utf8");
+    return dotenv.parse(existing);
+  } catch {
+    return {};
+  }
+}
+
 function formatEnvValue(value: string): string {
   return value;
 }
 
 export async function upsertHomeEnvValues(options: {
-  values: Record<string, string>;
+  values: Record<string, string | null>;
   minicodeHome?: string;
 }): Promise<{ path: string; updatedKeys: string[] }> {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
@@ -53,16 +67,22 @@ export async function upsertHomeEnvValues(options: {
       continue;
     }
 
-    nextLines.push(`${key}=${formatEnvValue(pending.get(key)!)}`);
+    const nextValue = pending.get(key)!;
+    if (nextValue !== null) {
+      nextLines.push(`${key}=${formatEnvValue(nextValue)}`);
+    }
     seen.add(key);
     pending.delete(key);
   }
 
-  if (pending.size > 0 && nextLines.length > 0 && nextLines[nextLines.length - 1] !== "") {
+  const pendingEntries = [...pending.entries()].filter(
+    (entry): entry is [string, string] => entry[1] !== null,
+  );
+  if (pendingEntries.length > 0 && nextLines.length > 0 && nextLines[nextLines.length - 1] !== "") {
     nextLines.push("");
   }
 
-  for (const [key, value] of pending) {
+  for (const [key, value] of pendingEntries) {
     nextLines.push(`${key}=${formatEnvValue(value)}`);
   }
 

@@ -123,7 +123,7 @@ test("GET /api/config returns structured editable settings payload", async () =>
     assert.match(body.config, /workspaceRoot/);
     assert.equal(body.restartRequired, true);
     assert.equal(body.secretsUiSupported, false);
-    assert.equal(body.settings.configPath, path.join(minicodeHome, "agent.config.json"));
+    assert.equal(body.settings.configPath, path.join(minicodeHome, ".env"));
     const maxSteps = body.settings.entries.find((entry) => entry.key === "maxSteps");
     assert.equal(maxSteps?.type, "number");
     assert.equal(maxSteps?.envVar, "MAX_STEPS");
@@ -168,7 +168,7 @@ test("POST /api/config persists global settings and returns updated metadata", a
 
   assert.equal(body.ok, true);
   assert.equal(body.scope, "global");
-  assert.equal(body.path, path.join(minicodeHome, "agent.config.json"));
+  assert.equal(body.path, path.join(minicodeHome, ".env"));
   assert.equal(body.restartRequired, true);
   assert.match(body.message, /Persisted config updated/);
   assert.deepEqual(body.saved, [
@@ -176,11 +176,9 @@ test("POST /api/config persists global settings and returns updated metadata", a
     { key: "enableDynamicPrompt", value: false },
   ]);
 
-  const persisted = JSON.parse(
-    await readFile(path.join(minicodeHome, "agent.config.json"), "utf8"),
-  ) as { maxSteps: number; enableDynamicPrompt: boolean };
-  assert.equal(persisted.maxSteps, 42);
-  assert.equal(persisted.enableDynamicPrompt, false);
+  const persisted = await readFile(path.join(minicodeHome, ".env"), "utf8");
+  assert.match(persisted, /^MAX_STEPS=42$/m);
+  assert.match(persisted, /^ENABLE_DYNAMIC_PROMPT=false$/m);
 
   const maxSteps = body.settings.entries.find((entry) => entry.key === "maxSteps");
   assert.equal(maxSteps?.persistedValue, 42);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
@@ -65,7 +65,7 @@ test("buildStructuredConfigPayload reports effective values and env overrides", 
       home,
     );
 
-    assert.equal(payload.configPath, path.join(home, "agent.config.json"));
+    assert.equal(payload.configPath, path.join(home, ".env"));
 
     const maxSteps = payload.entries.find((entry) => entry.key === "maxSteps");
     assert.equal(maxSteps?.effectiveValue, 120);
@@ -100,14 +100,15 @@ test("buildStructuredConfigPayload reports home dotenv env source", async () => 
     );
 
     const maxSteps = payload.entries.find((entry) => entry.key === "maxSteps");
-    assert.equal(maxSteps?.envValue, "88");
-    assert.equal(maxSteps?.envSource, "home-dotenv");
-    assert.equal(maxSteps?.envSourcePath, path.join(home, ".env"));
-    assert.equal(maxSteps?.overriddenByEnv, true);
+    assert.equal(maxSteps?.persistedValue, 88);
+    assert.equal(maxSteps?.envValue, null);
+    assert.equal(maxSteps?.envSource, null);
+    assert.equal(maxSteps?.envSourcePath, null);
+    assert.equal(maxSteps?.overriddenByEnv, false);
   });
 });
 
-test("applyPersistedConfigUpdates writes global config and removes files when everything is unset", async () => {
+test("applyPersistedConfigUpdates writes ~/.minicode/.env and removes keys when unset", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "minicode-editable-config-"));
   tempDirs.push(home);
 
@@ -125,13 +126,10 @@ test("applyPersistedConfigUpdates writes global config and removes files when ev
     { key: "enableFileReadDedup", value: false },
   ]);
 
-  const configPath = path.join(home, "agent.config.json");
-  const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
-    keepRecentMessages: number;
-    enableFileReadDedup: boolean;
-  };
-  assert.equal(persisted.keepRecentMessages, 18);
-  assert.equal(persisted.enableFileReadDedup, false);
+  const envPath = path.join(home, ".env");
+  let persisted = await readFile(envPath, "utf8");
+  assert.match(persisted, /^KEEP_RECENT_MESSAGES=18$/m);
+  assert.match(persisted, /^ENABLE_FILE_READ_DEDUP=false$/m);
 
   await applyPersistedConfigUpdates({
     minicodeHome: home,
@@ -141,5 +139,7 @@ test("applyPersistedConfigUpdates writes global config and removes files when ev
     },
   });
 
-  await assert.rejects(access(configPath));
+  persisted = await readFile(envPath, "utf8");
+  assert.doesNotMatch(persisted, /^KEEP_RECENT_MESSAGES=/m);
+  assert.doesNotMatch(persisted, /^ENABLE_FILE_READ_DEDUP=/m);
 });

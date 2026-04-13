@@ -156,14 +156,14 @@ MODEL=your-model-name</pre>
       <div class="modal-header">
         <div>
           <h2 id="settings-title">Settings</h2>
-          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret global defaults for future sessions.</p>
+          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret global defaults in <code>~/.minicode/.env</code> for future sessions.</p>
         </div>
         <button id="settings-close" class="header-btn" type="button">Close</button>
       </div>
 
       <div class="settings-toolbar">
         <div class="settings-path-group">
-          <span class="settings-path-label">Config file</span>
+          <span class="settings-path-label">Env file</span>
           <code id="settings-path" class="settings-path"></code>
         </div>
       </div>
@@ -182,7 +182,7 @@ MODEL=your-model-name</pre>
 
       <div class="modal-footer">
         <p class="settings-footnote">
-          Secrets such as API keys stay env-only for now. Saved changes update <code>~/.minicode/agent.config.json</code> and apply to new runs after restart.
+          Secrets such as API keys stay env-only for now. Saved changes update <code>~/.minicode/.env</code> and apply to new runs after restart.
         </p>
         <div class="settings-actions">
           <button id="settings-reset" class="header-btn" type="button">Reset changes</button>

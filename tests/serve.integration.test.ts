@@ -477,7 +477,7 @@ test("GET /api/config returns formatted config plus structured settings", async 
   assert.ok(body.config.includes("test-model"));
   assert.equal(body.restartRequired, true);
   assert.equal(body.secretsUiSupported, false);
-  assert.ok(body.settings.configPath.endsWith("/.minicode/agent.config.json"));
+  assert.ok(body.settings.configPath.endsWith("/.minicode/.env"));
   assert.ok(body.settings.entries.some((entry) => entry.key === "maxSteps"));
 });
 

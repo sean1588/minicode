@@ -545,7 +545,7 @@ describe("getConfigMissing and getConfigSetupMessage", () => {
     const message = getConfigSetupMessage(config)!;
     assert.ok(message.includes("MODEL is not set"));
     assert.ok(message.includes("~/.minicode/.env"));
-    assert.ok(message.includes("agent.config.json"));
+    assert.ok(message.includes("saved back to ~/.minicode/.env"));
   });
 });
 
@@ -780,7 +780,7 @@ describe("buildStructuredConfigPayload env source tracking", () => {
     });
   });
 
-  test("reports env override from home-dotenv", async () => {
+  test("treats ~/.minicode/.env as persisted settings rather than an override", async () => {
     const home = await createTestHome({
       config: { model: "file-model" },
       dotenv: "MAX_STEPS=88\n",
@@ -791,14 +791,15 @@ describe("buildStructuredConfigPayload env source tracking", () => {
       const payload = await buildStructuredConfigPayload(config, home);
 
       const maxStepsEntry = payload.entries.find((e) => e.key === "maxSteps")!;
-      assert.equal(maxStepsEntry.overriddenByEnv, true);
-      assert.equal(maxStepsEntry.envValue, "88");
-      assert.equal(maxStepsEntry.envSource, "home-dotenv");
-      assert.equal(maxStepsEntry.envSourcePath, path.join(home, ".env"));
+      assert.equal(maxStepsEntry.overriddenByEnv, false);
+      assert.equal(maxStepsEntry.persistedValue, 88);
+      assert.equal(maxStepsEntry.envValue, null);
+      assert.equal(maxStepsEntry.envSource, null);
+      assert.equal(maxStepsEntry.envSourcePath, null);
     });
   });
 
-  test("reports no env override when value only in config file", async () => {
+  test("shows config-file-only values as effective but not persisted in ~/.minicode/.env", async () => {
     const home = await createTestHome({
       config: { maxSteps: 42 },
     });
@@ -809,7 +810,8 @@ describe("buildStructuredConfigPayload env source tracking", () => {
 
       const maxStepsEntry = payload.entries.find((e) => e.key === "maxSteps")!;
       assert.equal(maxStepsEntry.overriddenByEnv, false);
-      assert.equal(maxStepsEntry.persistedValue, 42);
+      assert.equal(maxStepsEntry.effectiveValue, 42);
+      assert.equal(maxStepsEntry.persistedValue, null);
     });
   });
 

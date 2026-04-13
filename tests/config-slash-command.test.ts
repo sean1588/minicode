@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
@@ -28,16 +28,17 @@ test("setPersistedConfigValue writes mapped keys and unset removes empty config 
     rawValue: "45000",
   });
 
-  assert.equal(setResult.path, path.join(home, "agent.config.json"));
-  const file = JSON.parse(await readFile(setResult.path, "utf8")) as { commandTimeout: number };
-  assert.equal(file.commandTimeout, 45000);
+  assert.equal(setResult.path, path.join(home, ".env"));
+  const file = await readFile(setResult.path, "utf8");
+  assert.match(file, /^COMMAND_TIMEOUT_MS=45000$/m);
 
   await unsetPersistedConfigValue({
     minicodeHome: home,
     key: "commandTimeoutMs",
   });
 
-  await assert.rejects(access(setResult.path));
+  const updated = await readFile(setResult.path, "utf8");
+  assert.doesNotMatch(updated, /^COMMAND_TIMEOUT_MS=/m);
 });
 
 test("handleConfigSlashCommand persists config and reports env overrides", async () => {
@@ -56,12 +57,10 @@ test("handleConfigSlashCommand persists config and reports env overrides", async
 
     assert.equal(result.handled, true);
     assert.match(result.message ?? "", /Saved config: maxSteps = 64/);
-    assert.match(result.message ?? "", /MAX_STEPS is currently set/);
+    assert.match(result.message ?? "", /MAX_STEPS is currently exported in your shell/);
 
-    const persisted = JSON.parse(
-      await readFile(path.join(home, "agent.config.json"), "utf8"),
-    ) as { maxSteps: number };
-    assert.equal(persisted.maxSteps, 64);
+    const persisted = await readFile(path.join(home, ".env"), "utf8");
+    assert.match(persisted, /^MAX_STEPS=64$/m);
   } finally {
     if (previous === undefined) {
       delete process.env.MAX_STEPS;
@@ -96,8 +95,8 @@ test("handleConfigSlashCommand reports config layers with /config get", async ()
 
     assert.equal(getResult.handled, true);
     assert.match(getResult.message ?? "", /effective: openai-compatible/);
-    assert.match(getResult.message ?? "", /config file: openai-compatible/);
-    assert.match(getResult.message ?? "", /env override \(MODEL_PROVIDER\): openai-compatible/);
+    assert.match(getResult.message ?? "", /saved in ~\/\.minicode\/\.env: openai-compatible/);
+    assert.match(getResult.message ?? "", /exported env override \(MODEL_PROVIDER\): openai-compatible/);
   } finally {
     if (previous === undefined) {
       delete process.env.MODEL_PROVIDER;
@@ -125,6 +124,6 @@ test("getGlobalConfigPath resolves to minicode home", () => {
   const home = "/tmp/example-home";
   assert.equal(
     getGlobalConfigPath(home),
-    path.join(home, "agent.config.json"),
+    path.join(home, ".env"),
   );
 });
