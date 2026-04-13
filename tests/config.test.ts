@@ -53,13 +53,8 @@ test("loadAgentConfig uses global config and env vars with correct precedence", 
   await mkdir(minicodeHome, { recursive: true });
 
   await writeFile(
-    path.join(minicodeHome, "agent.config.json"),
-    JSON.stringify({ model: "global-model", maxSteps: 33 }, null, 2) + "\n",
-    "utf8",
-  );
-  await writeFile(
     path.join(minicodeHome, ".env"),
-    "MODEL=home-env-model\n",
+    "MODEL=home-env-model\nMAX_STEPS=33\n",
     "utf8",
   );
 
@@ -73,9 +68,7 @@ test("loadAgentConfig uses global config and env vars with correct precedence", 
 
     const config = await loadAgentConfig("/tmp", { minicodeHome });
 
-    // MODEL from ~/.minicode/.env (no shell override)
     assert.equal(config.model, "home-env-model");
-    // MAX_STEPS from shell env (overrides config file value of 33)
     assert.equal(config.maxSteps, 120);
   } finally {
     if (previousMaxSteps === undefined) {
@@ -89,4 +82,23 @@ test("loadAgentConfig uses global config and env vars with correct precedence", 
       process.env.MODEL = previousModel;
     }
   }
+});
+
+test("loadAgentConfig appends COMMAND_DENYLIST patterns from env", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "minicode-config-test-"));
+  tempDirs.push(base);
+
+  const minicodeHome = path.join(base, "home");
+  await mkdir(minicodeHome, { recursive: true });
+  await writeFile(
+    path.join(minicodeHome, ".env"),
+    'MODEL=test-model\nCOMMAND_DENYLIST=["custom-danger","^wipe-db$"]\n',
+    "utf8",
+  );
+
+  const config = await loadAgentConfig("/tmp", { minicodeHome });
+  const serialized = config.commandDenylist.map((pattern) => pattern.source);
+
+  assert.ok(serialized.includes("custom-danger"));
+  assert.ok(serialized.includes("^wipe-db$"));
 });

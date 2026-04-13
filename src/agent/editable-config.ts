@@ -4,7 +4,6 @@ import {
   MINICODE_HOME,
   type ConfigEnvSource,
   resolveConfigEnv,
-  type AgentConfigFile,
 } from "./config.js";
 import { getHomeEnvPath, loadHomeEnvValues, upsertHomeEnvValues } from "./home-env.js";
 
@@ -34,7 +33,6 @@ export interface EditableConfigDefinition {
     | "reasoningEffort"
     | "enableDynamicPrompt"
   >;
-  fileKey: keyof AgentConfigFile;
   envVar: string;
   type: EditableConfigType;
   description: string;
@@ -72,7 +70,6 @@ const REASONING_VALUES = [
 export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = [
   {
     key: "modelProvider",
-    fileKey: "modelProvider",
     envVar: "MODEL_PROVIDER",
     type: "enum",
     values: ["anthropic", "openai-compatible"],
@@ -80,119 +77,102 @@ export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = 
   },
   {
     key: "model",
-    fileKey: "model",
     envVar: "MODEL",
     type: "string",
     description: "Default model id for new sessions",
   },
   {
     key: "maxSteps",
-    fileKey: "maxSteps",
     envVar: "MAX_STEPS",
     type: "number",
     description: "Turn call limit before the agent pauses and waits for another prompt",
   },
   {
     key: "maxTokens",
-    fileKey: "maxTokens",
     envVar: "MAX_TOKENS",
     type: "number",
     description: "Maximum completion tokens per model response",
   },
   {
     key: "maxContextTokens",
-    fileKey: "maxContextTokens",
     envVar: "MAX_CONTEXT_TOKENS",
     type: "number",
     description: "Estimated prompt-context budget before compaction",
   },
   {
     key: "commandTimeoutMs",
-    fileKey: "commandTimeout",
     envVar: "COMMAND_TIMEOUT_MS",
     type: "number",
     description: "Shell command timeout in milliseconds",
   },
   {
     key: "maxFileSizeBytes",
-    fileKey: "maxFileSizeBytes",
     envVar: "MAX_FILE_SIZE_BYTES",
     type: "number",
     description: "Maximum file size allowed for read/edit tools",
   },
   {
     key: "confirmDestructive",
-    fileKey: "confirmDestructive",
     envVar: "CONFIRM_DESTRUCTIVE",
     type: "boolean",
     description: "Whether destructive commands require confirmation",
   },
   {
     key: "keepRecentMessages",
-    fileKey: "keepRecentMessages",
     envVar: "KEEP_RECENT_MESSAGES",
     type: "number",
     description: "Recent messages preserved when trimming session history",
   },
   {
     key: "loopDetectionWindow",
-    fileKey: "loopDetectionWindow",
     envVar: "LOOP_DETECTION_WINDOW",
     type: "number",
     description: "Window size for repeated-tool-call loop detection",
   },
   {
     key: "maxToolOutputChars",
-    fileKey: "maxToolOutputChars",
     envVar: "MAX_TOOL_OUTPUT_CHARS",
     type: "number",
     description: "Maximum tool output retained before truncation",
   },
   {
     key: "openAiBaseUrl",
-    fileKey: "openAiBaseUrl",
     envVar: "OPENAI_BASE_URL",
     type: "string",
     description: "Base URL for OpenAI-compatible providers",
   },
   {
     key: "enableFileReadDedup",
-    fileKey: "enableFileReadDedup",
     envVar: "ENABLE_FILE_READ_DEDUP",
     type: "boolean",
     description: "Deduplicate repeated file reads in prompt context",
   },
   {
     key: "enableAdaptiveKeepRecent",
-    fileKey: "enableAdaptiveKeepRecent",
     envVar: "ENABLE_ADAPTIVE_KEEP_RECENT",
     type: "boolean",
     description: "Adjust recent-message retention based on context pressure",
   },
   {
     key: "enableToolOutputTruncation",
-    fileKey: "enableToolOutputTruncation",
     envVar: "ENABLE_TOOL_OUTPUT_TRUNCATION",
     type: "boolean",
     description: "Truncate oversized tool output before storing it in session history",
   },
   {
     key: "compactionThreshold",
-    fileKey: "compactionThreshold",
     envVar: "COMPACTION_THRESHOLD",
     type: "number",
     description: "Compaction threshold ratio used before a turn starts",
   },
   {
     key: "compactionModel",
-    fileKey: "compactionModel",
     envVar: "COMPACTION_MODEL",
     type: "string",
     description: "Optional model id used for LLM-based compaction",
   },
   {
     key: "reasoningEffort",
-    fileKey: "reasoningEffort",
     envVar: "REASONING_EFFORT",
     type: "enum",
     values: REASONING_VALUES,
@@ -200,7 +180,6 @@ export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = 
   },
   {
     key: "enableDynamicPrompt",
-    fileKey: "enableDynamicPrompt",
     envVar: "ENABLE_DYNAMIC_PROMPT",
     type: "boolean",
     description: "Toggle project-aware dynamic prompt generation",

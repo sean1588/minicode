@@ -19,8 +19,8 @@ _Run `minicode serve` to get the web UI on localhost: chat, tool activity, sessi
 # 2. Install
 npm install -g @sean.holung/minicode
 
-# 3. Configure (~/.minicode/agent.config.json is auto-created on first run)
-#    Set your model name — minicode will prompt you if this is missing.
+# 3. Configure
+#    Set your model name in ~/.minicode/.env — minicode will prompt you if this is missing.
 cat > ~/.minicode/.env << 'EOF'
 MODEL_PROVIDER=openai-compatible
 MODEL=your-model-name
@@ -164,12 +164,12 @@ See [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) for the full specification. Quick
 
 ## Configuration
 
-Configuration can come from (later sources override earlier):
+Configuration can come from:
 
-1. `~/.minicode/.env` — User-level defaults (API keys, model, etc.)
-2. `~/.minicode/agent.config.json` — User-level JSON config
-3. Project `.env` and `agent.config.json` in workspace root
-4. Environment variables (highest precedence)
+1. `~/.minicode/.env` — User-level defaults (API keys, model, runtime settings)
+2. Environment variables — Shell overrides for the current process
+
+When the same key is set in both places, the exported environment variable wins.
 
 Nothing is written inside your workspace; config and cache live under `~/.minicode/`.
 
@@ -184,6 +184,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `OPENAI_BASE_URL`       | No              | `http://localhost:1234/v1` | Base URL for OpenAI-compatible API (LM Studio, etc.)                                                                                  |
 | `OPENAI_API_KEY`        | No              | none                       | Optional for local servers; required if your endpoint enforces auth                                                                   |
 | `OPENROUTER_API_KEY`    | No              | none                       | Preferred key when `OPENAI_BASE_URL` points at OpenRouter; falls back to `OPENAI_API_KEY` if unset                                  |
+| `COMMAND_DENYLIST`      | No              | none                       | Optional JSON array or comma-separated regex patterns appended to the built-in destructive-command denylist                         |
 | `MAX_STEPS`             | No              | `50`                       | Max agent loop iterations per user turn                                                                                               |
 | `MAX_TOKENS`            | No              | `4096`                     | Max model output tokens per model call                                                                                                |
 | `MAX_CONTEXT_TOKENS`    | No              | `32000`                    | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
@@ -202,44 +203,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `REASONING_EFFORT`      | No              | unset                      | Reasoning level for providers that support it. Valid values: `xhigh`, `high`, `medium`, `low`, `minimal`, `none`                   |
 
 
-### `agent.config.json`
-
-A global `~/.minicode/agent.config.json` is auto-created on first run. Only set what you need — everything has sensible defaults:
-
-```json
-{
-  "modelProvider": "openai-compatible",
-  "model": "your-model-name",
-  "openAiBaseUrl": "http://localhost:1234/v1",
-  "maxSteps": 50,
-  "maxTokens": 4096,
-  "maxContextTokens": 32000
-}
-```
-
-Field mapping:
-
-- `modelProvider` ↔ `MODEL_PROVIDER`
-- `model` ↔ `MODEL`
-- `maxSteps` ↔ `MAX_STEPS`
-- `workspaceRoot` ↔ `WORKSPACE_ROOT`
-- `maxTokens` ↔ `MAX_TOKENS`
-- `maxContextTokens` ↔ `MAX_CONTEXT_TOKENS`
-- `commandTimeout` ↔ `COMMAND_TIMEOUT_MS`
-- `commandDenylist` ↔ no env equivalent (config-only)
-- `confirmDestructive` ↔ `CONFIRM_DESTRUCTIVE`
-- `maxFileSizeBytes` ↔ `MAX_FILE_SIZE_BYTES`
-- `keepRecentMessages` ↔ `KEEP_RECENT_MESSAGES`
-- `loopDetectionWindow` ↔ `LOOP_DETECTION_WINDOW`
-- `openAiBaseUrl` ↔ `OPENAI_BASE_URL`
-- `openAiApiKey` ↔ `OPENAI_API_KEY` / `OPENROUTER_API_KEY` (when using OpenRouter)
-- `maxToolOutputChars` ↔ `MAX_TOOL_OUTPUT_CHARS`
-- `enableFileReadDedup` ↔ `ENABLE_FILE_READ_DEDUP`
-- `enableAdaptiveKeepRecent` ↔ `ENABLE_ADAPTIVE_KEEP_RECENT`
-- `enableToolOutputTruncation` ↔ `ENABLE_TOOL_OUTPUT_TRUNCATION`
-- `compactionThreshold` ↔ `COMPACTION_THRESHOLD`
-- `compactionModel` ↔ `COMPACTION_MODEL`
-- `reasoningEffort` ↔ `REASONING_EFFORT`
+All persisted user-level settings now live in `~/.minicode/.env`. The web UI settings dialog and `/config set` both update that file directly for non-secret runtime defaults.
 
 ## Usage
 

@@ -1,8 +1,8 @@
 /**
  * Integration tests for the config system.
  *
- * Tests the full config resolution chain: agent.config.json → ~/.minicode/.env → shell env vars,
- * getConfigSetupMessage / getConfigMissing, ensureMinicodeHome, the /api/status needsSetup flag,
+ * Tests the current config resolution chain: ~/.minicode/.env → shell env vars,
+ * getConfigSetupMessage / getConfigMissing, minicode home bootstrapping, the /api/status needsSetup flag,
  * and AgentBridge graceful degradation when model client cannot initialize.
  */
 import assert from "node:assert/strict";
@@ -18,7 +18,6 @@ import {
   resolveConfigEnv,
   getConfigSetupMessage,
   getConfigMissing,
-  loadConfigFile,
 } from "../src/agent/config.js";
 import { buildStructuredConfigPayload } from "../src/agent/editable-config.js";
 import { createRequestHandler } from "../src/serve/server.js";
@@ -43,21 +42,52 @@ afterEach(async () => {
 });
 
 /** Create an isolated minicode home directory with optional config and .env files. */
+function serializeConfigEnv(config: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const push = (key: string, value: unknown) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    lines.push(`${key}=${String(value)}`);
+  };
+
+  push("MODEL_PROVIDER", config.modelProvider);
+  push("MODEL", config.model);
+  push("MAX_STEPS", config.maxSteps);
+  push("MAX_TOKENS", config.maxTokens);
+  push("MAX_CONTEXT_TOKENS", config.maxContextTokens);
+  push("WORKSPACE_ROOT", config.workspaceRoot);
+  push("COMMAND_TIMEOUT_MS", config.commandTimeout);
+  if (Array.isArray(config.commandDenylist)) {
+    lines.push(`COMMAND_DENYLIST=${JSON.stringify(config.commandDenylist)}`);
+  }
+  push("CONFIRM_DESTRUCTIVE", config.confirmDestructive);
+  push("MAX_FILE_SIZE_BYTES", config.maxFileSizeBytes);
+  push("KEEP_RECENT_MESSAGES", config.keepRecentMessages);
+  push("LOOP_DETECTION_WINDOW", config.loopDetectionWindow);
+  push("MAX_TOOL_OUTPUT_CHARS", config.maxToolOutputChars);
+  push("OPENAI_BASE_URL", config.openAiBaseUrl);
+  push("OPENAI_API_KEY", config.openAiApiKey);
+  push("ENABLE_FILE_READ_DEDUP", config.enableFileReadDedup);
+  push("ENABLE_ADAPTIVE_KEEP_RECENT", config.enableAdaptiveKeepRecent);
+  push("ENABLE_TOOL_OUTPUT_TRUNCATION", config.enableToolOutputTruncation);
+  push("COMPACTION_THRESHOLD", config.compactionThreshold);
+  push("COMPACTION_MODEL", config.compactionModel);
+  push("REASONING_EFFORT", config.reasoningEffort);
+  push("ENABLE_DYNAMIC_PROMPT", config.enableDynamicPrompt);
+
+  return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+}
+
 async function createTestHome(options: {
   config?: Record<string, unknown>;
   dotenv?: string;
 } = {}): Promise<string> {
   const home = await mkdtemp(path.join(os.tmpdir(), "minicode-integ-"));
   tempDirs.push(home);
-  if (options.config) {
-    await writeFile(
-      path.join(home, "agent.config.json"),
-      JSON.stringify(options.config, null, 2) + "\n",
-      "utf8",
-    );
-  }
-  if (options.dotenv !== undefined) {
-    await writeFile(path.join(home, ".env"), options.dotenv, "utf8");
+  const envContent = `${options.config ? serializeConfigEnv(options.config) : ""}${options.dotenv ?? ""}`;
+  if (envContent.length > 0) {
+    await writeFile(path.join(home, ".env"), envContent, "utf8");
   }
   return home;
 }
@@ -136,31 +166,29 @@ function startServer(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Config file loading
+// Home env loading via loadAgentConfig
 // ═══════════════════════════════════════════════════════════════════
 
-describe("loadConfigFile", () => {
-  test("returns empty object when file does not exist", async () => {
-    const result = await loadConfigFile("/tmp/nonexistent-minicode-test/config.json");
-    assert.deepEqual(result, {});
-  });
-
-  test("parses valid JSON config file", async () => {
+describe("loadAgentConfig home env", () => {
+  test("uses ~/.minicode/.env values when present", async () => {
     const home = await createTestHome({
-      config: { model: "test-model", maxSteps: 25 },
+      dotenv: "MODEL=test-model\nMAX_STEPS=25\n",
     });
-    const result = await loadConfigFile(path.join(home, "agent.config.json"));
-    assert.equal(result.model, "test-model");
-    assert.equal(result.maxSteps, 25);
+
+    await withEnv({ MODEL: undefined, MAX_STEPS: undefined }, async () => {
+      const config = await loadAgentConfig("/tmp", { minicodeHome: home });
+      assert.equal(config.model, "test-model");
+      assert.equal(config.maxSteps, 25);
+    });
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// ensureMinicodeHome
+// minicode home bootstrapping
 // ═══════════════════════════════════════════════════════════════════
 
 describe("ensureMinicodeHome (via loadAgentConfig)", () => {
-  test("creates directory and starter config when home does not exist", async () => {
+  test("creates the minicode home directory when it does not exist", async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), "minicode-integ-"));
     tempDirs.push(base);
     const minicodeHome = path.join(base, "fresh-home");
@@ -171,29 +199,21 @@ describe("ensureMinicodeHome (via loadAgentConfig)", () => {
 
     // Directory should exist
     await access(minicodeHome);
-    // Starter config should have been written
-    const content = JSON.parse(
-      await readFile(path.join(minicodeHome, "agent.config.json"), "utf8"),
-    ) as Record<string, unknown>;
-    assert.equal(content.model, "");
-    assert.equal(content.modelProvider, "openai-compatible");
-    assert.equal(content.openAiBaseUrl, "http://localhost:1234/v1");
+    await assert.rejects(access(path.join(minicodeHome, "agent.config.json")));
   });
 
-  test("does not overwrite existing config", async () => {
+  test("does not overwrite an existing home .env file", async () => {
     const home = await createTestHome({
-      config: { model: "my-model", maxSteps: 99 },
+      dotenv: "MODEL=my-model\nMAX_STEPS=99\n",
     });
 
     await withEnv({ MODEL: undefined }, async () => {
       await loadAgentConfig("/tmp", { minicodeHome: home });
     });
 
-    const content = JSON.parse(
-      await readFile(path.join(home, "agent.config.json"), "utf8"),
-    ) as Record<string, unknown>;
-    assert.equal(content.model, "my-model");
-    assert.equal(content.maxSteps, 99);
+    const content = await readFile(path.join(home, ".env"), "utf8");
+    assert.match(content, /^MODEL=my-model$/m);
+    assert.match(content, /^MAX_STEPS=99$/m);
   });
 });
 
@@ -269,7 +289,7 @@ describe("resolveConfigEnv precedence", () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("loadAgentConfig precedence", () => {
-  test("config file value is used when no env override exists", async () => {
+  test("home .env value is used when no shell override exists", async () => {
     const home = await createTestHome({
       config: { model: "config-model", maxSteps: 42 },
     });
@@ -281,7 +301,7 @@ describe("loadAgentConfig precedence", () => {
     });
   });
 
-  test("home .env overrides config file", async () => {
+  test("later home .env entries override earlier persisted values", async () => {
     const home = await createTestHome({
       config: { model: "config-model", maxSteps: 42 },
       dotenv: "MODEL=dotenv-model\n",
@@ -290,12 +310,11 @@ describe("loadAgentConfig precedence", () => {
     await withEnv({ MODEL: undefined }, async () => {
       const config = await loadAgentConfig("/tmp", { minicodeHome: home });
       assert.equal(config.model, "dotenv-model");
-      // maxSteps not in .env, so config file value is used
       assert.equal(config.maxSteps, 42);
     });
   });
 
-  test("shell env overrides both config file and home .env", async () => {
+  test("shell env overrides home .env", async () => {
     const home = await createTestHome({
       config: { model: "config-model", maxSteps: 42 },
       dotenv: "MODEL=dotenv-model\nMAX_STEPS=77\n",
@@ -359,19 +378,14 @@ describe("loadAgentConfig precedence", () => {
     });
   });
 
-  test("OPENAI_API_KEY from config file is used as last resort", async () => {
+  test("OPENAI_API_KEY is unset when not provided in env", async () => {
     const home = await createTestHome({
-      config: {
-        modelProvider: "openai-compatible",
-        model: "test-model",
-        openAiBaseUrl: "http://localhost:1234/v1",
-        openAiApiKey: "sk-file-key",
-      },
+      dotenv: "MODEL_PROVIDER=openai-compatible\nMODEL=test-model\nOPENAI_BASE_URL=http://localhost:1234/v1\n",
     });
 
     await withEnv({ OPENAI_API_KEY: undefined, MODEL: undefined, MODEL_PROVIDER: undefined }, async () => {
       const config = await loadAgentConfig("/tmp", { minicodeHome: home });
-      assert.equal(config.openAiApiKey, "sk-file-key");
+      assert.equal(config.openAiApiKey, undefined);
     });
   });
 
@@ -799,7 +813,7 @@ describe("buildStructuredConfigPayload env source tracking", () => {
     });
   });
 
-  test("shows config-file-only values as effective but not persisted in ~/.minicode/.env", async () => {
+  test("shows home .env values as both effective and persisted", async () => {
     const home = await createTestHome({
       config: { maxSteps: 42 },
     });
@@ -811,7 +825,7 @@ describe("buildStructuredConfigPayload env source tracking", () => {
       const maxStepsEntry = payload.entries.find((e) => e.key === "maxSteps")!;
       assert.equal(maxStepsEntry.overriddenByEnv, false);
       assert.equal(maxStepsEntry.effectiveValue, 42);
-      assert.equal(maxStepsEntry.persistedValue, null);
+      assert.equal(maxStepsEntry.persistedValue, 42);
     });
   });
 
@@ -835,7 +849,7 @@ describe("buildStructuredConfigPayload env source tracking", () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("realistic user scenarios", () => {
-  test("OpenRouter setup: config file + shell OPENAI_API_KEY → no setup needed", async () => {
+  test("OpenRouter setup: home .env + shell OPENAI_API_KEY → no setup needed", async () => {
     // User has modelProvider and openAiBaseUrl in config, OPENAI_API_KEY in shell
     const home = await createTestHome({
       config: {
@@ -894,7 +908,7 @@ describe("realistic user scenarios", () => {
     });
   });
 
-  test("local LM Studio setup: only config file, no env vars needed", async () => {
+  test("local LM Studio setup: only home .env, no shell env vars needed", async () => {
     const home = await createTestHome({
       config: {
         modelProvider: "openai-compatible",
@@ -936,7 +950,7 @@ describe("realistic user scenarios", () => {
     });
   });
 
-  test("fresh install: auto-created config triggers setup overlay", async () => {
+  test("fresh install: missing model still triggers setup overlay", async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), "minicode-integ-"));
     tempDirs.push(base);
     const minicodeHome = path.join(base, "new-home");
@@ -944,12 +958,8 @@ describe("realistic user scenarios", () => {
     await withEnv({ MODEL: undefined, MODEL_PROVIDER: undefined }, async () => {
       const config = await loadAgentConfig("/tmp", { minicodeHome });
 
-      // Should have auto-created the directory and starter config
-      const fileContent = await readFile(
-        path.join(minicodeHome, "agent.config.json"),
-        "utf8",
-      );
-      assert.ok(fileContent.includes('"model": ""'));
+      await access(minicodeHome);
+      await assert.rejects(access(path.join(minicodeHome, "agent.config.json")));
 
       // Empty model → needs setup
       assert.equal(config.model, "");

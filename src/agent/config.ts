@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -14,7 +14,7 @@ export const MINICODE_HOME = path.join(os.homedir(), ".minicode");
  */
 export function formatConfigForDisplay(config: AgentConfig): string {
   const lines: string[] = [
-    "configHome: " + MINICODE_HOME + " (.env, agent.config.json)",
+    "configHome: " + MINICODE_HOME + " (.env)",
     "workspaceRoot: " + config.workspaceRoot,
     "modelProvider: " + config.modelProvider,
     "model: " + config.model,
@@ -118,31 +118,6 @@ function parseReasoningEffort(value: string | undefined): ReasoningEffort | unde
   return VALID_REASONING_EFFORTS.has(normalized) ? normalized : undefined;
 }
 
-export interface AgentConfigFile {
-  modelProvider?: string;
-  model?: string;
-  maxSteps?: number;
-  maxTokens?: number;
-  maxContextTokens?: number;
-  workspaceRoot?: string;
-  commandTimeout?: number;
-  commandDenylist?: string[];
-  confirmDestructive?: boolean;
-  maxFileSizeBytes?: number;
-  keepRecentMessages?: number;
-  loopDetectionWindow?: number;
-  maxToolOutputChars?: number;
-  openAiBaseUrl?: string;
-  openAiApiKey?: string;
-  enableFileReadDedup?: boolean;
-  enableAdaptiveKeepRecent?: boolean;
-  enableToolOutputTruncation?: boolean;
-  compactionThreshold?: number;
-  compactionModel?: string;
-  reasoningEffort?: string;
-  enableDynamicPrompt?: boolean;
-}
-
 export interface LoadAgentConfigOptions {
   minicodeHome?: string;
 }
@@ -180,22 +155,6 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   }
 
   return fallback;
-}
-
-export async function loadConfigFile(configPath: string): Promise<AgentConfigFile> {
-  try {
-    await access(configPath);
-  } catch {
-    return {};
-  }
-
-  const file = await readFile(configPath, "utf8");
-  const parsed = JSON.parse(file) as unknown;
-  if (!parsed || typeof parsed !== "object") {
-    return {};
-  }
-
-  return parsed as AgentConfigFile;
 }
 
 async function loadDotenvFile(envPath: string): Promise<Record<string, string>> {
@@ -273,6 +232,28 @@ function parseUserDenylist(patterns: string[] | undefined): RegExp[] {
   return denylist;
 }
 
+function parseCommandDenylistEnv(value: string | undefined): RegExp[] {
+  if (!value?.trim()) {
+    return [];
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+        return parseUserDenylist(parsed);
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return parseUserDenylist(
+    trimmed.split(",").map((pattern) => pattern.trim()).filter(Boolean),
+  );
+}
+
 function parseModelProvider(
   value: string | undefined,
 ): "anthropic" | "openai-compatible" {
@@ -288,24 +269,8 @@ function parseModelProvider(
   return "anthropic";
 }
 
-const DEFAULT_CONFIG_CONTENT = `{
-  "modelProvider": "openai-compatible",
-  "model": "",
-  "openAiBaseUrl": "http://localhost:1234/v1",
-  "maxSteps": 50,
-  "maxTokens": 4096,
-  "maxContextTokens": 32000
-}
-`;
-
 async function ensureMinicodeHome(minicodeHome: string): Promise<void> {
   await mkdir(minicodeHome, { recursive: true });
-  const configPath = path.join(minicodeHome, "agent.config.json");
-  try {
-    await access(configPath);
-  } catch {
-    await writeFile(configPath, DEFAULT_CONFIG_CONTENT, "utf8");
-  }
 }
 
 export async function loadAgentConfig(
@@ -314,105 +279,92 @@ export async function loadAgentConfig(
 ): Promise<AgentConfig> {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   await ensureMinicodeHome(minicodeHome);
-  const homeConfigPath = path.join(minicodeHome, "agent.config.json");
-  const fileConfig = await loadConfigFile(homeConfigPath);
   const env = (await resolveConfigEnv({ minicodeHome })).values;
 
-  const rawWorkspaceRoot =
-    env.WORKSPACE_ROOT ?? fileConfig.workspaceRoot ?? cwd;
+  const rawWorkspaceRoot = env.WORKSPACE_ROOT ?? cwd;
   const workspaceRoot = path.resolve(cwd, rawWorkspaceRoot);
 
   const commandDenylist = [
     ...DEFAULT_COMMAND_DENYLIST,
-    ...parseUserDenylist(fileConfig.commandDenylist),
+    ...parseCommandDenylistEnv(env.COMMAND_DENYLIST),
   ];
 
-  const rawBaseUrl =
-    env.OPENAI_BASE_URL ??
-    fileConfig.openAiBaseUrl ??
-    "http://localhost:1234/v1";
+  const rawBaseUrl = env.OPENAI_BASE_URL ?? "http://localhost:1234/v1";
   const isOpenRouter = rawBaseUrl.includes("openrouter");
   const openAiApiKey = isOpenRouter
-    ? (env.OPENROUTER_API_KEY ??
-      env.OPENAI_API_KEY ??
-      fileConfig.openAiApiKey)
-    : (env.OPENAI_API_KEY ?? fileConfig.openAiApiKey);
+    ? (env.OPENROUTER_API_KEY ?? env.OPENAI_API_KEY)
+    : env.OPENAI_API_KEY;
 
   return {
     modelProvider: parseModelProvider(
-      env.MODEL_PROVIDER ?? fileConfig.modelProvider ?? "openai-compatible",
+      env.MODEL_PROVIDER ?? "openai-compatible",
     ),
-    model:
-      env.MODEL ??
-      fileConfig.model ??
-      "",
+    model: env.MODEL ?? "",
     maxSteps: parseNumber(
       env.MAX_STEPS,
-      fileConfig.maxSteps ?? 50,
+      50,
     ),
     maxTokens: parseNumber(
       env.MAX_TOKENS,
-      fileConfig.maxTokens ?? 4096,
+      4096,
     ),
     maxContextTokens: parseNumber(
       env.MAX_CONTEXT_TOKENS,
-      fileConfig.maxContextTokens ?? 32_000,
+      32_000,
     ),
     workspaceRoot,
     commandTimeoutMs: parseNumber(
       env.COMMAND_TIMEOUT_MS,
-      fileConfig.commandTimeout ?? 30_000,
+      30_000,
     ),
     maxFileSizeBytes: parseNumber(
       env.MAX_FILE_SIZE_BYTES,
-      fileConfig.maxFileSizeBytes ?? 1_000_000,
+      1_000_000,
     ),
     commandDenylist,
     confirmDestructive: parseBoolean(
       env.CONFIRM_DESTRUCTIVE,
-      fileConfig.confirmDestructive ?? true,
+      true,
     ),
     keepRecentMessages: parseNumber(
       env.KEEP_RECENT_MESSAGES,
-      fileConfig.keepRecentMessages ?? 12,
+      12,
     ),
     loopDetectionWindow: parseNumber(
       env.LOOP_DETECTION_WINDOW,
-      fileConfig.loopDetectionWindow ?? 6,
+      6,
     ),
     maxToolOutputChars: parseNumber(
       env.MAX_TOOL_OUTPUT_CHARS,
-      fileConfig.maxToolOutputChars ?? 8_000,
+      8_000,
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
     enableFileReadDedup: parseBoolean(
       env.ENABLE_FILE_READ_DEDUP,
-      fileConfig.enableFileReadDedup ?? true,
+      true,
     ),
     enableAdaptiveKeepRecent: parseBoolean(
       env.ENABLE_ADAPTIVE_KEEP_RECENT,
-      fileConfig.enableAdaptiveKeepRecent ?? true,
+      true,
     ),
     enableToolOutputTruncation: parseBoolean(
       env.ENABLE_TOOL_OUTPUT_TRUNCATION,
-      fileConfig.enableToolOutputTruncation ?? true,
+      true,
     ),
     compactionThreshold: parseNumber(
       env.COMPACTION_THRESHOLD,
-      fileConfig.compactionThreshold ?? 0.8,
+      0.8,
     ),
-    ...(env.COMPACTION_MODEL ?? fileConfig.compactionModel
-      ? { compactionModel: env.COMPACTION_MODEL ?? fileConfig.compactionModel }
+    ...(env.COMPACTION_MODEL
+      ? { compactionModel: env.COMPACTION_MODEL }
       : {}),
     enableDynamicPrompt: parseBoolean(
       env.ENABLE_DYNAMIC_PROMPT,
-      fileConfig.enableDynamicPrompt ?? true,
+      true,
     ),
     ...(() => {
-      const effort = parseReasoningEffort(
-        env.REASONING_EFFORT ?? fileConfig.reasoningEffort,
-      );
+      const effort = parseReasoningEffort(env.REASONING_EFFORT);
       return effort ? { reasoningEffort: effort } : {};
     })(),
   };
