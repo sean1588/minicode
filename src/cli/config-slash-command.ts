@@ -2,12 +2,12 @@ import type { AgentConfig } from "@minicode/agent-sdk";
 
 import { formatConfigForDisplay, MINICODE_HOME, resolveConfigEnv } from "../agent/config.js";
 import {
+  buildStructuredConfigPayload,
   formatPersistedConfigValue,
   getEditableConfigDefinition,
   getEffectiveEditableConfigValue,
   isEditableConfigKey,
   listEditableConfigDefinitions,
-  loadPersistedConfig,
   setPersistedConfigValue,
   unsetPersistedConfigValue,
 } from "../agent/editable-config.js";
@@ -35,7 +35,7 @@ function renderUsage(): string {
 
 function renderEditableKeys(): string {
   const lines = [
-    "Editable config keys (persisted in ~/.minicode/agent.config.json; environment variables take precedence):",
+    "Editable config keys (persisted in ~/.minicode/.env; exported shell environment variables take precedence):",
   ];
 
   for (const definition of listEditableConfigDefinitions()) {
@@ -48,7 +48,7 @@ function renderEditableKeys(): string {
   }
 
   lines.push("");
-  lines.push('Use "/config set <key> <value>" to update your global config.');
+  lines.push('Use "/config set <key> <value>" to update ~/.minicode/.env.');
   lines.push("Secrets like API keys stay env-only for now.");
   return lines.join("\n");
 }
@@ -63,15 +63,17 @@ async function renderConfigValue(
 
   const minicodeHome = context.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(key);
-  const persisted = await loadPersistedConfig(minicodeHome);
-  const env = await resolveConfigEnv({ minicodeHome });
-  const envValue = env.values[definition.envVar];
+  const payload = await buildStructuredConfigPayload(context.config, minicodeHome);
+  const entry = payload.entries.find((item) => item.key === key);
+  if (!entry) {
+    return `Unknown editable config key "${key}".\n\n${renderEditableKeys()}`;
+  }
 
   return [
     `${definition.key}`,
     `  effective: ${getEffectiveEditableConfigValue(context.config, key)}`,
-    `  config file: ${formatPersistedConfigValue(persisted[definition.fileKey])}`,
-    `  env override (${definition.envVar}): ${formatPersistedConfigValue(envValue)}`,
+    `  saved in ~/.minicode/.env: ${formatPersistedConfigValue(entry.persistedValue)}`,
+    `  exported env override (${definition.envVar}): ${formatPersistedConfigValue(entry.envValue)}`,
   ].join("\n");
 }
 
@@ -99,8 +101,8 @@ async function persistConfigValue(
       `File: ${result.path}`,
       "Restart minicode to pick up persisted config changes in a new session.",
     ];
-    if (env.values[definition.envVar] !== undefined) {
-      lines.push(`Note: ${definition.envVar} is currently set and will override this persisted value until it is unset.`);
+    if (env.sources[definition.envVar] === "process") {
+      lines.push(`Note: ${definition.envVar} is currently exported in your shell and will override this saved value until it is unset.`);
     }
     return lines.join("\n");
   } catch (error) {
@@ -128,11 +130,11 @@ async function removeConfigValue(
 
   const lines = [
     `Removed persisted value for "${key}".`,
-    `File: ${minicodeHome}/agent.config.json`,
+    `File: ${minicodeHome}/.env`,
     "Restart minicode to ensure the updated config is applied in a new session.",
   ];
-  if (env.values[definition.envVar] !== undefined) {
-    lines.push(`Note: ${definition.envVar} is still set in the environment, so the effective value may remain unchanged.`);
+  if (env.sources[definition.envVar] === "process") {
+    lines.push(`Note: ${definition.envVar} is still exported in your shell, so the effective value may remain unchanged.`);
   }
   return lines.join("\n");
 }

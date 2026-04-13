@@ -29,9 +29,11 @@ export type UiListener = (msg: ServerMessage) => void;
 export class AgentBridge {
   private agent: CodingAgent | undefined;
   private config!: Awaited<ReturnType<typeof loadAgentConfig>>;
+  private baseConfig!: Awaited<ReturnType<typeof loadAgentConfig>>;
   private modelClient: ReturnType<typeof createModelClient> | undefined;
   private projectIndex: ProjectIndex | undefined;
-  private buildAgent: ((session?: Session, onUiUpdate?: (event: UiUpdate) => void) => CodingAgent) | undefined;
+  private toolRegistry: ReturnType<typeof createToolRegistry> | undefined;
+  private sessionOpenRouterConnected = false;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
@@ -64,9 +66,8 @@ export class AgentBridge {
 
   async init(): Promise<void> {
     const config = await loadAgentConfig();
-    let modelClient: ReturnType<typeof createModelClient> | undefined;
     try {
-      modelClient = createModelClient(config);
+      this.modelClient = createModelClient(config);
     } catch {
       // Model client may fail to initialize if API keys are missing.
       // Serve mode continues so the web UI can show setup instructions.
@@ -97,30 +98,60 @@ export class AgentBridge {
     };
 
     this.config = config;
+    this.baseConfig = AgentBridge.cloneConfig(config);
     this.projectIndex = projectIndex;
+    this.toolRegistry = toolRegistry;
 
-    if (modelClient) {
-      this.modelClient = modelClient;
-
-      this.buildAgent = (session?: Session, onUiUpdate?: (event: UiUpdate) => void): CodingAgent => {
-        return new CodingAgent({
-          config,
-          modelClient,
-          toolRegistry,
-          verbose: this.verbose,
-          ...(session ? { session } : {}),
-          ...(projectIndex !== undefined
-            ? { getCodeMap: (focusSymbols?: Set<string>) => projectIndex.getCodeMap(undefined, focusSymbols) }
-            : {}),
-          onUiUpdate: onUiUpdate ?? ((event: UiUpdate) => {
-            this.emit(event as ServerMessage);
-          }),
-          getSystemPromptSuffix: () => this.buildAnnotationSuffix(),
-        });
-      };
-
-      this.agent = this.buildAgent();
+    if (this.modelClient) {
+      this.agent = this.createAgent();
     }
+  }
+
+  private static cloneConfig(
+    config: Awaited<ReturnType<typeof loadAgentConfig>>,
+  ): Awaited<ReturnType<typeof loadAgentConfig>> {
+    return {
+      ...config,
+      commandDenylist: [...config.commandDenylist],
+    };
+  }
+
+  private static applyConfig(
+    target: Awaited<ReturnType<typeof loadAgentConfig>>,
+    source: Awaited<ReturnType<typeof loadAgentConfig>>,
+  ): void {
+    const targetRecord = target as unknown as Record<string, unknown>;
+    for (const key of Object.keys(targetRecord)) {
+      if (!(key in source)) {
+        delete targetRecord[key];
+      }
+    }
+
+    Object.assign(targetRecord, AgentBridge.cloneConfig(source));
+  }
+
+  private createAgent(
+    session?: Session,
+    onUiUpdate?: (event: UiUpdate) => void,
+  ): CodingAgent {
+    if (!this.modelClient || !this.toolRegistry) {
+      throw new Error("Agent runtime is not initialized.");
+    }
+
+    return new CodingAgent({
+      config: this.config,
+      modelClient: this.modelClient,
+      toolRegistry: this.toolRegistry,
+      verbose: this.verbose,
+      ...(session ? { session } : {}),
+      ...(this.projectIndex !== undefined
+        ? { getCodeMap: (focusSymbols?: Set<string>) => this.projectIndex!.getCodeMap(undefined, focusSymbols) }
+        : {}),
+      onUiUpdate: onUiUpdate ?? ((event: UiUpdate) => {
+        this.emit(event as ServerMessage);
+      }),
+      getSystemPromptSuffix: () => this.buildAnnotationSuffix(),
+    });
   }
 
   // ── File watcher for automatic reindexing ──
@@ -210,6 +241,56 @@ export class AgentBridge {
     return this.config;
   }
 
+  isOpenRouterSessionConnected(): boolean {
+    return this.sessionOpenRouterConnected;
+  }
+
+  connectOpenRouter(apiKey: string): void {
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
+      throw new Error("OpenRouter OAuth exchange did not return an API key.");
+    }
+    if (this.busy) {
+      throw new Error("busy");
+    }
+
+    const currentSession = this.agent?.getSession();
+    (this.config as {
+      modelProvider: "openai-compatible";
+      openAiBaseUrl: string;
+      openAiApiKey: string;
+    }).modelProvider = "openai-compatible";
+    (this.config as { openAiBaseUrl: string }).openAiBaseUrl = "https://openrouter.ai/api/v1";
+    (this.config as { openAiApiKey: string }).openAiApiKey = trimmedKey;
+    this.sessionOpenRouterConnected = true;
+
+    this.modelClient = createModelClient(this.config);
+    this.agent = this.createAgent(currentSession);
+  }
+
+  disconnectOpenRouter(): boolean {
+    if (this.busy) {
+      throw new Error("busy");
+    }
+    if (!this.sessionOpenRouterConnected) {
+      return false;
+    }
+
+    const currentSession = this.agent?.getSession();
+    AgentBridge.applyConfig(this.config, this.baseConfig);
+    this.sessionOpenRouterConnected = false;
+
+    try {
+      this.modelClient = createModelClient(this.config);
+      this.agent = this.createAgent(currentSession);
+    } catch {
+      this.modelClient = undefined;
+      this.agent = undefined;
+    }
+
+    return true;
+  }
+
   private requireAgent(): CodingAgent {
     if (!this.agent) {
       throw new Error("Agent is not configured. Set MODEL and provider settings in ~/.minicode/.env");
@@ -276,13 +357,13 @@ export class AgentBridge {
   }
 
   async loadSess(label: string) {
-    if (!this.buildAgent) {
+    if (!this.modelClient) {
       throw new Error("Agent is not configured.");
     }
     const result =
       (await loadSessionByLabel(label)) ?? (await loadSession(label));
     if (!result) return null;
-    this.agent = this.buildAgent(result.session);
+    this.agent = this.createAgent(result.session);
     // Restore annotations from saved session
     this.annotations.clear();
     if (result.annotations) {
@@ -542,11 +623,11 @@ export class AgentBridge {
     signal?: AbortSignal,
   ): Promise<string> {
     if (!this.projectIndex) throw new Error("No project index");
-    if (!this.buildAgent) throw new Error("Agent is not configured.");
+    if (!this.modelClient) throw new Error("Agent is not configured.");
     const sym = this.projectIndex.getSymbol(name);
     if (!sym) throw new Error(`Symbol "${name}" not found`);
 
-    const explainAgent = this.buildAgent(undefined, onEvent);
+    const explainAgent = this.createAgent(undefined, onEvent);
     const prompt = `Explain "${sym.name}" (${sym.kind} in ${sym.filePath}).
 Use read_symbol, get_dependencies, find_references to gather context.
 Explain what it does, how it works, what depends on it, and key design decisions.
@@ -563,12 +644,12 @@ Be concise but thorough.`;
   ): Promise<string> {
     const report = this.getStructuralAnalysis();
     if (!report) throw new Error("No project index");
-    if (!this.buildAgent) throw new Error("Agent is not configured.");
+    if (!this.modelClient) throw new Error("Agent is not configured.");
 
     const finding = report.findings.find((item) => item.id === findingId);
     if (!finding) throw new Error(`Structural finding "${findingId}" not found`);
 
-    const explainAgent = this.buildAgent(undefined, onEvent);
+    const explainAgent = this.createAgent(undefined, onEvent);
     const affectedSymbols = finding.symbols.length > 0
       ? finding.symbols.slice(0, 8).join(", ")
       : "(none)";

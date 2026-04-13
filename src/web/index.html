@@ -61,7 +61,18 @@
           <div class="config-overlay-content">
             <h2>Agent not connected</h2>
             <p id="config-missing" class="config-missing hidden"></p>
-            <p>minicode needs a model provider to run. Configure one of the following:</p>
+            <div id="config-overlay-spotlight" class="config-overlay-spotlight">
+              <div class="config-overlay-spotlight-copy">
+                <span class="config-overlay-spotlight-badge">Fastest way to start</span>
+                <strong>Try minicode for free with OpenRouter</strong>
+                <p>Create a free OpenRouter account, connect it to this <code>minicode serve</code> session, and use free models without editing config files first.</p>
+              </div>
+              <div class="config-overlay-actions config-overlay-spotlight-actions">
+                <button id="connect-openrouter-btn" class="dropdown-action" type="button" data-openrouter-connect="true">Connect OpenRouter</button>
+                <span class="config-overlay-action-note">Session-only. Nothing is written to disk.</span>
+              </div>
+            </div>
+            <p id="config-overlay-intro">minicode needs a model provider to run. Configure one of the following:</p>
             <div class="config-overlay-options">
               <div class="config-overlay-option">
                 <strong>Local model (LM Studio, Ollama, etc.)</strong>
@@ -79,13 +90,14 @@ MODEL=claude-sonnet-4-20250514</pre>
               </div>
               <div class="config-overlay-option">
                 <strong>OpenRouter / remote OpenAI-compatible</strong>
-                <p>Set in <code>~/.minicode/.env</code> or your shell environment:</p>
+                <p>Set it manually in <code>~/.minicode/.env</code> or your shell environment:</p>
                 <pre>MODEL_PROVIDER=openai-compatible
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=sk-or-...
 MODEL=your-model-name</pre>
               </div>
             </div>
+            <p id="config-connect-status" class="config-connect-status hidden"></p>
             <p class="config-overlay-footer">After updating your config, restart <code>minicode serve</code>.</p>
           </div>
         </div>
@@ -144,30 +156,80 @@ MODEL=your-model-name</pre>
       <div class="modal-header">
         <div>
           <h2 id="settings-title">Settings</h2>
-          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret global defaults for future sessions.</p>
+          <p id="settings-subtitle" class="modal-subtitle">Persist non-secret global defaults in <code>~/.minicode/.env</code> for future sessions.</p>
         </div>
         <button id="settings-close" class="header-btn" type="button">Close</button>
       </div>
 
       <div class="settings-toolbar">
         <div class="settings-path-group">
-          <span class="settings-path-label">Config file</span>
+          <span class="settings-path-label">Env file</span>
           <code id="settings-path" class="settings-path"></code>
         </div>
       </div>
 
       <div id="settings-banner" class="settings-banner hidden" role="status" aria-live="polite"></div>
+      <div id="settings-openrouter-session" class="settings-session-banner hidden" role="status" aria-live="polite">
+        <div class="settings-session-copy">
+          <div class="settings-session-title">OpenRouter is connected for this serve session</div>
+          <div id="settings-openrouter-session-meta" class="settings-session-meta"></div>
+        </div>
+        <button id="disconnect-openrouter-btn" class="header-btn" type="button">Disconnect OpenRouter</button>
+      </div>
       <div id="settings-list" class="settings-list">
         <div class="dropdown-empty">Loading settings...</div>
       </div>
 
       <div class="modal-footer">
         <p class="settings-footnote">
-          Secrets such as API keys stay env-only for now. Saved changes update <code>~/.minicode/agent.config.json</code> and apply to new runs after restart.
+          Secrets such as API keys stay env-only for now. Saved changes update <code>~/.minicode/.env</code> and apply to new runs after restart.
         </p>
         <div class="settings-actions">
           <button id="settings-reset" class="header-btn" type="button">Reset changes</button>
           <button id="settings-save" class="dropdown-action" type="button">Save settings</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="openrouter-connect-modal" class="modal hidden" aria-hidden="true">
+    <div id="openrouter-connect-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel modal-panel-compact" role="dialog" aria-modal="true" aria-labelledby="openrouter-connect-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="openrouter-connect-title">Connect OpenRouter</h2>
+          <p class="modal-subtitle">Authorize this <code>minicode serve</code> session and optionally save the resulting setup for future runs.</p>
+        </div>
+        <button id="openrouter-connect-close" class="header-btn" type="button">Close</button>
+      </div>
+
+      <div class="openrouter-connect-body">
+        <p class="openrouter-connect-lead">
+          minicode will redirect you to OpenRouter so you can sign in and approve access. By default, the resulting API key is used only for this live serve session.
+        </p>
+
+        <div class="openrouter-connect-note">
+          <strong>Optional persistence</strong>
+          <p>If you opt in below, minicode will update <code>~/.minicode/.env</code> after sign-in so future runs can reuse this OpenRouter setup.</p>
+        </div>
+
+        <label class="openrouter-persist-toggle" for="openrouter-persist-checkbox">
+          <input id="openrouter-persist-checkbox" type="checkbox" />
+          <span>Save the OpenRouter credentials and provider defaults to <code>~/.minicode/.env</code> after sign-in.</span>
+        </label>
+
+        <p class="openrouter-connect-help">
+          When enabled, minicode will store <code>OPENROUTER_API_KEY</code> and set <code>MODEL_PROVIDER</code> plus <code>OPENAI_BASE_URL</code> for OpenRouter. Nothing is written unless you check the box.
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <p class="settings-footnote">
+          OpenRouter handles the sign-in. minicode only receives the API key after you approve access.
+        </p>
+        <div class="settings-actions">
+          <button id="openrouter-connect-cancel" class="header-btn" type="button">Cancel</button>
+          <button id="openrouter-connect-continue" class="dropdown-action" type="button">Continue</button>
         </div>
       </div>
     </section>

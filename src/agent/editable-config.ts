@@ -1,15 +1,11 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
-
 import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
 
 import {
-  loadConfigFile,
   MINICODE_HOME,
-  resolveConfigEnv,
-  type AgentConfigFile,
   type ConfigEnvSource,
+  resolveConfigEnv,
 } from "./config.js";
+import { getHomeEnvPath, loadHomeEnvValues, upsertHomeEnvValues } from "./home-env.js";
 
 type EditableConfigValue = string | number | boolean;
 type EditableConfigType = "string" | "number" | "boolean" | "enum";
@@ -37,7 +33,6 @@ export interface EditableConfigDefinition {
     | "reasoningEffort"
     | "enableDynamicPrompt"
   >;
-  fileKey: keyof AgentConfigFile;
   envVar: string;
   type: EditableConfigType;
   description: string;
@@ -75,7 +70,6 @@ const REASONING_VALUES = [
 export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = [
   {
     key: "modelProvider",
-    fileKey: "modelProvider",
     envVar: "MODEL_PROVIDER",
     type: "enum",
     values: ["anthropic", "openai-compatible"],
@@ -83,119 +77,102 @@ export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = 
   },
   {
     key: "model",
-    fileKey: "model",
     envVar: "MODEL",
     type: "string",
     description: "Default model id for new sessions",
   },
   {
     key: "maxSteps",
-    fileKey: "maxSteps",
     envVar: "MAX_STEPS",
     type: "number",
     description: "Turn call limit before the agent pauses and waits for another prompt",
   },
   {
     key: "maxTokens",
-    fileKey: "maxTokens",
     envVar: "MAX_TOKENS",
     type: "number",
     description: "Maximum completion tokens per model response",
   },
   {
     key: "maxContextTokens",
-    fileKey: "maxContextTokens",
     envVar: "MAX_CONTEXT_TOKENS",
     type: "number",
     description: "Estimated prompt-context budget before compaction",
   },
   {
     key: "commandTimeoutMs",
-    fileKey: "commandTimeout",
     envVar: "COMMAND_TIMEOUT_MS",
     type: "number",
     description: "Shell command timeout in milliseconds",
   },
   {
     key: "maxFileSizeBytes",
-    fileKey: "maxFileSizeBytes",
     envVar: "MAX_FILE_SIZE_BYTES",
     type: "number",
     description: "Maximum file size allowed for read/edit tools",
   },
   {
     key: "confirmDestructive",
-    fileKey: "confirmDestructive",
     envVar: "CONFIRM_DESTRUCTIVE",
     type: "boolean",
     description: "Whether destructive commands require confirmation",
   },
   {
     key: "keepRecentMessages",
-    fileKey: "keepRecentMessages",
     envVar: "KEEP_RECENT_MESSAGES",
     type: "number",
     description: "Recent messages preserved when trimming session history",
   },
   {
     key: "loopDetectionWindow",
-    fileKey: "loopDetectionWindow",
     envVar: "LOOP_DETECTION_WINDOW",
     type: "number",
     description: "Window size for repeated-tool-call loop detection",
   },
   {
     key: "maxToolOutputChars",
-    fileKey: "maxToolOutputChars",
     envVar: "MAX_TOOL_OUTPUT_CHARS",
     type: "number",
     description: "Maximum tool output retained before truncation",
   },
   {
     key: "openAiBaseUrl",
-    fileKey: "openAiBaseUrl",
     envVar: "OPENAI_BASE_URL",
     type: "string",
     description: "Base URL for OpenAI-compatible providers",
   },
   {
     key: "enableFileReadDedup",
-    fileKey: "enableFileReadDedup",
     envVar: "ENABLE_FILE_READ_DEDUP",
     type: "boolean",
     description: "Deduplicate repeated file reads in prompt context",
   },
   {
     key: "enableAdaptiveKeepRecent",
-    fileKey: "enableAdaptiveKeepRecent",
     envVar: "ENABLE_ADAPTIVE_KEEP_RECENT",
     type: "boolean",
     description: "Adjust recent-message retention based on context pressure",
   },
   {
     key: "enableToolOutputTruncation",
-    fileKey: "enableToolOutputTruncation",
     envVar: "ENABLE_TOOL_OUTPUT_TRUNCATION",
     type: "boolean",
     description: "Truncate oversized tool output before storing it in session history",
   },
   {
     key: "compactionThreshold",
-    fileKey: "compactionThreshold",
     envVar: "COMPACTION_THRESHOLD",
     type: "number",
     description: "Compaction threshold ratio used before a turn starts",
   },
   {
     key: "compactionModel",
-    fileKey: "compactionModel",
     envVar: "COMPACTION_MODEL",
     type: "string",
     description: "Optional model id used for LLM-based compaction",
   },
   {
     key: "reasoningEffort",
-    fileKey: "reasoningEffort",
     envVar: "REASONING_EFFORT",
     type: "enum",
     values: REASONING_VALUES,
@@ -203,7 +180,6 @@ export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = 
   },
   {
     key: "enableDynamicPrompt",
-    fileKey: "enableDynamicPrompt",
     envVar: "ENABLE_DYNAMIC_PROMPT",
     type: "boolean",
     description: "Toggle project-aware dynamic prompt generation",
@@ -271,10 +247,6 @@ function normalizePersistedValue(value: unknown): string | number | boolean | nu
   return null;
 }
 
-function isEmptyConfigFile(config: AgentConfigFile): boolean {
-  return Object.keys(config).length === 0;
-}
-
 export function listEditableConfigDefinitions(): readonly EditableConfigDefinition[] {
   return EDITABLE_CONFIG_DEFINITIONS;
 }
@@ -308,13 +280,33 @@ export function formatPersistedConfigValue(value: unknown): string {
 export function getGlobalConfigPath(
   minicodeHome = MINICODE_HOME,
 ): string {
-  return path.join(minicodeHome, "agent.config.json");
+  return getHomeEnvPath(minicodeHome);
 }
 
 export async function loadPersistedConfig(
   minicodeHome = MINICODE_HOME,
-): Promise<AgentConfigFile> {
-  return loadConfigFile(getGlobalConfigPath(minicodeHome));
+): Promise<Record<string, string>> {
+  return loadHomeEnvValues(minicodeHome);
+}
+
+function readPersistedEnvValue(
+  definition: EditableConfigDefinition,
+  persisted: Record<string, string>,
+): string | number | boolean | null {
+  const rawValue = persisted[definition.envVar];
+  if (rawValue === undefined) {
+    return null;
+  }
+
+  try {
+    return parseEditableValue(definition, rawValue);
+  } catch {
+    return rawValue;
+  }
+}
+
+function serializeEditableValue(value: EditableConfigValue): string {
+  return String(value);
 }
 
 export async function buildStructuredConfigPayload(
@@ -328,10 +320,11 @@ export async function buildStructuredConfigPayload(
   return {
     configPath,
     entries: EDITABLE_CONFIG_DEFINITIONS.map((definition) => {
-      const envValue = env.values[definition.envVar];
-      const envSource = env.sources[definition.envVar] ?? null;
-      const envSourcePath = envSource === "home-dotenv"
-        ? env.homeEnvPath
+      const envSource = env.sources[definition.envVar] === "process"
+        ? "process"
+        : null;
+      const envValue = envSource === "process"
+        ? (env.values[definition.envVar] ?? null)
         : null;
       return {
         key: definition.key,
@@ -340,11 +333,11 @@ export async function buildStructuredConfigPayload(
         envVar: definition.envVar,
         ...(definition.values ? { values: definition.values } : {}),
         effectiveValue: normalizePersistedValue(config[definition.key]),
-        persistedValue: normalizePersistedValue(persisted[definition.fileKey]),
-        envValue: envValue ?? null,
+        persistedValue: readPersistedEnvValue(definition, persisted),
+        envValue,
         envSource,
-        envSourcePath,
-        overriddenByEnv: envValue !== undefined,
+        envSourcePath: envSource === "process" ? null : null,
+        overriddenByEnv: envSource === "process",
       };
     }),
   };
@@ -358,13 +351,13 @@ export async function setPersistedConfigValue(options: {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(options.key);
   const configPath = getGlobalConfigPath(minicodeHome);
-  const nextFile = await loadConfigFile(configPath);
   const storedValue = parseEditableValue(definition, options.rawValue);
-
-  nextFile[definition.fileKey] = storedValue as never;
-
-  await mkdir(path.dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(nextFile, null, 2) + "\n", "utf8");
+  await upsertHomeEnvValues({
+    minicodeHome,
+    values: {
+      [definition.envVar]: serializeEditableValue(storedValue),
+    },
+  });
 
   return { path: configPath, storedValue };
 }
@@ -376,16 +369,12 @@ export async function unsetPersistedConfigValue(options: {
   const minicodeHome = options.minicodeHome ?? MINICODE_HOME;
   const definition = getEditableConfigDefinition(options.key);
   const configPath = getGlobalConfigPath(minicodeHome);
-  const nextFile = await loadConfigFile(configPath);
-
-  delete nextFile[definition.fileKey];
-
-  if (isEmptyConfigFile(nextFile)) {
-    await rm(configPath, { force: true });
-  } else {
-    await mkdir(path.dirname(configPath), { recursive: true });
-    await writeFile(configPath, JSON.stringify(nextFile, null, 2) + "\n", "utf8");
-  }
+  await upsertHomeEnvValues({
+    minicodeHome,
+    values: {
+      [definition.envVar]: null,
+    },
+  });
 
   return { path: configPath };
 }
@@ -407,23 +396,24 @@ export async function applyPersistedConfigUpdates(options: {
   });
 
   const saved: Array<{ key: EditableConfigKey; value: string | number | boolean | null }> = [];
+  const envUpdates: Record<string, string | null> = {};
   for (const item of planned) {
+    const definition = getEditableConfigDefinition(item.key);
     if (item.value === null) {
-      await unsetPersistedConfigValue({
-        key: item.key,
-        minicodeHome,
-      });
+      envUpdates[definition.envVar] = null;
       saved.push({ key: item.key, value: null });
       continue;
     }
 
-    await setPersistedConfigValue({
-      key: item.key,
-      rawValue: String(item.value),
-      minicodeHome,
-    });
-    saved.push({ key: item.key, value: item.value });
+    const storedValue = parseEditableValue(definition, String(item.value));
+    envUpdates[definition.envVar] = serializeEditableValue(storedValue);
+    saved.push({ key: item.key, value: storedValue });
   }
+
+  await upsertHomeEnvValues({
+    minicodeHome,
+    values: envUpdates,
+  });
 
   return {
     path: getGlobalConfigPath(minicodeHome),

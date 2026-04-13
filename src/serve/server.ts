@@ -10,6 +10,7 @@ import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
 import { formatConfigForDisplay, getConfigMissing } from "../agent/config.js";
 import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../agent/editable-config.js";
+import { getHomeEnvPath, upsertHomeEnvValues } from "../agent/home-env.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
 import { serializeSymbolMatch } from "../shared/symbol-resolution.js";
 import type { ServerMessage } from "./types.js";
@@ -50,6 +51,24 @@ interface WebSettingsPayload {
   }>;
 }
 
+interface OpenRouterConnectRequestBody {
+  code?: string;
+  codeVerifier?: string;
+  persistToEnv?: boolean;
+}
+
+interface OpenRouterDisconnectResponse {
+  ok: boolean;
+  disconnected: boolean;
+  sessionOnly: boolean;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  needsSetup: boolean;
+  missing: string[];
+  message: string;
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -79,7 +98,12 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
     const content = await readFile(filePath);
     const ext = path.extname(filePath);
     const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
-    res.writeHead(200, { "Content-Type": contentType });
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      // This local UI changes often during development. Avoid stale browser bundles
+      // causing the app to run an older client against a newer server.
+      "Cache-Control": "no-store",
+    });
     res.end(content);
   } catch {
     res.writeHead(404);
@@ -104,7 +128,6 @@ export function createRequestHandler(
   emit?: (msg: ServerMessage) => void,
   options: RequestHandlerOptions = {},
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const config = bridge.getConfig();
   const emitFn = emit ?? (() => {});
   const minicodeHome = options.minicodeHome;
 
@@ -114,6 +137,7 @@ export function createRequestHandler(
     const pathname = url.pathname;
 
     const handle = async () => {
+      const config = bridge.getConfig();
       // MCP (Model Context Protocol) endpoint
       if (pathname === "/mcp") {
         await handleMcpRequest(req, res, bridge, emitFn);
@@ -138,6 +162,8 @@ export function createRequestHandler(
           workspace: config.workspaceRoot,
           model: config.model,
           provider: config.modelProvider,
+          baseUrl: config.openAiBaseUrl,
+          sessionOpenRouterConnected: bridge.isOpenRouterSessionConnected(),
           needsSetup: missing.length > 0,
           missing,
         });
@@ -150,14 +176,178 @@ export function createRequestHandler(
         return;
       }
 
+      if (pathname === "/api/openrouter/connect" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as OpenRouterConnectRequestBody;
+        if (!body.code || typeof body.code !== "string") {
+          sendJson(res, 400, { error: "code is required" });
+          return;
+        }
+        if (!body.codeVerifier || typeof body.codeVerifier !== "string") {
+          sendJson(res, 400, { error: "codeVerifier is required" });
+          return;
+        }
+
+        let exchangeResponse: Response;
+        try {
+          exchangeResponse = await fetch("https://openrouter.ai/api/v1/auth/keys", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              code: body.code,
+              code_verifier: body.codeVerifier,
+              code_challenge_method: "S256",
+            }),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "OpenRouter OAuth exchange failed";
+          sendJson(res, 502, { error: message });
+          return;
+        }
+
+        if (!exchangeResponse.ok) {
+          const message = await exchangeResponse.text();
+          sendJson(
+            res,
+            exchangeResponse.status,
+            {
+              error: message.trim().length > 0
+                ? `OpenRouter OAuth exchange failed: ${message}`
+                : `OpenRouter OAuth exchange failed (${exchangeResponse.status})`,
+            },
+          );
+          return;
+        }
+
+        const payload = await exchangeResponse.json() as { key?: string };
+        if (!payload.key || typeof payload.key !== "string") {
+          sendJson(res, 502, { error: "OpenRouter OAuth exchange did not return an API key." });
+          return;
+        }
+
+        try {
+          bridge.connectOpenRouter(payload.key);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to configure OpenRouter";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        let persistedToEnv = false;
+        let persistedEnvPath: string | null = null;
+        let persistWarning: string | null = null;
+
+        if (body.persistToEnv === true) {
+          try {
+            const result = await upsertHomeEnvValues({
+              values: {
+                MODEL_PROVIDER: "openai-compatible",
+                OPENAI_BASE_URL: "https://openrouter.ai/api/v1",
+                OPENROUTER_API_KEY: payload.key,
+              },
+              ...(minicodeHome ? { minicodeHome } : {}),
+            });
+            persistedToEnv = true;
+            persistedEnvPath = result.path;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+            persistedEnvPath = getHomeEnvPath(minicodeHome);
+            persistWarning = `OpenRouter connected for this serve session, but minicode could not update ${persistedEnvPath}: ${message}`;
+          }
+        }
+
+        const missing = getConfigMissing(config);
+        const onlyModelMissing = missing.length === 1 && missing[0] === "MODEL is not set";
+        const message = persistWarning
+          ? `${persistWarning}${onlyModelMissing ? " Select a model to continue." : ""}`
+          : persistedToEnv
+            ? (
+              onlyModelMissing
+                ? "OpenRouter connected for this serve session and saved to ~/.minicode/.env. Select a model to continue, and minicode will remember it for future runs."
+                : "OpenRouter connected for this serve session and saved to ~/.minicode/.env for future runs."
+            )
+            : (
+              onlyModelMissing
+                ? "OpenRouter connected for this serve session. Select a model to continue."
+                : "OpenRouter connected for this serve session."
+            );
+        sendJson(res, 200, {
+          ok: true,
+          sessionOnly: true,
+          persistedToEnv,
+          persistedEnvPath,
+          persistWarning,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message,
+        });
+        return;
+      }
+
+      if (pathname === "/api/openrouter/disconnect" && method === "POST") {
+        let disconnected = false;
+        try {
+          disconnected = bridge.disconnectOpenRouter();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to remove OpenRouter session";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        const missing = getConfigMissing(config);
+        const body: OpenRouterDisconnectResponse = {
+          ok: true,
+          disconnected,
+          sessionOnly: true,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message: disconnected
+            ? "Removed the session-only OpenRouter connection and restored your original provider settings."
+            : "No session-only OpenRouter connection was active.",
+        };
+        sendJson(res, 200, body);
+        return;
+      }
+
       if (pathname === "/api/model" && method === "POST") {
-        const body = JSON.parse(await readBody(req)) as { model?: string };
+        const body = JSON.parse(await readBody(req)) as {
+          model?: string;
+          persistToHomeEnv?: boolean;
+        };
         if (!body.model || typeof body.model !== "string") {
           sendJson(res, 400, { error: "model is required" });
           return;
         }
         bridge.switchModel(body.model);
-        sendJson(res, 200, { model: body.model });
+
+        let persistedToEnv = false;
+        let persistedEnvPath: string | null = null;
+        let message: string | undefined;
+
+        try {
+          const result = await upsertHomeEnvValues({
+            values: {
+              MODEL: body.model,
+            },
+            ...(minicodeHome ? { minicodeHome } : {}),
+          });
+          persistedToEnv = true;
+          persistedEnvPath = result.path;
+          message = `Saved MODEL=${body.model} to ~/.minicode/.env.`;
+        } catch (error) {
+          const persistMessage = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+          sendJson(res, 500, { error: persistMessage });
+          return;
+        }
+
+        sendJson(res, 200, { model: body.model, persistedToEnv, persistedEnvPath, message });
         return;
       }
 

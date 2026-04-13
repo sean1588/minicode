@@ -14,7 +14,7 @@ minicode's context strategy started with local AI models and smaller context win
 | `enableToolOutputTruncation` | `true` | Uses tool-specific truncation strategies instead of simple head-only clipping |
 | `compactionThreshold` | `0.8` | Auto-compacts old messages once the session reaches 80% of the configured budget |
 
-These can be overridden via environment variables (`MAX_CONTEXT_TOKENS`, etc.), `~/.minicode/agent.config.json`, or a workspace-level `agent.config.json`.
+These can be overridden via `~/.minicode/.env` or exported environment variables (`MAX_CONTEXT_TOKENS`, etc.).
 
 ## How context accumulates
 
