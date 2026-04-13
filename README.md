@@ -1,5 +1,7 @@
 # minicode
 
+> Now supports connecting to [OpenRouter](https://openrouter.ai/) account via minicode UI. Sign in with OpenRouter account. Use for free with compatible free tier OpenRouter hosted models from MiniMax, Nvidia, Qwen, Google, etc.
+
 A graph-native coding agent and code exploration environment built around structural context optimization that leverages symbol-aware retrieval, dependency graphs, and targeted context. It started as a way to make local models viable under tighter context budgets, and it now also works well with hosted frontier models through the same runtime, web UI, and OpenAI-compatible serve mode. 
 
 minicode is built on a simple bet: models perform better when you give them less, but better context. Bloated context directly degrades output quality: attention dilutes, positional biases cause mid-context information loss, and inference latency grows as token count increases.
@@ -9,6 +11,16 @@ Read operations dominate token usage in typical agent sessions; minicode address
 _Run `minicode serve` to get the web UI on localhost: chat, tool activity, session controls, model switching, symbol focus, annotations, and a live dependency graph._
 
 <img width="1723" height="920" alt="Screenshot 2026-03-26 at 6 30 23 PM" src="https://github.com/user-attachments/assets/499c8dc7-cc2b-4125-abd5-32b2fc9795ea" />
+
+## Quick Start (OpenRouter)
+```bash
+npm install -g @sean.holung/minicode
+minicode serve
+```
+
+1. Navigate to [localhost:4567](http://localhost:4567)
+2. Click Connect OpenRouter to sign in to [OpenRouter](https://openrouter.ai/) and connect account.
+3. Choose a model. Choose a (free) model if on free tier. Model must support tool use.
 
 
 ## Quick Start (LM Studio)
