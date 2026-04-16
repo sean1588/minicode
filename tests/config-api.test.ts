@@ -132,6 +132,12 @@ test("GET /api/config returns structured editable settings payload", async () =>
     assert.equal(maxSteps?.envValue, null);
     assert.equal(maxSteps?.overriddenByEnv, false);
     assert.match(maxSteps?.description ?? "", /Turn call limit/);
+
+    const modelTimeout = body.settings.entries.find((entry) => entry.key === "modelTimeoutSeconds");
+    assert.equal(modelTimeout?.type, "number");
+    assert.equal(modelTimeout?.envVar, "MODEL_TIMEOUT_SECONDS");
+    assert.equal(modelTimeout?.effectiveValue, 60);
+    assert.match(modelTimeout?.description ?? "", /start responding/);
   });
 });
 

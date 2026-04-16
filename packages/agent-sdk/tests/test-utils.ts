@@ -6,6 +6,7 @@ export function createTestAgentConfig(workspaceRoot: string): AgentConfig {
     model: "test-model",
     maxSteps: 10,
     maxTokens: 1024,
+    modelTimeoutSeconds: 60,
     maxContextTokens: 16_000,
     workspaceRoot,
     commandTimeoutMs: 2_000,

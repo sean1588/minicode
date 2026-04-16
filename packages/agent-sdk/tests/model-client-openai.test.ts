@@ -172,6 +172,122 @@ test("openai-compatible client handles malformed tool arguments gracefully", asy
   assert.deepEqual(response.toolCalls[0]?.input, {});
 });
 
+test("openai-compatible client retries transient HTTP failures", async () => {
+  let attempts = 0;
+
+  const fetchImpl: typeof fetch = async () => {
+    attempts += 1;
+
+    if (attempts < 3) {
+      return new Response("temporary outage", { status: 503 });
+    }
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: "Recovered",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 4,
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+    timeoutSeconds: 1,
+  });
+
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(attempts, 3);
+  assert.equal(response.text, "Recovered");
+});
+
+test("openai-compatible client does not retry permanent HTTP failures", async () => {
+  let attempts = 0;
+
+  const fetchImpl: typeof fetch = async () => {
+    attempts += 1;
+    return new Response("bad request", { status: 400 });
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+    timeoutSeconds: 1,
+  });
+
+  await assert.rejects(
+    client.chat({
+      model: "test-model",
+      system: "Test",
+      messages: [{ role: "user", content: "Hi" }],
+      tools: [],
+      maxTokens: 64,
+    }),
+    /400/,
+  );
+
+  assert.equal(attempts, 1);
+});
+
+test("openai-compatible client retries when the model never starts responding", async () => {
+  let attempts = 0;
+
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    attempts += 1;
+    const signal = init?.signal as AbortSignal | undefined;
+
+    return await new Promise<Response>((_resolve, reject) => {
+      const rejectWithAbort = () => {
+        reject(signal?.reason ?? Object.assign(new Error("aborted"), { name: "AbortError" }));
+      };
+
+      if (signal?.aborted) {
+        rejectWithAbort();
+        return;
+      }
+
+      signal?.addEventListener("abort", rejectWithAbort, { once: true });
+    });
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+    timeoutSeconds: 0.01,
+  });
+
+  await assert.rejects(
+    client.chat({
+      model: "test-model",
+      system: "Test",
+      messages: [{ role: "user", content: "Hi" }],
+      tools: [],
+      maxTokens: 64,
+    }),
+    /did not start responding within 0.01s/,
+  );
+
+  assert.equal(attempts, 3);
+});
+
 test("createModelClient returns openai-compatible client", () => {
   const config = {
     ...createTestAgentConfig("/tmp"),

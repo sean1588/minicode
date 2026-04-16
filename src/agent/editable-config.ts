@@ -17,6 +17,7 @@ export interface EditableConfigDefinition {
     | "model"
     | "maxSteps"
     | "maxTokens"
+    | "modelTimeoutSeconds"
     | "maxContextTokens"
     | "commandTimeoutMs"
     | "maxFileSizeBytes"
@@ -92,6 +93,12 @@ export const EDITABLE_CONFIG_DEFINITIONS: readonly EditableConfigDefinition[] = 
     envVar: "MAX_TOKENS",
     type: "number",
     description: "Maximum completion tokens per model response",
+  },
+  {
+    key: "modelTimeoutSeconds",
+    envVar: "MODEL_TIMEOUT_SECONDS",
+    type: "number",
+    description: "Maximum time to wait for a model API call to start responding",
   },
   {
     key: "maxContextTokens",
