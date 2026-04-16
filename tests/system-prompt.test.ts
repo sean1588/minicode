@@ -11,6 +11,7 @@ function createMinimalConfig(workspaceRoot: string): AgentConfig {
     model: "test",
     maxSteps: 10,
     maxTokens: 1024,
+    modelTimeoutSeconds: 60,
     maxContextTokens: 16_000,
     workspaceRoot,
     commandTimeoutMs: 5000,

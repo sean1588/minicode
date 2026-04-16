@@ -20,6 +20,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "model: " + config.model,
     "maxSteps: " + config.maxSteps,
     "maxTokens: " + config.maxTokens,
+    "modelTimeoutSeconds: " + config.modelTimeoutSeconds,
     "maxContextTokens: " + config.maxContextTokens,
     "commandTimeoutMs: " + config.commandTimeoutMs,
     "maxFileSizeBytes: " + config.maxFileSizeBytes,
@@ -307,6 +308,10 @@ export async function loadAgentConfig(
     maxTokens: parseNumber(
       env.MAX_TOKENS,
       4096,
+    ),
+    modelTimeoutSeconds: parseNumber(
+      env.MODEL_TIMEOUT_SECONDS,
+      60,
     ),
     maxContextTokens: parseNumber(
       env.MAX_CONTEXT_TOKENS,

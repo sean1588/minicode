@@ -199,6 +199,7 @@ Nothing is written inside your workspace; config and cache live under `~/.minico
 | `COMMAND_DENYLIST`      | No              | none                       | Optional JSON array or comma-separated regex patterns appended to the built-in destructive-command denylist                         |
 | `MAX_STEPS`             | No              | `50`                       | Max agent loop iterations per user turn                                                                                               |
 | `MAX_TOKENS`            | No              | `4096`                     | Max model output tokens per model call                                                                                                |
+| `MODEL_TIMEOUT_SECONDS` | No              | `60`                       | Timeout waiting for a model API call to start responding before aborting and surfacing an error                                       |
 | `MAX_CONTEXT_TOKENS`    | No              | `32000`                    | Approximate session history trimming target. For small models (e.g. 8k context), set lower (e.g. `6000`) to leave room for responses. |
 | `MAX_TOOL_OUTPUT_CHARS` | No              | `8000`                     | Max chars per tool result before truncation. Set to `0` to disable.                                                                   |
 | `WORKSPACE_ROOT`        | No              | current working directory  | Root directory tools are allowed to access (set at runtime, not typically configured)                                                  |

@@ -14,6 +14,10 @@ import type {
   ToolSchema,
 } from "../agent/types.js";
 
+const DEFAULT_MODEL_START_TIMEOUT_SECONDS = 60;
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
+
 function toAnthropicMessages(
   messages: SessionMessage[],
 ): Anthropic.MessageParam[] {
@@ -103,11 +107,78 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
   };
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
+class ModelStartTimeoutError extends Error {
+  readonly timeoutSeconds: number;
+
+  constructor(timeoutSeconds: number) {
+    super(`Model request did not start responding within ${timeoutSeconds}s.`);
+    this.name = "ModelStartTimeoutError";
+    this.timeoutSeconds = timeoutSeconds;
+  }
 }
 
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+class OpenAICompatibleHttpError extends Error {
+  readonly status: number;
+  readonly bodyText: string;
+
+  constructor(status: number, bodyText: string) {
+    super(`OpenAI-compatible request failed (${status}): ${bodyText}`);
+    this.name = "OpenAICompatibleHttpError";
+    this.status = status;
+    this.bodyText = bodyText;
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.name === "AbortError") ||
+    error instanceof Anthropic.APIUserAbortError
+  );
+}
+
+function isOpenAICompatibleNetworkError(error: unknown): boolean {
+  return (
+    error instanceof TypeError &&
+    /fetch failed|network|socket|timed out|econnreset|econnrefused|enotfound|eai_again|terminated|und_err/i.test(
+      error.message,
+    )
+  );
+}
+
+function isRetryableOpenAICompatibleError(error: unknown): boolean {
+  if (error instanceof ModelStartTimeoutError) {
+    return true;
+  }
+
+  if (error instanceof OpenAICompatibleHttpError) {
+    return (
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500
+    );
+  }
+
+  return isOpenAICompatibleNetworkError(error);
+}
+
+function isRetryableAnthropicError(error: unknown): boolean {
+  return (
+    error instanceof ModelStartTimeoutError ||
+    error instanceof Anthropic.APIConnectionError ||
+    error instanceof Anthropic.APIConnectionTimeoutError ||
+    error instanceof Anthropic.RateLimitError ||
+    error instanceof Anthropic.InternalServerError
+  );
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: {
+    attempts?: number;
+    shouldRetry?: (error: unknown) => boolean;
+  } = {},
+): Promise<T> {
+  const attempts = options.attempts ?? RETRY_ATTEMPTS;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -118,16 +189,77 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
       if (isAbortError(error)) {
         throw error;
       }
+      if (options.shouldRetry && !options.shouldRetry(error)) {
+        throw error;
+      }
       if (attempt === attempts) {
         break;
       }
 
-      const delayMs = 500 * 2 ** (attempt - 1);
+      const delayMs = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
       await sleep(delayMs);
     }
   }
 
   throw lastError;
+}
+
+function createTimeoutSignal(timeoutSeconds: number, parentSignal?: AbortSignal): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  didTimeout: () => boolean;
+} {
+  const controller = new AbortController();
+  let timedOut = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMs = timeoutSeconds * 1000;
+
+  const handleParentAbort = () => {
+    controller.abort(parentSignal?.reason);
+  };
+
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason);
+  } else if (parentSignal) {
+    parentSignal.addEventListener("abort", handleParentAbort, { once: true });
+  }
+
+  timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new ModelStartTimeoutError(timeoutSeconds));
+  }, timeoutMs);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      parentSignal?.removeEventListener("abort", handleParentAbort);
+    },
+    didTimeout: () => timedOut,
+  };
+}
+
+async function withResponseStartTimeout<T>(
+  timeoutSeconds: number,
+  parentSignal: AbortSignal | undefined,
+  fn: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timeoutState = createTimeoutSignal(timeoutSeconds, parentSignal);
+  try {
+    return await fn(timeoutState.signal);
+  } catch (error) {
+    if (error instanceof ModelStartTimeoutError) {
+      throw error;
+    }
+    if (timeoutState.didTimeout() && isAbortError(error)) {
+      throw new ModelStartTimeoutError(timeoutSeconds);
+    }
+    throw error;
+  } finally {
+    timeoutState.cleanup();
+  }
 }
 
 interface OpenAICompatibleToolCall {
@@ -312,15 +444,25 @@ function effortToBudgetFraction(effort: ReasoningEffort): number {
 
 export class AnthropicModelClient implements ModelClient {
   private readonly client: Anthropic;
+  private readonly timeoutSeconds: number;
 
-  constructor(apiKey = process.env.ANTHROPIC_API_KEY) {
-    if (!apiKey) {
+  constructor(
+    apiKey = process.env.ANTHROPIC_API_KEY,
+    options?: { timeoutSeconds?: number; client?: Anthropic },
+  ) {
+    if (!apiKey && !options?.client) {
       throw new Error(
         "Missing ANTHROPIC_API_KEY. Set the environment variable or pass it to the constructor.",
       );
     }
 
-    this.client = new Anthropic({ apiKey });
+    this.timeoutSeconds = options?.timeoutSeconds ?? DEFAULT_MODEL_START_TIMEOUT_SECONDS;
+    this.client =
+      options?.client ??
+      new Anthropic({
+        apiKey,
+        maxRetries: 0,
+      });
   }
 
   async chat(params: {
@@ -356,31 +498,35 @@ export class AnthropicModelClient implements ModelClient {
         : {};
 
     const requestParams = { ...baseParams, ...thinkingParam };
+    const requestOptions = params.signal ? { signal: params.signal } : undefined;
 
-    if (params.onStream) {
-      const onStream = params.onStream;
-      return withRetry(async () => {
-        const stream = this.client.messages.stream(requestParams);
-        if (params.signal) {
-          params.signal.addEventListener("abort", () => stream.abort(), { once: true });
-        }
+    return withRetry(async () => {
+      const stream = this.client.messages.stream(requestParams, requestOptions);
+      if (params.onStream) {
         stream.on("text", (text) => {
-          onStream(text);
+          params.onStream?.(text);
         });
+      }
 
-        const finalMessage = await stream.finalMessage();
-        return parseResponse(finalMessage);
+      await withResponseStartTimeout(this.timeoutSeconds, params.signal, async (signal) => {
+        const abortStream = () => stream.abort();
+        if (signal.aborted) {
+          abortStream();
+        } else {
+          signal.addEventListener("abort", abortStream, { once: true });
+        }
+        try {
+          await stream.emitted("connect");
+        } finally {
+          signal.removeEventListener("abort", abortStream);
+        }
       });
-    }
 
-    const response = await withRetry<Anthropic.Messages.Message>(() =>
-      this.client.messages.create({
-        ...requestParams,
-        stream: false,
-      }) as Promise<Anthropic.Messages.Message>,
-    );
-
-    return parseResponse(response);
+      const finalMessage = await stream.finalMessage();
+      return parseResponse(finalMessage);
+    }, {
+      shouldRetry: isRetryableAnthropicError,
+    });
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -507,11 +653,13 @@ export class OpenAICompatibleModelClient implements ModelClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutSeconds: number;
 
   constructor(params?: {
     baseUrl?: string;
     apiKey?: string;
     fetchImpl?: typeof fetch;
+    timeoutSeconds?: number;
   }) {
     this.baseUrl = normalizeBaseUrl(
       params?.baseUrl ?? process.env.OPENAI_BASE_URL ?? "http://localhost:1234/v1",
@@ -523,6 +671,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
         ? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY
         : process.env.OPENAI_API_KEY);
     this.fetchImpl = params?.fetchImpl ?? fetch;
+    this.timeoutSeconds = params?.timeoutSeconds ?? DEFAULT_MODEL_START_TIMEOUT_SECONDS;
   }
 
   async chat(params: {
@@ -572,32 +721,39 @@ export class OpenAICompatibleModelClient implements ModelClient {
       requestBody.reasoning = { effort: params.reasoningEffort };
     }
 
-    const response = await withRetry(async () => {
-      const httpResponse = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        ...(params.signal && { signal: params.signal }),
-      });
+    const response = await withRetry(
+      () =>
+        withResponseStartTimeout(this.timeoutSeconds, params.signal, async (signal) => {
+          const httpResponse = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(requestBody),
+            signal,
+          });
 
-      if (!httpResponse.ok) {
-        const bodyText = await httpResponse.text();
-        throw new Error(
-          `OpenAI-compatible request failed (${httpResponse.status}): ${bodyText}`,
-        );
-      }
+          if (!httpResponse.ok) {
+            const bodyText = await httpResponse.text();
+            throw new OpenAICompatibleHttpError(
+              httpResponse.status,
+              bodyText || "No response body.",
+            );
+          }
 
-      if (useStream && httpResponse.body) {
-        return parseOpenAIStream(
-          httpResponse.body.getReader(),
-          params.onStream,
-        );
-      }
+          if (useStream && httpResponse.body) {
+            return parseOpenAIStream(
+              httpResponse.body.getReader(),
+              params.onStream,
+            );
+          }
 
-      const payload =
-        (await httpResponse.json()) as OpenAICompatibleCompletionResponse;
-      return parseOpenAICompatibleResponse(payload);
-    });
+          const payload =
+            (await httpResponse.json()) as OpenAICompatibleCompletionResponse;
+          return parseOpenAICompatibleResponse(payload);
+        }),
+      {
+        shouldRetry: isRetryableOpenAICompatibleError,
+      },
+    );
 
     return response;
   }
@@ -609,7 +765,11 @@ export class OpenAICompatibleModelClient implements ModelClient {
       headers.Authorization = `Bearer ${apiKey}`;
     }
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}/models`, { headers });
+      const response = await withResponseStartTimeout(
+        this.timeoutSeconds,
+        undefined,
+        (signal) => this.fetchImpl(`${this.baseUrl}/models`, { headers, signal }),
+      );
       if (!response.ok) return [];
       const payload = (await response.json()) as { data?: Array<{ id: string; name?: string }> };
       return (payload.data ?? []).map((m) => ({ id: m.id, name: m.name ?? m.id }));
@@ -623,10 +783,14 @@ export function createModelClient(config: AgentConfig): ModelClient {
   if (config.modelProvider === "openai-compatible") {
     return new OpenAICompatibleModelClient({
       baseUrl: config.openAiBaseUrl,
+      timeoutSeconds: config.modelTimeoutSeconds,
       ...(config.openAiApiKey !== undefined
         ? { apiKey: config.openAiApiKey }
         : {}),
     });
   }
-  return new AnthropicModelClient();
+  return new AnthropicModelClient(
+    process.env.ANTHROPIC_API_KEY,
+    { timeoutSeconds: config.modelTimeoutSeconds },
+  );
 }

@@ -102,3 +102,19 @@ test("loadAgentConfig appends COMMAND_DENYLIST patterns from env", async () => {
   assert.ok(serialized.includes("custom-danger"));
   assert.ok(serialized.includes("^wipe-db$"));
 });
+
+test("loadAgentConfig reads model start timeout in seconds", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "minicode-config-test-"));
+  tempDirs.push(base);
+
+  const minicodeHome = path.join(base, "home");
+  await mkdir(minicodeHome, { recursive: true });
+  await writeFile(
+    path.join(minicodeHome, ".env"),
+    "MODEL=test-model\nMODEL_TIMEOUT_SECONDS=75\n",
+    "utf8",
+  );
+
+  const config = await loadAgentConfig("/tmp", { minicodeHome });
+  assert.equal(config.modelTimeoutSeconds, 75);
+});

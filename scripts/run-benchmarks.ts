@@ -51,6 +51,7 @@ interface BenchmarkConfigFile {
   openAiBaseUrl?: string | undefined;
   maxSteps?: number | undefined;
   maxTokens?: number | undefined;
+  modelTimeoutSeconds?: number | undefined;
   maxContextTokens?: number | undefined;
   commandTimeoutMs?: number | undefined;
   maxFileSizeBytes?: number | undefined;
@@ -163,6 +164,11 @@ export function buildConfig(options: BuildBenchmarkConfigOptions = {}): AgentCon
     model,
     maxSteps: getNumberSetting(getShellOverride("MAX_STEPS"), fileConfig.maxSteps, 50),
     maxTokens: getNumberSetting(getShellOverride("MAX_TOKENS"), fileConfig.maxTokens, 4096),
+    modelTimeoutSeconds: getNumberSetting(
+      getShellOverride("MODEL_TIMEOUT_SECONDS"),
+      fileConfig.modelTimeoutSeconds,
+      60,
+    ),
     maxContextTokens: getNumberSetting(getShellOverride("MAX_CONTEXT_TOKENS"), fileConfig.maxContextTokens, 32000),
     workspaceRoot: repoRoot,
     commandTimeoutMs: getNumberSetting(getShellOverride("COMMAND_TIMEOUT_MS"), fileConfig.commandTimeoutMs, 30000),

@@ -32,6 +32,7 @@ export interface AgentConfig {
   model: string;
   maxSteps: number;
   maxTokens: number;
+  modelTimeoutSeconds: number;
   maxContextTokens: number;
   workspaceRoot: string;
   commandTimeoutMs: number;
