@@ -16,6 +16,7 @@ import {
   formatAmbiguousSymbolMatches,
   resolveSymbolInput,
 } from "../shared/symbol-resolution.js";
+import { searchSymbols } from "../shared/symbol-search.js";
 import type { AgentBridge } from "./agent-bridge.js";
 import type { ServerMessage } from "./types.js";
 
@@ -218,27 +219,34 @@ function createMcpServer(bridge: AgentBridge, emit: (msg: ServerMessage) => void
     },
     async ({ query, kind }) => {
       return wrapToolCall("search_code_map", { query, kind }, async () => {
-        const symbols = bridge.getSymbols();
-        const queryLower = query.toLowerCase();
+        const result = searchSymbols(
+          bridge.getSymbols().map((symbol) => ({
+            symbol,
+            record: {
+              name: symbol.name,
+              qualifiedName: symbol.qualifiedName,
+              kind: symbol.kind,
+              filePath: symbol.filePath,
+              startLine: symbol.startLine,
+              exported: symbol.exported,
+            },
+            lookupNames: [symbol.name, symbol.qualifiedName],
+          })),
+          query,
+          { kind, limit: 30 },
+        );
 
-        let matches = symbols.filter((s) => {
-          const nameMatch = s.name.toLowerCase().includes(queryLower) ||
-            s.qualifiedName.toLowerCase().includes(queryLower);
-          return nameMatch;
-        });
-
-        if (kind) {
-          matches = matches.filter((s) => s.kind === kind);
-        }
-
-        matches = matches.slice(0, 30);
-
-        if (matches.length === 0) {
+        if (result.total === 0) {
           return { content: [{ type: "text" as const, text: `No symbols matching "${query}"${kind ? ` (kind: ${kind})` : ""}.` }] };
         }
 
+        const matches = result.matches;
+        const heading = result.mode === "similar"
+          ? `No exact substring matches for "${query}"${kind ? ` (kind: ${kind})` : ""}. Showing ${matches.length} similar symbol(s):`
+          : `Found ${matches.length} symbol(s) matching "${query}":`;
+
         const lines = [
-          `Found ${matches.length} symbol(s) matching "${query}":`,
+          heading,
           ...matches.map((s) =>
             `  - ${s.name} (${s.kind}) — ${s.filePath}:${s.startLine} — qualified: ${s.qualifiedName}${s.signature ? `\n    ${s.signature}` : ""}`,
           ),
