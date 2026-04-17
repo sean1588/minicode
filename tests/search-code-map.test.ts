@@ -28,6 +28,18 @@ test("search_code_map returns empty when no match", async () => {
   assert.ok(result.includes("No symbols matching"));
 });
 
+test("search_code_map returns similar matches when exact substring lookup fails", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const projectIndex = await buildProjectIndex(root);
+  const tool = createSearchCodeMapTool(projectIndex);
+
+  const result = await tool.execute({ pattern: "ModelRespnse" });
+
+  assert.ok(result.includes('No exact substring matches for "ModelRespnse"'));
+  assert.ok(result.includes("Showing similar symbols instead"));
+  assert.ok(result.includes("ModelResponse"));
+});
+
 test("search_code_map appears in tool registry when projectIndex provided", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const projectIndex = await buildProjectIndex(root);
