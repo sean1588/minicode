@@ -1378,6 +1378,38 @@ test("GET /api/symbols/:name/source returns 500 when file is missing", async () 
   assert.ok(body.error.includes("src/foo.ts"));
 });
 
+test("GET /api/file-source returns full file contents for a workspace file", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const wsRoot = "/tmp/test-workspace";
+  mkdirSync(`${wsRoot}/src`, { recursive: true });
+  writeFileSync(`${wsRoot}/src/foo.ts`, "line1\nfunction foo(): void {\n  return;\n}\nline5\n");
+
+  try {
+    const res = await fetch(`${base}/api/file-source?path=${encodeURIComponent("src/foo.ts")}`);
+    assert.equal(res.status, 200);
+
+    const body = (await res.json()) as { filePath: string; source: string };
+    assert.equal(body.filePath, "src/foo.ts");
+    assert.ok(body.source.includes("function foo(): void"));
+    assert.ok(body.source.includes("line5"));
+  } finally {
+    rmSync(wsRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/file-source rejects path traversal", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/file-source?path=${encodeURIComponent("../secret.txt")}`);
+  assert.equal(res.status, 403);
+
+  const body = (await res.json()) as { error: string };
+  assert.ok(body.error.includes("Invalid workspace file path"));
+});
+
 // ── Annotations API tests ──
 
 test("GET /api/annotations returns empty annotations initially", async () => {

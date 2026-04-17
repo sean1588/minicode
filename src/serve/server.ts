@@ -74,6 +74,26 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+function resolveWorkspaceFilePath(
+  workspaceRoot: string,
+  requestedPath: string,
+): { absolutePath: string; relativePath: string } | null {
+  const trimmedPath = requestedPath.trim();
+  if (trimmedPath.length === 0) {
+    return null;
+  }
+
+  const root = path.resolve(workspaceRoot);
+  const absolutePath = path.resolve(root, trimmedPath);
+  const relativePath = path.relative(root, absolutePath);
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return null;
+  }
+
+  return { absolutePath, relativePath };
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -516,6 +536,23 @@ export function createRequestHandler(
           sendJson(res, 200, { symbol: name, filePath: sym.filePath, startLine: sym.startLine, endLine: sym.endLine, source });
         } catch {
           sendJson(res, 500, { error: `Could not read file: ${sym.filePath}` });
+        }
+        return;
+      }
+
+      if (pathname === "/api/file-source" && method === "GET") {
+        const requestedPath = url.searchParams.get("path") ?? "";
+        const resolved = resolveWorkspaceFilePath(config.workspaceRoot, requestedPath);
+        if (!resolved) {
+          sendJson(res, 403, { error: "Invalid workspace file path" });
+          return;
+        }
+
+        try {
+          const source = await readFile(resolved.absolutePath, "utf8");
+          sendJson(res, 200, { filePath: resolved.relativePath, source });
+        } catch {
+          sendJson(res, 404, { error: `Could not read file: ${resolved.relativePath}` });
         }
         return;
       }

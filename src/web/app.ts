@@ -1,4 +1,5 @@
 import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
+import { closeModal, openModal } from './modal-state.ts';
 import { createLatestRequestTracker } from './request-tracker.ts';
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
@@ -717,19 +718,6 @@ function closeHeaderMenus(): void {
   sessionDropdown.classList.add("hidden");
 }
 
-function isSettingsModalOpen(): boolean {
-  return !settingsModal.classList.contains("hidden");
-}
-
-function isOpenRouterConnectModalOpen(): boolean {
-  return !openRouterConnectModal.classList.contains("hidden");
-}
-
-function syncModalOpenState(): void {
-  const anyModalOpen = isSettingsModalOpen() || isOpenRouterConnectModalOpen();
-  document.body.classList.toggle("modal-open", anyModalOpen);
-}
-
 function formatSettingsValue(value: SettingsValue): string {
   return value === null ? "(unset)" : String(value);
 }
@@ -986,33 +974,25 @@ function updateSettingsActions(): void {
 
 function openSettings(): void {
   closeHeaderMenus();
-  settingsModal.classList.remove("hidden");
-  settingsModal.setAttribute("aria-hidden", "false");
-  syncModalOpenState();
+  openModal(settingsModal);
   void loadSettings();
 }
 
 function closeSettings(): void {
-  settingsModal.classList.add("hidden");
-  settingsModal.setAttribute("aria-hidden", "true");
-  syncModalOpenState();
+  closeModal(settingsModal);
   clearSettingsBanner();
 }
 
 function openOpenRouterConnectModal(): void {
   closeHeaderMenus();
-  openRouterConnectModal.classList.remove("hidden");
-  openRouterConnectModal.setAttribute("aria-hidden", "false");
+  openModal(openRouterConnectModal);
   openRouterPersistCheckbox.checked = false;
   openRouterConnectContinueBtn.disabled = false;
-  syncModalOpenState();
 }
 
 function closeOpenRouterConnectModal(): void {
-  openRouterConnectModal.classList.add("hidden");
-  openRouterConnectModal.setAttribute("aria-hidden", "true");
+  closeModal(openRouterConnectModal);
   openRouterConnectContinueBtn.disabled = false;
-  syncModalOpenState();
 }
 
 // Form handling

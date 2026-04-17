@@ -28,6 +28,8 @@ test('built HTML contains #cy graph container', () => {
   assert.ok(html.includes('id="cy"'), 'HTML should contain the #cy graph container');
   assert.ok(html.includes('id="graph-pane"'), 'HTML should contain the #graph-pane wrapper');
   assert.ok(html.includes('Search symbols or files...'), 'HTML should expose mixed symbol/file search');
+  assert.ok(html.includes('id="file-preview-modal"'), 'HTML should contain the file preview modal shell');
+  assert.ok(html.includes('id="file-preview-code"'), 'HTML should contain the file preview code surface');
 });
 
 test('onboarding hint includes user-facing guidance text in built JS', () => {
@@ -113,4 +115,24 @@ test('built JS supports file search results and file-centered neighborhood rende
     js.includes('buildFileFocusedSelection'),
     'file-focused graph seeding should use the shared file selection helper',
   );
+  assert.ok(
+    js.includes('openFilePreview'),
+    'JS should define a file preview helper for file search selections',
+  );
+  assert.ok(
+    js.includes('/api/file-source?path='),
+    'JS should fetch full file contents for the preview modal',
+  );
+  assert.ok(
+    js.includes('detail-file-link'),
+    'JS should wire the symbol detail filename into the preview modal',
+  );
+});
+
+test('built CSS contains file preview modal sizing and link styling', () => {
+  const css = readFileSync(join(distWeb, 'style.css'), 'utf-8');
+  assert.ok(css.includes('.modal-panel-file-preview'), 'CSS should contain the file preview modal panel class');
+  assert.ok(css.includes('width: min(1200px, 80vw);'), 'file preview modal should open at roughly 80% width');
+  assert.ok(css.includes('height: 80vh;'), 'file preview modal should open at roughly 80% height');
+  assert.ok(css.includes('.detail-file-link'), 'CSS should style the clickable filename in the detail panel');
 });
