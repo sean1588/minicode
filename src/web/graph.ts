@@ -2,6 +2,7 @@
 // Start empty. User searches for a symbol, selects it to seed the graph.
 // Clicking a node expands its 1-hop neighbors. Walk the graph in real time.
 
+import { closeModal, openModal } from './modal-state.ts';
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
 import {
   buildFindingGraphContext,
@@ -110,6 +111,8 @@ let analysisReport: StructuralAnalysisReport | null = null;
 let activeAnalysisFindingId: string | null = null;
 let activeAnalysisFilter: AnalysisFindingFilter = 'all';
 const analysisExplanationCache = new Map<string, string>();
+let filePreviewModalInitialized = false;
+let latestFilePreviewRequestId = 0;
 
 const LAYOUT_OPTIONS: Record<string, unknown> = {
   name: 'cose',
@@ -134,6 +137,7 @@ export async function initGraph(): Promise<void> {
 
   const cyEl = document.getElementById('cy')!;
   const detailEl = document.getElementById('symbol-detail')!;
+  setupFilePreviewModal();
 
   try {
     const [graphRes, symbolsRes, focusRes] = await Promise.all([
@@ -304,6 +308,89 @@ function focusFileInGraph(filePath: string): void {
   }
   refreshAnalysisGraphState();
   runLayout();
+}
+
+function getFilePreviewLanguage(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const langMap: Record<string, string> = {
+    ts: 'typescript',
+    tsx: 'typescript',
+    js: 'javascript',
+    jsx: 'javascript',
+    json: 'json',
+    md: 'markdown',
+    css: 'css',
+    html: 'xml',
+  };
+  return langMap[ext] || 'plaintext';
+}
+
+function closeFilePreview(): void {
+  const modal = document.getElementById('file-preview-modal');
+  if (!modal) return;
+  closeModal(modal);
+}
+
+function setupFilePreviewModal(): void {
+  if (filePreviewModalInitialized) return;
+  filePreviewModalInitialized = true;
+
+  const modal = document.getElementById('file-preview-modal') as HTMLElement | null;
+  const backdrop = document.getElementById('file-preview-backdrop') as HTMLElement | null;
+  const closeBtn = document.getElementById('file-preview-close') as HTMLButtonElement | null;
+  if (!modal || !backdrop || !closeBtn) {
+    return;
+  }
+
+  backdrop.addEventListener('click', () => closeFilePreview());
+  closeBtn.addEventListener('click', () => closeFilePreview());
+  document.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+      closeFilePreview();
+    }
+  });
+}
+
+async function openFilePreview(filePath: string): Promise<void> {
+  const modal = document.getElementById('file-preview-modal') as HTMLElement | null;
+  const pathEl = document.getElementById('file-preview-path') as HTMLElement | null;
+  const codeEl = document.getElementById('file-preview-code') as HTMLPreElement | null;
+  if (!modal || !pathEl || !codeEl) {
+    return;
+  }
+
+  latestFilePreviewRequestId += 1;
+  const requestId = latestFilePreviewRequestId;
+
+  pathEl.textContent = filePath;
+  codeEl.className = 'file-preview-code';
+  codeEl.textContent = 'Loading...';
+  openModal(modal);
+
+  try {
+    const res = await fetch(`/api/file-source?path=${encodeURIComponent(filePath)}`);
+    if (!res.ok) {
+      codeEl.textContent = '(file unavailable)';
+      return;
+    }
+
+    const data = await res.json() as { filePath: string; source: string };
+    if (requestId !== latestFilePreviewRequestId) {
+      return;
+    }
+
+    pathEl.textContent = data.filePath;
+    codeEl.className = `file-preview-code language-${getFilePreviewLanguage(data.filePath)}`;
+    codeEl.textContent = data.source;
+    if (typeof hljs !== 'undefined') {
+      hljs.highlightElement(codeEl);
+    }
+  } catch {
+    if (requestId !== latestFilePreviewRequestId) {
+      return;
+    }
+    codeEl.textContent = '(file unavailable)';
+  }
 }
 
 interface FocusSymbolOptions {
@@ -946,7 +1033,11 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
       <span class="detail-name">${escapeHtml(data.label)}</span>
       <span class="detail-kind-badge" style="background:${kindColor}20;color:${kindColor}">${kind}</span>
     </div>
-    <div class="detail-file">${escapeHtml(data.file || 'unknown')}${data.startLine ? ':' + data.startLine : ''}</div>
+    <div class="detail-file">${
+      data.file
+        ? `<button type="button" class="detail-file-link" data-file="${escapeHtml(data.file)}">${escapeHtml(data.file)}${data.startLine ? ':' + data.startLine : ''}</button>`
+        : 'unknown'
+    }</div>
   `;
 
   // Action buttons row
@@ -1001,6 +1092,13 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
   pinBtn.addEventListener('click', async () => {
     const name = pinBtn.dataset.name || '';
     await togglePin(name, node, pinBtn);
+  });
+
+  const fileLink = detailEl.querySelector('.detail-file-link') as HTMLButtonElement | null;
+  fileLink?.addEventListener('click', () => {
+    const filePath = fileLink.dataset.file || '';
+    if (!filePath) return;
+    void openFilePreview(filePath);
   });
 
   // Explain button
@@ -1256,6 +1354,7 @@ function setupToolbar(): void {
         dropdown.classList.add('hidden');
         if (type === 'file') {
           focusFileInGraph(id);
+          void openFilePreview(id);
           return;
         }
         void focusSymbolInGraph(id, {

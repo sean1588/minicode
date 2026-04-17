@@ -862,6 +862,13 @@ footer {
   width: min(640px, calc(100vw - 32px));
 }
 
+.modal-panel-file-preview {
+  width: min(1200px, 80vw);
+  height: 80vh;
+  max-width: 80vw;
+  max-height: 80vh;
+}
+
 .modal-header,
 .modal-footer,
 .settings-toolbar {
@@ -885,6 +892,29 @@ footer {
 .modal-subtitle {
   font-size: 12px;
   color: var(--text-dim);
+}
+
+.file-preview-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px 20px;
+  overflow: auto;
+  background: rgba(15, 16, 26, 0.92);
+}
+
+.file-preview-code {
+  margin: 0;
+  min-height: 100%;
+  padding: 18px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+  white-space: pre;
+  font-family: var(--font-mono);
 }
 
 .settings-toolbar {
@@ -1779,6 +1809,24 @@ main::-webkit-scrollbar-thumb {
   font-size: 12px;
   color: var(--text-dim);
   margin-bottom: 12px;
+}
+
+.detail-file-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(124, 92, 255, 0.35);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.detail-file-link:hover {
+  color: var(--text);
+  text-decoration-color: var(--accent);
 }
 
 .detail-signature {

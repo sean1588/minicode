@@ -235,6 +235,22 @@ MODEL=your-model-name</pre>
     </section>
   </div>
 
+  <div id="file-preview-modal" class="modal hidden" aria-hidden="true">
+    <div id="file-preview-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel modal-panel-file-preview" role="dialog" aria-modal="true" aria-labelledby="file-preview-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="file-preview-title">File preview</h2>
+          <p id="file-preview-path" class="modal-subtitle">Loading…</p>
+        </div>
+        <button id="file-preview-close" class="header-btn" type="button">Close</button>
+      </div>
+      <div class="file-preview-body">
+        <pre id="file-preview-code" class="file-preview-code">Loading...</pre>
+      </div>
+    </section>
+  </div>
+
   <script type="module" src="app.js"></script>
 </body>
 </html>
