@@ -1,5 +1,6 @@
 import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
 import { closeModal, openModal } from './modal-state.ts';
+import { filterModelsByQuery, getModelDisplayName } from '../model-utils.ts';
 import { createLatestRequestTracker } from './request-tracker.ts';
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
@@ -150,6 +151,7 @@ const statusBadge = document.getElementById("status-badge")!;
 const modelInfo = document.getElementById("model-info")!;
 const modelBtn = document.getElementById("model-btn")!;
 const modelDropdown = document.getElementById("model-dropdown")!;
+const modelSearchInput = document.getElementById("model-search") as HTMLInputElement;
 const modelList = document.getElementById("model-list")!;
 const sessionBtn = document.getElementById("session-btn")!;
 const sessionDropdown = document.getElementById("session-dropdown")!;
@@ -347,6 +349,7 @@ async function maybeHandleOpenRouterCallback(): Promise<void> {
     if (onlyModelMissing) {
       modelDropdown.classList.remove("hidden");
       sessionDropdown.classList.add("hidden");
+      focusModelSearchInput();
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to connect OpenRouter";
@@ -713,8 +716,13 @@ function scrollToBottom(): void {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function closeHeaderMenus(): void {
+function closeModelDropdown(): void {
   modelDropdown.classList.add("hidden");
+  modelSearchInput.value = "";
+}
+
+function closeHeaderMenus(): void {
+  closeModelDropdown();
   sessionDropdown.classList.add("hidden");
 }
 
@@ -1026,34 +1034,119 @@ chatInput.addEventListener("keydown", (e: KeyboardEvent) => {
 // -- Model selection --
 
 let activeModel = "";
+let availableModels: Array<{ id: string; name?: string }> = [];
+
+function focusModelSearchInput(): void {
+  requestAnimationFrame(() => {
+    modelSearchInput.focus();
+    modelSearchInput.select();
+  });
+}
+
+function renderModelList(): void {
+  const filteredModels = filterModelsByQuery(availableModels, modelSearchInput.value);
+
+  if (availableModels.length === 0) {
+    modelList.innerHTML = '<div class="dropdown-empty">No models available</div>';
+    return;
+  }
+
+  if (filteredModels.length === 0) {
+    modelList.innerHTML = '<div class="dropdown-empty">No matching models</div>';
+    return;
+  }
+
+  modelList.innerHTML = "";
+  for (const model of filteredModels) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "model-item" + (model.id === activeModel ? " active" : "");
+    el.title = model.id;
+
+    const body = document.createElement("div");
+    body.className = "model-item-body";
+
+    const name = document.createElement("span");
+    name.className = "model-item-name";
+    name.textContent = getModelDisplayName(model);
+    body.appendChild(name);
+
+    if ((model.name ?? "").trim() && getModelDisplayName(model) !== model.id) {
+      const subtitle = document.createElement("span");
+      subtitle.className = "model-item-subtitle";
+      subtitle.textContent = model.id;
+      body.appendChild(subtitle);
+    }
+
+    el.appendChild(body);
+
+    if (model.id === activeModel) {
+      const badge = document.createElement("span");
+      badge.className = "model-item-badge";
+      badge.textContent = "Active";
+      el.appendChild(badge);
+    }
+
+    el.addEventListener("click", () => {
+      void switchModel(model.id);
+    });
+    modelList.appendChild(el);
+  }
+}
 
 modelBtn.addEventListener("click", (e: Event) => {
   e.stopPropagation();
   const isOpen = !modelDropdown.classList.contains("hidden");
-  modelDropdown.classList.toggle("hidden");
-  sessionDropdown.classList.add("hidden");
-  if (!isOpen) {
-    refreshModelList();
+  if (isOpen) {
+    closeModelDropdown();
+    return;
   }
+
+  closeHeaderMenus();
+  modelDropdown.classList.remove("hidden");
+  modelSearchInput.value = "";
+  void refreshModelList({ focusSearch: true });
 });
 
 document.addEventListener("click", (e: Event) => {
   if (!modelDropdown.contains(e.target as Node) && e.target !== modelBtn) {
-    modelDropdown.classList.add("hidden");
+    closeModelDropdown();
   }
 });
 
-async function refreshModelList(): Promise<void> {
+modelSearchInput.addEventListener("input", () => {
+  renderModelList();
+});
+
+modelSearchInput.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Escape") {
+    if (modelSearchInput.value) {
+      modelSearchInput.value = "";
+      renderModelList();
+      return;
+    }
+
+    closeModelDropdown();
+  }
+});
+
+modelSearchInput.addEventListener("click", (e: Event) => {
+  e.stopPropagation();
+});
+
+async function refreshModelList(options: { focusSearch?: boolean } = {}): Promise<void> {
   try {
     const res = await fetch("/api/models");
     const data = await res.json() as { models: Array<{ id: string; name?: string }>; activeModel: string };
     activeModel = data.activeModel;
+    availableModels = data.models ?? [];
     const hasActiveModel = !!activeModel && data.models.some((model) => model.id === activeModel);
 
     if (!data.models || data.models.length === 0) {
       modelInfo.textContent = "Select model";
       modelInfo.classList.add("placeholder");
-      modelList.innerHTML = '<div class="dropdown-empty">No models available</div>';
+      availableModels = [];
+      renderModelList();
       return;
     }
 
@@ -1065,18 +1158,13 @@ async function refreshModelList(): Promise<void> {
       modelInfo.classList.add("placeholder");
     }
 
-    modelList.innerHTML = "";
-    for (const m of data.models) {
-      const el = document.createElement("div");
-      el.className = "model-item" + (m.id === activeModel ? " active" : "");
-      el.textContent = m.name ?? m.id;
-      el.title = m.id;
-      el.addEventListener("click", () => {
-        void switchModel(m.id);
-      });
-      modelList.appendChild(el);
+    renderModelList();
+
+    if (options.focusSearch && !modelDropdown.classList.contains("hidden")) {
+      focusModelSearchInput();
     }
   } catch {
+    availableModels = [];
     modelList.innerHTML = '<div class="dropdown-empty">Failed to load models</div>';
   }
 }
@@ -1099,7 +1187,8 @@ async function switchModel(modelId: string): Promise<void> {
     modelInfo.textContent = modelId || "Select model";
     modelInfo.classList.toggle("placeholder", !modelId);
     activeModel = modelId;
-    modelDropdown.classList.add("hidden");
+    renderModelList();
+    closeModelDropdown();
 
     if (body.persistedToEnv) {
       addMessage(`Model switched to: ${modelId}. Saved as the default in ~/.minicode/.env.`, "thinking");
@@ -1120,7 +1209,7 @@ sessionBtn.addEventListener("click", (e: Event) => {
   e.stopPropagation();
   const isOpen = !sessionDropdown.classList.contains("hidden");
   sessionDropdown.classList.toggle("hidden");
-  modelDropdown.classList.add("hidden");
+  closeModelDropdown();
   if (!isOpen) {
     refreshSessionList();
   }
