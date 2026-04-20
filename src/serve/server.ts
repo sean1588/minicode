@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { AgentBridge } from "./agent-bridge.js";
 import { createWebSocketServer } from "./websocket.js";
 import { handleChatCompletions, handleModels } from "./openai-compat.js";
-import { formatConfigForDisplay, getConfigMissing } from "../agent/config.js";
+import { formatConfigForDisplay, getConfiguredProvider, getConfigMissing, resolveConfigEnv } from "../agent/config.js";
 import { applyPersistedConfigUpdates, buildStructuredConfigPayload } from "../agent/editable-config.js";
 import { getHomeEnvPath, upsertHomeEnvValues } from "../agent/home-env.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
@@ -189,12 +189,14 @@ export function createRequestHandler(
       // Minicode REST API
       if (pathname === "/api/status" && method === "GET") {
         const missing = getConfigMissing(config);
+        const resolvedEnv = await resolveConfigEnv({ ...(minicodeHome ? { minicodeHome } : {}) });
         sendJson(res, 200, {
           status: bridge.isBusy() ? "busy" : "ready",
           workspace: config.workspaceRoot,
           model: config.model,
           provider: config.modelProvider,
           baseUrl: config.openAiBaseUrl,
+          configuredProvider: getConfiguredProvider(config, resolvedEnv.values),
           sessionOpenRouterConnected: bridge.isOpenRouterSessionConnected(),
           sessionOpenAiCompatibleConnected: bridge.isOpenAiCompatibleSessionConnected(),
           needsSetup: missing.length > 0,

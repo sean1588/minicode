@@ -17,6 +17,7 @@ import {
   loadAgentConfig,
   resolveConfigEnv,
   getConfigSetupMessage,
+  getConfiguredProvider,
   getConfigMissing,
 } from "../src/agent/config.js";
 import { buildStructuredConfigPayload } from "../src/agent/editable-config.js";
@@ -750,6 +751,52 @@ describe("/api/status needsSetup", () => {
     assert.equal(body.model, "my-test-model");
     assert.equal(body.provider, "openai-compatible");
   });
+
+  test("status endpoint reports no configured provider for a fresh install using defaults", async () => {
+    const baseDir = await mkdtemp(path.join(os.tmpdir(), "minicode-integ-"));
+    tempDirs.push(baseDir);
+    const minicodeHome = path.join(baseDir, "new-home");
+    const config = {
+      ...createTestAgentConfig("/tmp"),
+      modelProvider: "openai-compatible" as const,
+      model: "",
+      openAiBaseUrl: "http://localhost:1234/v1",
+    };
+    const bridge = new ConfigurableBridge(config);
+    const base = await startServer(bridge, { minicodeHome });
+
+    const res = await fetch(`${base}/api/status`);
+    const body = await res.json() as {
+      configuredProvider: "anthropic" | "openrouter" | "openai-compatible" | null;
+      needsSetup: boolean;
+      missing: string[];
+    };
+    assert.equal(body.configuredProvider, null);
+    assert.equal(body.needsSetup, true);
+    assert.ok(body.missing.some((m: string) => m.includes("MODEL")));
+  });
+
+  test("status endpoint reports openai-compatible when localhost is explicitly configured", async () => {
+    const minicodeHome = await createTestHome({
+      config: {
+        modelProvider: "openai-compatible",
+        openAiBaseUrl: "http://localhost:1234/v1",
+      },
+    });
+    const config = await loadAgentConfig("/tmp", { minicodeHome });
+    const bridge = new ConfigurableBridge(config);
+    const base = await startServer(bridge, { minicodeHome });
+
+    const res = await fetch(`${base}/api/status`);
+    const body = await res.json() as {
+      configuredProvider: "anthropic" | "openrouter" | "openai-compatible" | null;
+      needsSetup: boolean;
+      missing: string[];
+    };
+    assert.equal(body.configuredProvider, "openai-compatible");
+    assert.equal(body.needsSetup, true);
+    assert.ok(body.missing.some((m: string) => m.includes("MODEL")));
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -965,6 +1012,68 @@ describe("realistic user scenarios", () => {
       assert.equal(config.model, "");
       const missing = getConfigMissing(config);
       assert.ok(missing.length > 0);
+    });
+  });
+});
+
+describe("getConfiguredProvider", () => {
+  test("returns null for a fresh install using only fallback localhost defaults", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "minicode-integ-"));
+    tempDirs.push(base);
+    const minicodeHome = path.join(base, "new-home");
+
+    await withEnv({
+      MODEL: undefined,
+      MODEL_PROVIDER: undefined,
+      OPENAI_BASE_URL: undefined,
+      OPENAI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      ANTHROPIC_API_KEY: undefined,
+    }, async () => {
+      const config = await loadAgentConfig("/tmp", { minicodeHome });
+      const resolvedEnv = await resolveConfigEnv({ minicodeHome });
+      assert.equal(getConfiguredProvider(config, resolvedEnv.values), null);
+    });
+  });
+
+  test("returns openrouter when OpenRouter is explicitly configured", async () => {
+    const home = await createTestHome({
+      config: {
+        modelProvider: "openai-compatible",
+        openAiBaseUrl: "https://openrouter.ai/api/v1",
+      },
+      dotenv: "OPENROUTER_API_KEY=sk-or-test-key\n",
+    });
+
+    await withEnv({
+      MODEL_PROVIDER: undefined,
+      OPENAI_BASE_URL: undefined,
+      OPENAI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+    }, async () => {
+      const config = await loadAgentConfig("/tmp", { minicodeHome: home });
+      const resolvedEnv = await resolveConfigEnv({ minicodeHome: home });
+      assert.equal(getConfiguredProvider(config, resolvedEnv.values), "openrouter");
+    });
+  });
+
+  test("returns openai-compatible when a local endpoint is explicitly configured", async () => {
+    const home = await createTestHome({
+      config: {
+        modelProvider: "openai-compatible",
+        openAiBaseUrl: "http://localhost:1234/v1",
+      },
+    });
+
+    await withEnv({
+      MODEL_PROVIDER: undefined,
+      OPENAI_BASE_URL: undefined,
+      OPENAI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+    }, async () => {
+      const config = await loadAgentConfig("/tmp", { minicodeHome: home });
+      const resolvedEnv = await resolveConfigEnv({ minicodeHome: home });
+      assert.equal(getConfiguredProvider(config, resolvedEnv.values), "openai-compatible");
     });
   });
 });
