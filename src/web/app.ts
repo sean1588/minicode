@@ -2,6 +2,7 @@ import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
 import { closeModal, openModal } from './modal-state.ts';
 import { filterModelsByQuery, getModelDisplayName } from '../model-utils.ts';
 import { createLatestRequestTracker } from './request-tracker.ts';
+import { DEFAULT_SETUP_INTRO, deriveSetupOverlayState } from './setup-overlay-state.ts';
 import { escapeHtml, renderMarkdownInto } from './utils.ts';
 
 interface ServerMessage {
@@ -616,31 +617,27 @@ async function fetchStatus(): Promise<void> {
       sendBtn.disabled = true;
       // Show specific missing items
       const missingEl = document.getElementById("config-missing");
-      if (missingEl && data.missing && data.missing.length > 0) {
-        const isOnlyModelMissing = data.missing.length === 1 && data.missing[0]!.includes("MODEL");
-        const configuredProvider = data.configuredProvider ?? null;
-        const hasConfiguredProvider = isOnlyModelMissing && configuredProvider !== null;
-        const hasPersistedOpenRouter = isOnlyModelMissing && configuredProvider === "openrouter";
-        const hasPersistedOpenAiCompatible =
-          isOnlyModelMissing &&
-          configuredProvider === "openai-compatible";
-        const hasPersistedAnthropic = isOnlyModelMissing && configuredProvider === "anthropic";
-        if (configOverlayIntro) {
-          configOverlayIntro.textContent = hasPersistedOpenRouter
-            ? "OpenRouter is already configured. Select a model to continue:"
-            : hasPersistedOpenAiCompatible
-              ? "An OpenAI-compatible provider is already configured. Select a model to continue:"
-              : hasPersistedAnthropic
-                ? "Anthropic is already configured. Select a model to continue:"
-              : "minicode needs a model provider to run. Configure one of the following:";
+      const overlayState = deriveSetupOverlayState({
+        configuredProvider: data.configuredProvider ?? null,
+        missing: data.missing ?? [],
+      });
+      if (configOverlayIntro) {
+        configOverlayIntro.textContent = overlayState.introText;
+      }
+      configOverlayQuickConnects?.classList.toggle("hidden", overlayState.hideQuickConnects);
+      configOverlaySpotlight?.classList.toggle("hidden", overlayState.hideOpenRouterSpotlight);
+      if (missingEl) {
+        if (overlayState.missingItems.length > 0) {
+          const hint = overlayState.showModelSelectionHint
+            ? ` — select one from the <strong>model dropdown</strong> above, or set it in config`
+            : "";
+          missingEl.innerHTML =
+            `<strong>Missing:</strong> ${overlayState.missingItems.map(escapeHtml).join(", ")}${hint}`;
+          missingEl.classList.remove("hidden");
+        } else {
+          missingEl.classList.add("hidden");
+          missingEl.innerHTML = "";
         }
-        configOverlayQuickConnects?.classList.toggle("hidden", hasConfiguredProvider);
-        configOverlaySpotlight?.classList.toggle("hidden", hasPersistedOpenRouter);
-        const hint = hasConfiguredProvider
-          ? ` — select one from the <strong>model dropdown</strong> above, or set it in config`
-          : "";
-        missingEl.innerHTML = `<strong>Missing:</strong> ${data.missing.map(escapeHtml).join(", ")}${hint}`;
-        missingEl.classList.remove("hidden");
       }
     } else {
       configOverlay.classList.add("hidden");
@@ -652,7 +649,7 @@ async function fetchStatus(): Promise<void> {
         missingEl.innerHTML = "";
       }
       if (configOverlayIntro) {
-        configOverlayIntro.textContent = "minicode needs a model provider to run. Configure one of the following:";
+        configOverlayIntro.textContent = DEFAULT_SETUP_INTRO;
       }
       configOverlayQuickConnects?.classList.remove("hidden");
       configOverlaySpotlight?.classList.remove("hidden");
