@@ -21,6 +21,7 @@ interface StatusResponse {
   provider: string;
   baseUrl?: string;
   sessionOpenRouterConnected?: boolean;
+  sessionOpenAiCompatibleConnected?: boolean;
   needsSetup?: boolean;
   missing?: string[];
 }
@@ -135,6 +136,10 @@ interface OpenRouterDisconnectResponse {
   message: string;
 }
 
+interface OpenAiCompatibleConnectResponse extends OpenRouterConnectResponse {}
+
+interface OpenAiCompatibleDisconnectResponse extends OpenRouterDisconnectResponse {}
+
 interface ModelSwitchResponse {
   model: string;
   persistedToEnv?: boolean;
@@ -172,17 +177,35 @@ const openRouterConnectCloseBtn = document.getElementById("openrouter-connect-cl
 const openRouterConnectCancelBtn = document.getElementById("openrouter-connect-cancel") as HTMLButtonElement;
 const openRouterConnectContinueBtn = document.getElementById("openrouter-connect-continue") as HTMLButtonElement;
 const openRouterPersistCheckbox = document.getElementById("openrouter-persist-checkbox") as HTMLInputElement;
+const openAiCompatibleConnectModal = document.getElementById("openai-compatible-connect-modal")!;
+const openAiCompatibleConnectBackdrop = document.getElementById("openai-compatible-connect-backdrop")!;
+const openAiCompatibleConnectCloseBtn = document.getElementById("openai-compatible-connect-close") as HTMLButtonElement;
+const openAiCompatibleConnectCancelBtn = document.getElementById("openai-compatible-connect-cancel") as HTMLButtonElement;
+const openAiCompatibleConnectContinueBtn = document.getElementById("openai-compatible-connect-continue") as HTMLButtonElement;
+const openAiCompatiblePresetSelect = document.getElementById("openai-compatible-preset") as HTMLSelectElement;
+const openAiCompatiblePresetHelp = document.getElementById("openai-compatible-preset-help")!;
+const openAiCompatibleBaseUrlInput = document.getElementById("openai-compatible-base-url") as HTMLInputElement;
+const openAiCompatibleApiKeyInput = document.getElementById("openai-compatible-api-key") as HTMLInputElement;
+const openAiCompatiblePersistCheckbox = document.getElementById("openai-compatible-persist-checkbox") as HTMLInputElement;
+const openAiCompatibleConnectStatus = document.getElementById("openai-compatible-connect-status")!;
 const settingsPath = document.getElementById("settings-path")!;
 const settingsList = document.getElementById("settings-list")!;
 const settingsBanner = document.getElementById("settings-banner")!;
 const settingsOpenRouterSession = document.getElementById("settings-openrouter-session")!;
 const settingsOpenRouterSessionMeta = document.getElementById("settings-openrouter-session-meta")!;
+const settingsOpenAiCompatibleSession = document.getElementById("settings-openai-compatible-session")!;
+const settingsOpenAiCompatibleSessionMeta = document.getElementById("settings-openai-compatible-session-meta")!;
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsResetBtn = document.getElementById("settings-reset") as HTMLButtonElement;
 const disconnectOpenRouterBtn = document.getElementById("disconnect-openrouter-btn") as HTMLButtonElement;
+const disconnectOpenAiCompatibleBtn = document.getElementById("disconnect-openai-compatible-btn") as HTMLButtonElement;
 const connectOpenRouterButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-openrouter-connect]"),
 );
+const connectOpenAiCompatibleButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-openai-compatible-connect]"),
+);
+const configOverlayQuickConnects = document.getElementById("config-overlay-quick-connects");
 const configOverlaySpotlight = document.getElementById("config-overlay-spotlight");
 const configOverlayIntro = document.getElementById("config-overlay-intro");
 const configConnectStatus = document.getElementById("config-connect-status");
@@ -195,11 +218,40 @@ let settingsPayload: SettingsPayload | null = null;
 let activeSavedSession: SessionMeta | null = null;
 let activeBaseUrl = "";
 let sessionOpenRouterConnected = false;
+let sessionOpenAiCompatibleConnected = false;
 const sessionRefreshTracker = createLatestRequestTracker();
 
 const TOOL_RESULT_MAX = 500;
 const OPENROUTER_PKCE_VERIFIER_KEY = "minicode:openrouter:pkce-verifier";
 const OPENROUTER_PERSIST_TO_ENV_KEY = "minicode:openrouter:persist-to-env";
+type OpenAiCompatiblePreset = "lmstudio" | "openai" | "ollama" | "custom";
+
+const OPENAI_COMPATIBLE_PRESETS: Record<OpenAiCompatiblePreset, {
+  baseUrl: string;
+  helpText: string;
+  apiKeyPlaceholder: string;
+}> = {
+  lmstudio: {
+    baseUrl: "http://localhost:1234/v1",
+    helpText: "LM Studio pre-fills the default local server endpoint at http://localhost:1234/v1.",
+    apiKeyPlaceholder: "Leave blank for LM Studio unless local auth is enabled",
+  },
+  openai: {
+    baseUrl: "https://api.openai.com/v1",
+    helpText: "OpenAI uses https://api.openai.com/v1 and typically requires an API key.",
+    apiKeyPlaceholder: "Enter your OpenAI API key",
+  },
+  ollama: {
+    baseUrl: "http://localhost:11434/v1",
+    helpText: "Ollama pre-fills the default local server endpoint at http://localhost:11434/v1.",
+    apiKeyPlaceholder: "Leave blank for Ollama unless your proxy requires auth",
+  },
+  custom: {
+    baseUrl: "",
+    helpText: "Custom leaves the endpoint fully editable so you can point minicode at any OpenAI-compatible API.",
+    apiKeyPlaceholder: "Add an API key only if this endpoint requires auth",
+  },
+};
 
 function connect(): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -255,6 +307,78 @@ function clearConfigConnectStatus(): void {
   }
   configConnectStatus.textContent = "";
   configConnectStatus.className = "config-connect-status hidden";
+}
+
+function setOpenAiCompatibleConnectStatus(message: string, tone: "info" | "success" | "error"): void {
+  openAiCompatibleConnectStatus.textContent = message;
+  openAiCompatibleConnectStatus.className = `config-connect-status ${tone}`;
+}
+
+function clearOpenAiCompatibleConnectStatus(): void {
+  openAiCompatibleConnectStatus.textContent = "";
+  openAiCompatibleConnectStatus.className = "config-connect-status hidden";
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function isLikelyLocalOpenAiEndpoint(baseUrl: string): boolean {
+  if (!baseUrl.trim()) {
+    return false;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    return ["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function inferOpenAiCompatiblePreset(baseUrl: string): OpenAiCompatiblePreset {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).toLowerCase();
+  if (normalizedBaseUrl === OPENAI_COMPATIBLE_PRESETS.lmstudio.baseUrl) {
+    return "lmstudio";
+  }
+  if (normalizedBaseUrl === OPENAI_COMPATIBLE_PRESETS.openai.baseUrl) {
+    return "openai";
+  }
+  if (normalizedBaseUrl === OPENAI_COMPATIBLE_PRESETS.ollama.baseUrl) {
+    return "ollama";
+  }
+  return "custom";
+}
+
+function applyOpenAiCompatiblePreset(
+  preset: OpenAiCompatiblePreset,
+  options: { preserveCustomValue?: boolean } = {},
+): void {
+  const presetConfig = OPENAI_COMPATIBLE_PRESETS[preset];
+  openAiCompatiblePresetHelp.textContent = presetConfig.helpText;
+  openAiCompatibleApiKeyInput.placeholder = presetConfig.apiKeyPlaceholder;
+
+  if (preset === "custom" && options.preserveCustomValue) {
+    return;
+  }
+
+  openAiCompatibleBaseUrlInput.value = presetConfig.baseUrl;
+}
+
+function isModalOpen(modal: HTMLElement): boolean {
+  return !modal.classList.contains("hidden");
+}
+
+function isSettingsModalOpen(): boolean {
+  return isModalOpen(settingsModal);
+}
+
+function isOpenRouterConnectModalOpen(): boolean {
+  return isModalOpen(openRouterConnectModal);
+}
+
+function isOpenAiCompatibleConnectModalOpen(): boolean {
+  return isModalOpen(openAiCompatibleConnectModal);
 }
 
 function encodeBase64Url(bytes: Uint8Array): string {
@@ -389,6 +513,90 @@ async function disconnectOpenRouter(): Promise<void> {
   }
 }
 
+async function connectOpenAiCompatible(): Promise<void> {
+  const baseUrl = normalizeBaseUrl(openAiCompatibleBaseUrlInput.value);
+  const apiKey = openAiCompatibleApiKeyInput.value.trim();
+
+  if (!baseUrl) {
+    setOpenAiCompatibleConnectStatus("Endpoint is required.", "error");
+    return;
+  }
+
+  clearOpenAiCompatibleConnectStatus();
+  clearSettingsBanner();
+  openAiCompatibleConnectContinueBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/openai-compatible/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseUrl,
+        apiKey,
+        persistToEnv: openAiCompatiblePersistCheckbox.checked,
+      }),
+    });
+    const body = await res.json() as OpenAiCompatibleConnectResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to connect OpenAI-compatible provider (${res.status})`);
+    }
+
+    activeBaseUrl = body.baseUrl;
+    addMessage(body.message, "thinking");
+    const tone = body.persistWarning
+      ? "info"
+      : (body.needsSetup ? "info" : "success");
+    setConfigConnectStatus(body.message, tone);
+    setSettingsBanner(body.message, tone === "success" ? "success" : "info");
+    closeOpenAiCompatibleConnectModal();
+    await fetchStatus();
+    await refreshModelList();
+
+    const onlyModelMissing =
+      body.needsSetup &&
+      body.missing.length === 1 &&
+      body.missing[0]?.includes("MODEL");
+    if (onlyModelMissing) {
+      modelDropdown.classList.remove("hidden");
+      sessionDropdown.classList.add("hidden");
+      focusModelSearchInput();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to connect OpenAI-compatible provider";
+    setOpenAiCompatibleConnectStatus(message, "error");
+  } finally {
+    openAiCompatibleConnectContinueBtn.disabled = false;
+  }
+}
+
+async function disconnectOpenAiCompatible(): Promise<void> {
+  disconnectOpenAiCompatibleBtn.disabled = true;
+  clearSettingsBanner();
+
+  try {
+    const res = await fetch("/api/openai-compatible/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await res.json() as OpenAiCompatibleDisconnectResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to disconnect OpenAI-compatible provider (${res.status})`);
+    }
+
+    activeBaseUrl = body.baseUrl;
+    addMessage(body.message, "thinking");
+    setSettingsBanner(body.message, body.disconnected ? "success" : "info");
+    clearConfigConnectStatus();
+    await fetchStatus();
+    await refreshModelList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to disconnect OpenAI-compatible provider";
+    setSettingsBanner(message, "error");
+  } finally {
+    disconnectOpenAiCompatibleBtn.disabled = false;
+  }
+}
+
 async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
@@ -398,7 +606,8 @@ async function fetchStatus(): Promise<void> {
     activeModel = data.model;
     activeBaseUrl = data.baseUrl ?? "";
     sessionOpenRouterConnected = data.sessionOpenRouterConnected ?? false;
-    renderOpenRouterSessionControls();
+    sessionOpenAiCompatibleConnected = data.sessionOpenAiCompatibleConnected ?? false;
+    renderSessionProviderControls();
 
     if (data.needsSetup) {
       configOverlay.classList.remove("hidden");
@@ -409,11 +618,18 @@ async function fetchStatus(): Promise<void> {
       if (missingEl && data.missing && data.missing.length > 0) {
         const isOnlyModelMissing = data.missing.length === 1 && data.missing[0]!.includes("MODEL");
         const hasPersistedOpenRouter = isOnlyModelMissing && (data.baseUrl ?? "").includes("openrouter");
+        const hasPersistedOpenAiCompatible =
+          isOnlyModelMissing &&
+          !!(data.baseUrl ?? "").trim() &&
+          !(data.baseUrl ?? "").includes("openrouter");
         if (configOverlayIntro) {
           configOverlayIntro.textContent = hasPersistedOpenRouter
             ? "OpenRouter is already configured. Select a model to continue:"
-            : "minicode needs a model provider to run. Configure one of the following:";
+            : hasPersistedOpenAiCompatible
+              ? "An OpenAI-compatible provider is already configured. Select a model to continue:"
+              : "minicode needs a model provider to run. Configure one of the following:";
         }
+        configOverlayQuickConnects?.classList.toggle("hidden", hasPersistedOpenRouter || hasPersistedOpenAiCompatible);
         configOverlaySpotlight?.classList.toggle("hidden", hasPersistedOpenRouter);
         const hint = isOnlyModelMissing
           ? ` — select one from the <strong>model dropdown</strong> above, or set it in config`
@@ -433,6 +649,7 @@ async function fetchStatus(): Promise<void> {
       if (configOverlayIntro) {
         configOverlayIntro.textContent = "minicode needs a model provider to run. Configure one of the following:";
       }
+      configOverlayQuickConnects?.classList.remove("hidden");
       configOverlaySpotlight?.classList.remove("hidden");
     }
   } catch {
@@ -740,19 +957,37 @@ function clearSettingsBanner(): void {
   settingsBanner.className = "settings-banner hidden";
 }
 
-function renderOpenRouterSessionControls(): void {
+function renderSessionProviderControls(): void {
   if (sessionOpenRouterConnected) {
     settingsOpenRouterSession.classList.remove("hidden");
     settingsOpenRouterSessionMeta.textContent = activeBaseUrl
       ? `Endpoint: ${activeBaseUrl}. This session-only connection overrides your original provider settings until you disconnect or restart serve.`
       : "This session-only connection overrides your original provider settings until you disconnect or restart serve.";
+    settingsOpenAiCompatibleSession.classList.add("hidden");
+    settingsOpenAiCompatibleSessionMeta.textContent = "";
     disconnectOpenRouterBtn.disabled = false;
+    disconnectOpenAiCompatibleBtn.disabled = false;
+    return;
+  }
+
+  if (sessionOpenAiCompatibleConnected) {
+    settingsOpenAiCompatibleSession.classList.remove("hidden");
+    settingsOpenAiCompatibleSessionMeta.textContent = activeBaseUrl
+      ? `Endpoint: ${activeBaseUrl}. This session-only connection overrides your original provider settings until you disconnect or restart serve.`
+      : "This session-only connection overrides your original provider settings until you disconnect or restart serve.";
+    settingsOpenRouterSession.classList.add("hidden");
+    settingsOpenRouterSessionMeta.textContent = "";
+    disconnectOpenRouterBtn.disabled = false;
+    disconnectOpenAiCompatibleBtn.disabled = false;
     return;
   }
 
   settingsOpenRouterSession.classList.add("hidden");
   settingsOpenRouterSessionMeta.textContent = "";
+  settingsOpenAiCompatibleSession.classList.add("hidden");
+  settingsOpenAiCompatibleSessionMeta.textContent = "";
   disconnectOpenRouterBtn.disabled = false;
+  disconnectOpenAiCompatibleBtn.disabled = false;
 }
 
 function createSettingsControl(entry: SettingsEntry, inputId: string): HTMLElement {
@@ -1001,6 +1236,31 @@ function openOpenRouterConnectModal(): void {
 function closeOpenRouterConnectModal(): void {
   closeModal(openRouterConnectModal);
   openRouterConnectContinueBtn.disabled = false;
+}
+
+function openOpenAiCompatibleConnectModal(): void {
+  closeHeaderMenus();
+  openModal(openAiCompatibleConnectModal);
+  const preset = inferOpenAiCompatiblePreset(activeBaseUrl);
+  openAiCompatiblePresetSelect.value = preset;
+  openAiCompatibleBaseUrlInput.value = preset === "custom"
+    ? activeBaseUrl
+    : OPENAI_COMPATIBLE_PRESETS[preset].baseUrl;
+  openAiCompatibleApiKeyInput.value = "";
+  openAiCompatiblePersistCheckbox.checked = false;
+  openAiCompatibleConnectContinueBtn.disabled = false;
+  applyOpenAiCompatiblePreset(preset, { preserveCustomValue: preset === "custom" });
+  clearOpenAiCompatibleConnectStatus();
+  requestAnimationFrame(() => {
+    openAiCompatibleBaseUrlInput.focus();
+    openAiCompatibleBaseUrlInput.select();
+  });
+}
+
+function closeOpenAiCompatibleConnectModal(): void {
+  closeModal(openAiCompatibleConnectModal);
+  openAiCompatibleConnectContinueBtn.disabled = false;
+  clearOpenAiCompatibleConnectStatus();
 }
 
 // Form handling
@@ -1375,10 +1635,22 @@ openRouterConnectCancelBtn.addEventListener("click", () => {
   closeOpenRouterConnectModal();
 });
 
+openAiCompatibleConnectBackdrop.addEventListener("click", () => {
+  closeOpenAiCompatibleConnectModal();
+});
+
+openAiCompatibleConnectCloseBtn.addEventListener("click", () => {
+  closeOpenAiCompatibleConnectModal();
+});
+
+openAiCompatibleConnectCancelBtn.addEventListener("click", () => {
+  closeOpenAiCompatibleConnectModal();
+});
+
 settingsResetBtn.addEventListener("click", () => {
   clearSettingsBanner();
   renderSettings();
-  renderOpenRouterSessionControls();
+  renderSessionProviderControls();
 });
 
 settingsSaveBtn.addEventListener("click", async () => {
@@ -1440,12 +1712,20 @@ disconnectOpenRouterBtn.addEventListener("click", () => {
   void disconnectOpenRouter();
 });
 
+disconnectOpenAiCompatibleBtn.addEventListener("click", () => {
+  void disconnectOpenAiCompatible();
+});
+
 document.addEventListener("keydown", (event: KeyboardEvent) => {
   if (event.key !== "Escape") {
     return;
   }
   if (isOpenRouterConnectModalOpen()) {
     closeOpenRouterConnectModal();
+    return;
+  }
+  if (isOpenAiCompatibleConnectModalOpen()) {
+    closeOpenAiCompatibleConnectModal();
     return;
   }
   if (isSettingsModalOpen()) {
@@ -1459,10 +1739,33 @@ for (const button of connectOpenRouterButtons) {
   });
 }
 
+for (const button of connectOpenAiCompatibleButtons) {
+  button.addEventListener("click", () => {
+    openOpenAiCompatibleConnectModal();
+  });
+}
+
+openAiCompatiblePresetSelect.addEventListener("change", () => {
+  applyOpenAiCompatiblePreset(openAiCompatiblePresetSelect.value as OpenAiCompatiblePreset);
+  clearOpenAiCompatibleConnectStatus();
+});
+
+openAiCompatibleBaseUrlInput.addEventListener("input", () => {
+  clearOpenAiCompatibleConnectStatus();
+});
+
+openAiCompatibleApiKeyInput.addEventListener("input", () => {
+  clearOpenAiCompatibleConnectStatus();
+});
+
 openRouterConnectContinueBtn.addEventListener("click", () => {
   openRouterConnectContinueBtn.disabled = true;
   closeOpenRouterConnectModal();
   void startOpenRouterConnect(openRouterPersistCheckbox.checked);
+});
+
+openAiCompatibleConnectContinueBtn.addEventListener("click", () => {
+  void connectOpenAiCompatible();
 });
 
 // -- Resizable pane divider --

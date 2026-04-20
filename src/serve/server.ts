@@ -57,6 +57,12 @@ interface OpenRouterConnectRequestBody {
   persistToEnv?: boolean;
 }
 
+interface OpenAiCompatibleConnectRequestBody {
+  baseUrl?: string;
+  apiKey?: string;
+  persistToEnv?: boolean;
+}
+
 interface OpenRouterDisconnectResponse {
   ok: boolean;
   disconnected: boolean;
@@ -68,6 +74,8 @@ interface OpenRouterDisconnectResponse {
   missing: string[];
   message: string;
 }
+
+interface OpenAiCompatibleDisconnectResponse extends OpenRouterDisconnectResponse {}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -101,6 +109,10 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
 }
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
@@ -184,6 +196,7 @@ export function createRequestHandler(
           provider: config.modelProvider,
           baseUrl: config.openAiBaseUrl,
           sessionOpenRouterConnected: bridge.isOpenRouterSessionConnected(),
+          sessionOpenAiCompatibleConnected: bridge.isOpenAiCompatibleSessionConnected(),
           needsSetup: missing.length > 0,
           missing,
         });
@@ -308,6 +321,92 @@ export function createRequestHandler(
         return;
       }
 
+      if (pathname === "/api/openai-compatible/connect" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as OpenAiCompatibleConnectRequestBody;
+        if (!body.baseUrl || typeof body.baseUrl !== "string") {
+          sendJson(res, 400, { error: "baseUrl is required" });
+          return;
+        }
+
+        const normalizedBaseUrl = normalizeBaseUrl(body.baseUrl);
+        if (!normalizedBaseUrl) {
+          sendJson(res, 400, { error: "baseUrl is required" });
+          return;
+        }
+
+        try {
+          const parsedUrl = new URL(normalizedBaseUrl);
+          if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+            throw new Error("invalid protocol");
+          }
+        } catch {
+          sendJson(res, 400, { error: "baseUrl must be a valid absolute http(s) URL" });
+          return;
+        }
+
+        try {
+          bridge.connectOpenAiCompatible(normalizedBaseUrl, body.apiKey);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to configure the OpenAI-compatible provider";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        let persistedToEnv = false;
+        let persistedEnvPath: string | null = null;
+        let persistWarning: string | null = null;
+        const trimmedApiKey = body.apiKey?.trim() ?? "";
+
+        if (body.persistToEnv === true) {
+          try {
+            const result = await upsertHomeEnvValues({
+              values: {
+                MODEL_PROVIDER: "openai-compatible",
+                OPENAI_BASE_URL: normalizedBaseUrl,
+                OPENAI_API_KEY: trimmedApiKey.length > 0 ? trimmedApiKey : null,
+              },
+              ...(minicodeHome ? { minicodeHome } : {}),
+            });
+            persistedToEnv = true;
+            persistedEnvPath = result.path;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+            persistedEnvPath = getHomeEnvPath(minicodeHome);
+            persistWarning = `The OpenAI-compatible provider connected for this serve session, but minicode could not update ${persistedEnvPath}: ${message}`;
+          }
+        }
+
+        const missing = getConfigMissing(config);
+        const onlyModelMissing = missing.length === 1 && missing[0] === "MODEL is not set";
+        const message = persistWarning
+          ? `${persistWarning}${onlyModelMissing ? " Select a model to continue." : ""}`
+          : persistedToEnv
+            ? (
+              onlyModelMissing
+                ? "The OpenAI-compatible provider connected for this serve session and was saved to ~/.minicode/.env. Select a model to continue, and minicode will remember this endpoint for future runs."
+                : "The OpenAI-compatible provider connected for this serve session and was saved to ~/.minicode/.env for future runs."
+            )
+            : (
+              onlyModelMissing
+                ? "The OpenAI-compatible provider connected for this serve session. Select a model to continue."
+                : "The OpenAI-compatible provider connected for this serve session."
+            );
+        sendJson(res, 200, {
+          ok: true,
+          sessionOnly: true,
+          persistedToEnv,
+          persistedEnvPath,
+          persistWarning,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message,
+        });
+        return;
+      }
+
       if (pathname === "/api/openrouter/disconnect" && method === "POST") {
         let disconnected = false;
         try {
@@ -331,6 +430,34 @@ export function createRequestHandler(
           message: disconnected
             ? "Removed the session-only OpenRouter connection and restored your original provider settings."
             : "No session-only OpenRouter connection was active.",
+        };
+        sendJson(res, 200, body);
+        return;
+      }
+
+      if (pathname === "/api/openai-compatible/disconnect" && method === "POST") {
+        let disconnected = false;
+        try {
+          disconnected = bridge.disconnectOpenAiCompatible();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to remove the OpenAI-compatible session";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        const missing = getConfigMissing(config);
+        const body: OpenAiCompatibleDisconnectResponse = {
+          ok: true,
+          disconnected,
+          sessionOnly: true,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message: disconnected
+            ? "Removed the session-only OpenAI-compatible connection and restored your original provider settings."
+            : "No session-only OpenAI-compatible connection was active.",
         };
         sendJson(res, 200, body);
         return;

@@ -25,6 +25,8 @@ class MockBridge extends AgentBridge {
   turnHistory: string[] = [];
   openRouterKey: string | undefined;
   openRouterSessionActive = false;
+  openAiCompatibleApiKey: string | undefined;
+  openAiCompatibleSessionActive = false;
 
   constructor() {
     super(() => {}, false);
@@ -104,9 +106,25 @@ class MockBridge extends AgentBridge {
   override connectOpenRouter(apiKey: string): void {
     this.openRouterKey = apiKey;
     this.openRouterSessionActive = true;
+    this.openAiCompatibleApiKey = undefined;
+    this.openAiCompatibleSessionActive = false;
     this._config.modelProvider = "openai-compatible";
     this._config.openAiBaseUrl = "https://openrouter.ai/api/v1";
     this._config.openAiApiKey = apiKey;
+  }
+
+  override connectOpenAiCompatible(baseUrl: string, apiKey?: string): void {
+    this.openAiCompatibleSessionActive = true;
+    this.openRouterKey = undefined;
+    this.openRouterSessionActive = false;
+    this.openAiCompatibleApiKey = apiKey?.trim() || undefined;
+    this._config.modelProvider = "openai-compatible";
+    this._config.openAiBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+    if (this.openAiCompatibleApiKey) {
+      this._config.openAiApiKey = this.openAiCompatibleApiKey;
+    } else {
+      delete this._config.openAiApiKey;
+    }
   }
 
   override disconnectOpenRouter(): boolean {
@@ -125,6 +143,24 @@ class MockBridge extends AgentBridge {
 
   override isOpenRouterSessionConnected(): boolean {
     return this.openRouterSessionActive;
+  }
+
+  override disconnectOpenAiCompatible(): boolean {
+    if (!this.openAiCompatibleSessionActive) {
+      return false;
+    }
+
+    this.openAiCompatibleSessionActive = false;
+    this.openAiCompatibleApiKey = undefined;
+    this._config.modelProvider = this._baseConfig.modelProvider;
+    this._config.model = this._baseConfig.model;
+    this._config.openAiBaseUrl = this._baseConfig.openAiBaseUrl;
+    delete this._config.openAiApiKey;
+    return true;
+  }
+
+  override isOpenAiCompatibleSessionConnected(): boolean {
+    return this.openAiCompatibleSessionActive;
   }
 
   override switchModel(modelId: string): void {
@@ -819,6 +855,131 @@ test("GET /api/status exposes OpenRouter session state and base URL", async () =
   assert.equal(body.sessionOpenRouterConnected, true);
 });
 
+test("POST /api/openai-compatible/connect stores a session-only endpoint", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/openai-compatible/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ baseUrl: "http://localhost:1234/v1/", apiKey: "local-key" }),
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    ok: boolean;
+    sessionOnly: boolean;
+    persistedToEnv: boolean;
+    persistedEnvPath: string | null;
+    persistWarning: string | null;
+    baseUrl: string;
+    needsSetup: boolean;
+    missing: string[];
+    message: string;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.sessionOnly, true);
+  assert.equal(body.persistedToEnv, false);
+  assert.equal(body.persistedEnvPath, null);
+  assert.equal(body.persistWarning, null);
+  assert.equal(body.baseUrl, "http://localhost:1234/v1");
+  assert.equal(body.needsSetup, false);
+  assert.deepEqual(body.missing, []);
+  assert.equal(body.message, "The OpenAI-compatible provider connected for this serve session.");
+  assert.equal(bridge.getConfig().modelProvider, "openai-compatible");
+  assert.equal(bridge.getConfig().openAiBaseUrl, "http://localhost:1234/v1");
+  assert.equal(bridge.getConfig().openAiApiKey, "local-key");
+  assert.equal(bridge.isOpenAiCompatibleSessionConnected(), true);
+});
+
+test("POST /api/openai-compatible/connect can persist the endpoint to ~/.minicode/.env", async () => {
+  const bridge = new MockBridge();
+  const minicodeHome = mkdtempSync(path.join(os.tmpdir(), "minicode-openai-compatible-home-"));
+  const base = await startTestServer(bridge, { minicodeHome });
+
+  try {
+    const res = await fetch(`${base}/api/openai-compatible/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: "http://127.0.0.1:1234/v1",
+        apiKey: "",
+        persistToEnv: true,
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json() as {
+      persistedToEnv: boolean;
+      persistedEnvPath: string | null;
+      persistWarning: string | null;
+      message: string;
+    };
+    assert.equal(body.persistedToEnv, true);
+    assert.equal(body.persistWarning, null);
+    assert.equal(body.persistedEnvPath, path.join(minicodeHome, ".env"));
+    assert.match(body.message, /saved to ~\/\.minicode\/\.env/);
+
+    const envContents = readFileSync(path.join(minicodeHome, ".env"), "utf8");
+    assert.match(envContents, /^MODEL_PROVIDER=openai-compatible$/m);
+    assert.match(envContents, /^OPENAI_BASE_URL=http:\/\/127\.0\.0\.1:1234\/v1$/m);
+    assert.doesNotMatch(envContents, /^OPENAI_API_KEY=/m);
+  } finally {
+    rmSync(minicodeHome, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/openai-compatible/disconnect removes the session-only endpoint", async () => {
+  const bridge = new MockBridge();
+  bridge.connectOpenAiCompatible("http://localhost:1234/v1", "local-key");
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/openai-compatible/disconnect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    ok: boolean;
+    disconnected: boolean;
+    sessionOnly: boolean;
+    baseUrl: string;
+    provider: string;
+    message: string;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.disconnected, true);
+  assert.equal(body.sessionOnly, true);
+  assert.equal(body.provider, "anthropic");
+  assert.equal(body.baseUrl, "http://localhost:1234/v1");
+  assert.equal(
+    body.message,
+    "Removed the session-only OpenAI-compatible connection and restored your original provider settings.",
+  );
+  assert.equal(bridge.isOpenAiCompatibleSessionConnected(), false);
+  assert.equal(bridge.getConfig().modelProvider, "anthropic");
+  assert.equal(bridge.getConfig().openAiApiKey, undefined);
+});
+
+test("GET /api/status exposes OpenAI-compatible session state and base URL", async () => {
+  const bridge = new MockBridge();
+  bridge.connectOpenAiCompatible("http://localhost:1234/v1");
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/status`);
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    baseUrl: string;
+    sessionOpenAiCompatibleConnected: boolean;
+    provider: string;
+  };
+  assert.equal(body.provider, "openai-compatible");
+  assert.equal(body.baseUrl, "http://localhost:1234/v1");
+  assert.equal(body.sessionOpenAiCompatibleConnected, true);
+});
+
 test("POST /api/openrouter/connect returns 400 when code is missing", async () => {
   const bridge = new MockBridge();
   const base = await startTestServer(bridge);
@@ -856,6 +1017,20 @@ test("POST /api/openrouter/connect surfaces exchange failures", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("POST /api/openai-compatible/connect rejects an invalid endpoint", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/openai-compatible/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ baseUrl: "localhost:1234/v1" }),
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json() as { error: string };
+  assert.match(body.error, /valid absolute http\(s\) URL/);
 });
 
 // ── OpenAI-compatible API tests ──

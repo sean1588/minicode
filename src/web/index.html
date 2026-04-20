@@ -65,15 +65,29 @@
           <div class="config-overlay-content">
             <h2>Agent not connected</h2>
             <p id="config-missing" class="config-missing hidden"></p>
-            <div id="config-overlay-spotlight" class="config-overlay-spotlight">
-              <div class="config-overlay-spotlight-copy">
-                <span class="config-overlay-spotlight-badge">Fastest way to start</span>
-                <strong>Try minicode for free with OpenRouter</strong>
-                <p>Create a free OpenRouter account, connect it to this <code>minicode serve</code> session, and use free models without editing config files first.</p>
+            <div id="config-overlay-quick-connects" class="config-overlay-shortcuts">
+              <div id="config-overlay-spotlight" class="config-overlay-spotlight">
+                <div class="config-overlay-spotlight-copy">
+                  <span class="config-overlay-spotlight-badge">Fastest way to start</span>
+                  <strong>Try minicode for free with OpenRouter</strong>
+                  <p>Create a free OpenRouter account, connect it to this <code>minicode serve</code> session, and use free models without editing config files first.</p>
+                </div>
+                <div class="config-overlay-actions config-overlay-spotlight-actions">
+                  <button id="connect-openrouter-btn" class="dropdown-action" type="button" data-openrouter-connect="true">Connect OpenRouter</button>
+                  <span class="config-overlay-action-note">Session-only. Nothing is written to disk.</span>
+                </div>
               </div>
-              <div class="config-overlay-actions config-overlay-spotlight-actions">
-                <button id="connect-openrouter-btn" class="dropdown-action" type="button" data-openrouter-connect="true">Connect OpenRouter</button>
-                <span class="config-overlay-action-note">Session-only. Nothing is written to disk.</span>
+
+              <div id="config-overlay-openai-compatible" class="config-overlay-spotlight config-overlay-spotlight-secondary">
+                <div class="config-overlay-spotlight-copy">
+                  <span class="config-overlay-spotlight-badge">Local quick connect</span>
+                  <strong>Connect OpenAI-compatible</strong>
+                  <p>Choose a preset like LM Studio, OpenAI, Ollama, or Custom, then adjust the endpoint if needed before connecting this <code>minicode serve</code> session.</p>
+                </div>
+                <div class="config-overlay-actions config-overlay-spotlight-actions">
+                  <button id="connect-openai-compatible-btn" class="dropdown-action" type="button" data-openai-compatible-connect="true">Connect OpenAI-compatible</button>
+                  <span class="config-overlay-action-note">Starts with common presets, but the endpoint stays editable.</span>
+                </div>
               </div>
             </div>
             <p id="config-overlay-intro">minicode needs a model provider to run. Configure one of the following:</p>
@@ -180,6 +194,23 @@ MODEL=your-model-name</pre>
         </div>
         <button id="disconnect-openrouter-btn" class="header-btn" type="button">Disconnect OpenRouter</button>
       </div>
+      <div id="settings-openai-compatible-session" class="settings-session-banner hidden" role="status" aria-live="polite">
+        <div class="settings-session-copy">
+          <div class="settings-session-title">OpenAI-compatible provider is connected for this serve session</div>
+          <div id="settings-openai-compatible-session-meta" class="settings-session-meta"></div>
+        </div>
+        <button id="disconnect-openai-compatible-btn" class="header-btn" type="button">Disconnect OpenAI-compatible</button>
+      </div>
+      <div class="settings-provider-shortcuts">
+        <div class="settings-provider-shortcuts-copy">
+          <div class="settings-session-title">Quick connect</div>
+          <div class="settings-session-meta">Temporarily connect a provider for this serve session, or optionally save it to <code>~/.minicode/.env</code>.</div>
+        </div>
+        <div class="settings-provider-shortcuts-actions">
+          <button class="header-btn" type="button" data-openrouter-connect="true">Connect OpenRouter</button>
+          <button class="header-btn" type="button" data-openai-compatible-connect="true">Connect OpenAI-compatible</button>
+        </div>
+      </div>
       <div id="settings-list" class="settings-list">
         <div class="dropdown-empty">Loading settings...</div>
       </div>
@@ -234,6 +265,75 @@ MODEL=your-model-name</pre>
         <div class="settings-actions">
           <button id="openrouter-connect-cancel" class="header-btn" type="button">Cancel</button>
           <button id="openrouter-connect-continue" class="dropdown-action" type="button">Continue</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="openai-compatible-connect-modal" class="modal hidden" aria-hidden="true">
+    <div id="openai-compatible-connect-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel modal-panel-compact" role="dialog" aria-modal="true" aria-labelledby="openai-compatible-connect-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="openai-compatible-connect-title">Connect OpenAI-compatible</h2>
+          <p class="modal-subtitle">Configure an OpenAI-compatible endpoint for this <code>minicode serve</code> session and optionally save it for future runs.</p>
+        </div>
+        <button id="openai-compatible-connect-close" class="header-btn" type="button">Close</button>
+      </div>
+
+      <div class="openrouter-connect-body">
+        <p class="openrouter-connect-lead">
+          Pick a preset to prefill a common endpoint, then adjust it if needed. minicode will point this serve session at the OpenAI-compatible API endpoint you provide.
+        </p>
+
+        <div class="openrouter-connect-note">
+          <strong>Connection details</strong>
+          <p>Local runtimes like LM Studio or Ollama usually work without an API key, while hosted providers like OpenAI typically require one. The endpoint stays editable no matter which preset you choose.</p>
+        </div>
+
+        <label class="provider-input-group" for="openai-compatible-preset">
+          <span class="provider-input-label">Preset</span>
+          <select id="openai-compatible-preset" class="provider-input">
+            <option value="lmstudio">LM Studio</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama">Ollama</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+
+        <p id="openai-compatible-preset-help" class="openrouter-connect-help">
+          LM Studio pre-fills the default local server endpoint at <code>http://localhost:1234/v1</code>.
+        </p>
+
+        <label class="provider-input-group" for="openai-compatible-base-url">
+          <span class="provider-input-label">Endpoint</span>
+          <input id="openai-compatible-base-url" class="provider-input" type="text" value="http://localhost:1234/v1" spellcheck="false" autocomplete="off" />
+        </label>
+
+        <label class="provider-input-group" for="openai-compatible-api-key">
+          <span class="provider-input-label">API key (optional)</span>
+          <input id="openai-compatible-api-key" class="provider-input" type="password" placeholder="Leave blank for local providers that do not require auth" spellcheck="false" autocomplete="off" />
+        </label>
+
+        <label class="openrouter-persist-toggle" for="openai-compatible-persist-checkbox">
+          <input id="openai-compatible-persist-checkbox" type="checkbox" />
+          <span>Save the OpenAI-compatible provider defaults to <code>~/.minicode/.env</code> after connecting.</span>
+        </label>
+
+        <p class="openrouter-connect-help">
+          When enabled, minicode will update <code>MODEL_PROVIDER</code> and <code>OPENAI_BASE_URL</code>, and it will also write <code>OPENAI_API_KEY</code> if you provide one. Nothing is written unless you check the box.
+        </p>
+
+        <p id="openai-compatible-connect-status" class="config-connect-status hidden"></p>
+      </div>
+
+      <div class="modal-footer">
+        <p class="settings-footnote">
+          This uses the same OpenAI-compatible runtime path minicode already uses for local and hosted providers.
+        </p>
+        <div class="settings-actions">
+          <button id="openai-compatible-connect-cancel" class="header-btn" type="button">Cancel</button>
+          <button id="openai-compatible-connect-continue" class="dropdown-action" type="button">Continue</button>
         </div>
       </div>
     </section>
