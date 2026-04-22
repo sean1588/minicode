@@ -75,7 +75,7 @@ interface OpenRouterDisconnectResponse {
   message: string;
 }
 
-interface OpenAiCompatibleDisconnectResponse extends OpenRouterDisconnectResponse {}
+type OpenAiCompatibleDisconnectResponse = OpenRouterDisconnectResponse;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });

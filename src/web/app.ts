@@ -138,9 +138,9 @@ interface OpenRouterDisconnectResponse {
   message: string;
 }
 
-interface OpenAiCompatibleConnectResponse extends OpenRouterConnectResponse {}
+type OpenAiCompatibleConnectResponse = OpenRouterConnectResponse;
 
-interface OpenAiCompatibleDisconnectResponse extends OpenRouterDisconnectResponse {}
+type OpenAiCompatibleDisconnectResponse = OpenRouterDisconnectResponse;
 
 interface ModelSwitchResponse {
   model: string;
@@ -323,19 +323,6 @@ function clearOpenAiCompatibleConnectStatus(): void {
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
-}
-
-function isLikelyLocalOpenAiEndpoint(baseUrl: string): boolean {
-  if (!baseUrl.trim()) {
-    return false;
-  }
-
-  try {
-    const url = new URL(baseUrl);
-    return ["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname);
-  } catch {
-    return false;
-  }
 }
 
 function inferOpenAiCompatiblePreset(baseUrl: string): OpenAiCompatiblePreset {
