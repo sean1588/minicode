@@ -11,6 +11,7 @@ export interface SetupOverlayState {
   hideOpenRouterSpotlight: boolean;
   missingItems: string[];
   showModelSelectionHint: boolean;
+  modelSelectionNote: string | null;
 }
 
 export const DEFAULT_SETUP_INTRO =
@@ -43,5 +44,8 @@ export function deriveSetupOverlayState(input: SetupOverlayStateInput): SetupOve
     hideOpenRouterSpotlight: configuredProvider === "openrouter" && isOnlyModelMissing,
     missingItems: filteredMissingItems,
     showModelSelectionHint: hasConfiguredProvider,
+    modelSelectionNote: configuredProvider === "openrouter" && isOnlyModelMissing
+      ? 'If you are on the OpenRouter free tier, search "free" in the model dropdown to find supported free models.'
+      : null,
   };
 }

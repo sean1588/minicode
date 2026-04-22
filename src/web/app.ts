@@ -631,8 +631,11 @@ async function fetchStatus(): Promise<void> {
           const hint = overlayState.showModelSelectionHint
             ? ` — select one from the <strong>model dropdown</strong> above, or set it in config`
             : "";
+          const note = overlayState.modelSelectionNote
+            ? ` ${escapeHtml(overlayState.modelSelectionNote)}`
+            : "";
           missingEl.innerHTML =
-            `<strong>Missing:</strong> ${overlayState.missingItems.map(escapeHtml).join(", ")}${hint}`;
+            `<strong>Missing:</strong> ${overlayState.missingItems.map(escapeHtml).join(", ")}${hint}${note}`;
           missingEl.classList.remove("hidden");
         } else {
           missingEl.classList.add("hidden");
