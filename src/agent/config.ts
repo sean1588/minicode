@@ -71,6 +71,46 @@ export function getConfigMissing(config: AgentConfig): string[] {
   return missing;
 }
 
+export type ConfiguredProvider = "anthropic" | "openrouter" | "openai-compatible";
+
+function hasExplicitConfigValue(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function parseExplicitModelProvider(
+  value: string | undefined,
+): "anthropic" | "openai-compatible" | undefined {
+  if (!hasExplicitConfigValue(value)) {
+    return undefined;
+  }
+  return parseModelProvider(value);
+}
+
+export function getConfiguredProvider(
+  config: AgentConfig,
+  env: Record<string, string | undefined> = process.env,
+): ConfiguredProvider | null {
+  const explicitModelProvider = parseExplicitModelProvider(env.MODEL_PROVIDER);
+
+  if (config.modelProvider === "anthropic") {
+    return explicitModelProvider === "anthropic" || hasExplicitConfigValue(env.ANTHROPIC_API_KEY)
+      ? "anthropic"
+      : null;
+  }
+
+  const hasExplicitOpenAiCompatibleConfig =
+    explicitModelProvider === "openai-compatible" ||
+    hasExplicitConfigValue(env.OPENAI_BASE_URL) ||
+    hasExplicitConfigValue(env.OPENROUTER_API_KEY);
+
+  if (!hasExplicitOpenAiCompatibleConfig) {
+    return null;
+  }
+
+  const baseUrl = (env.OPENAI_BASE_URL ?? config.openAiBaseUrl).trim().toLowerCase();
+  return baseUrl.includes("openrouter") ? "openrouter" : "openai-compatible";
+}
+
 export function getConfigSetupMessage(config: AgentConfig): string | null {
   const missing = getConfigMissing(config);
 

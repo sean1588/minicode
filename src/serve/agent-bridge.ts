@@ -33,7 +33,7 @@ export class AgentBridge {
   private modelClient: ReturnType<typeof createModelClient> | undefined;
   private projectIndex: ProjectIndex | undefined;
   private toolRegistry: ReturnType<typeof createToolRegistry> | undefined;
-  private sessionOpenRouterConnected = false;
+  private sessionProviderConnection: "openrouter" | "openai-compatible" | null = null;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
@@ -242,7 +242,11 @@ export class AgentBridge {
   }
 
   isOpenRouterSessionConnected(): boolean {
-    return this.sessionOpenRouterConnected;
+    return this.sessionProviderConnection === "openrouter";
+  }
+
+  isOpenAiCompatibleSessionConnected(): boolean {
+    return this.sessionProviderConnection === "openai-compatible";
   }
 
   connectOpenRouter(apiKey: string): void {
@@ -262,8 +266,37 @@ export class AgentBridge {
     }).modelProvider = "openai-compatible";
     (this.config as { openAiBaseUrl: string }).openAiBaseUrl = "https://openrouter.ai/api/v1";
     (this.config as { openAiApiKey: string }).openAiApiKey = trimmedKey;
-    this.sessionOpenRouterConnected = true;
+    this.sessionProviderConnection = "openrouter";
 
+    this.modelClient = createModelClient(this.config);
+    this.agent = this.createAgent(currentSession);
+  }
+
+  connectOpenAiCompatible(baseUrl: string, apiKey?: string): void {
+    const trimmedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+    if (!trimmedBaseUrl) {
+      throw new Error("OpenAI-compatible endpoint is required.");
+    }
+    if (this.busy) {
+      throw new Error("busy");
+    }
+
+    const currentSession = this.agent?.getSession();
+    (this.config as {
+      modelProvider: "openai-compatible";
+      openAiBaseUrl: string;
+      openAiApiKey?: string;
+    }).modelProvider = "openai-compatible";
+    (this.config as { openAiBaseUrl: string }).openAiBaseUrl = trimmedBaseUrl;
+
+    const trimmedApiKey = apiKey?.trim() ?? "";
+    if (trimmedApiKey) {
+      (this.config as { openAiApiKey: string }).openAiApiKey = trimmedApiKey;
+    } else {
+      delete (this.config as { openAiApiKey?: string }).openAiApiKey;
+    }
+
+    this.sessionProviderConnection = "openai-compatible";
     this.modelClient = createModelClient(this.config);
     this.agent = this.createAgent(currentSession);
   }
@@ -272,13 +305,28 @@ export class AgentBridge {
     if (this.busy) {
       throw new Error("busy");
     }
-    if (!this.sessionOpenRouterConnected) {
+    if (this.sessionProviderConnection !== "openrouter") {
       return false;
     }
 
+    return this.disconnectSessionProvider();
+  }
+
+  disconnectOpenAiCompatible(): boolean {
+    if (this.busy) {
+      throw new Error("busy");
+    }
+    if (this.sessionProviderConnection !== "openai-compatible") {
+      return false;
+    }
+
+    return this.disconnectSessionProvider();
+  }
+
+  private disconnectSessionProvider(): boolean {
     const currentSession = this.agent?.getSession();
     AgentBridge.applyConfig(this.config, this.baseConfig);
-    this.sessionOpenRouterConnected = false;
+    this.sessionProviderConnection = null;
 
     try {
       this.modelClient = createModelClient(this.config);
