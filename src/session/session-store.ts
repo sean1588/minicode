@@ -21,9 +21,23 @@ interface SavedSessionFile {
 
 let sessionsDir = path.join(os.homedir(), ".minicode", "sessions");
 
+export class DuplicateSessionLabelError extends Error {
+  constructor(
+    readonly label: string,
+    readonly existingSessionId: string,
+  ) {
+    super(`A saved session named "${label}" already exists. Choose a different name or load that session to update it.`);
+    this.name = "DuplicateSessionLabelError";
+  }
+}
+
 /** Override sessions directory (for testing). */
 export function setSessionsDir(dir: string): void {
   sessionsDir = dir;
+}
+
+function normalizeSessionLabel(label: string): string {
+  return label.trim().toLowerCase();
 }
 
 export async function saveSession(
@@ -39,6 +53,15 @@ export async function saveSession(
     label && label.trim().length > 0
       ? label.trim()
       : new Date().toLocaleString();
+
+  const duplicate = (await listSessions()).find(
+    (savedSession) =>
+      savedSession.id !== snapshot.id &&
+      normalizeSessionLabel(savedSession.label) === normalizeSessionLabel(resolvedLabel),
+  );
+  if (duplicate) {
+    throw new DuplicateSessionLabelError(resolvedLabel, duplicate.id);
+  }
 
   const data: SavedSessionFile = {
     label: resolvedLabel,

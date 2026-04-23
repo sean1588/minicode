@@ -303,6 +303,9 @@ type OpenAICompatibleMessage =
       content: string;
     };
 
+const MISSING_TOOL_RESULT_CONTENT =
+  "Tool result unavailable because the previous minicode run ended before recording output.";
+
 function toOpenAICompatibleMessages(
   system: string,
   messages: SessionMessage[],
@@ -313,9 +316,22 @@ function toOpenAICompatibleMessages(
       content: system,
     },
   ];
+  let pendingToolCalls: ToolCall[] = [];
+
+  const flushMissingToolResults = () => {
+    for (const toolCall of pendingToolCalls) {
+      converted.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: MISSING_TOOL_RESULT_CONTENT,
+      });
+    }
+    pendingToolCalls = [];
+  };
 
   for (const message of messages) {
     if (message.role === "user") {
+      flushMissingToolResults();
       converted.push({
         role: "user",
         content: message.content,
@@ -324,6 +340,7 @@ function toOpenAICompatibleMessages(
     }
 
     if (message.role === "assistant") {
+      flushMissingToolResults();
       const toolCalls = message.toolCalls?.map((toolCall) => ({
         id: toolCall.id,
         type: "function" as const,
@@ -338,6 +355,14 @@ function toOpenAICompatibleMessages(
         content: message.content.length > 0 ? message.content : null,
         ...(toolCalls ? { tool_calls: toolCalls } : {}),
       });
+      pendingToolCalls = [...(message.toolCalls ?? [])];
+      continue;
+    }
+
+    const pendingToolCallIndex = pendingToolCalls.findIndex(
+      (toolCall) => toolCall.id === message.toolCallId,
+    );
+    if (pendingToolCallIndex === -1) {
       continue;
     }
 
@@ -346,7 +371,10 @@ function toOpenAICompatibleMessages(
       tool_call_id: message.toolCallId,
       content: message.content,
     });
+    pendingToolCalls.splice(pendingToolCallIndex, 1);
   }
+
+  flushMissingToolResults();
 
   return converted;
 }

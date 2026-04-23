@@ -11,6 +11,7 @@ import { AgentBridge } from "../src/serve/agent-bridge.js";
 import { Session, type UiUpdate } from "@minicode/agent-sdk";
 import type { IndexedSymbol } from "../src/indexer/types.js";
 import type { ServerMessage } from "../src/serve/types.js";
+import { DuplicateSessionLabelError } from "../src/session/session-store.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 /**
@@ -431,6 +432,18 @@ class EmptySessionsBridge extends MockBridge {
   }
 }
 
+class DuplicateSessionLabelBridge extends MockBridge {
+  override async saveSess(): Promise<{
+    id: string;
+    label: string;
+    createdAt: string;
+    savedAt: string;
+    messageCount: number;
+  }> {
+    throw new DuplicateSessionLabelError("test-session", "sess-1");
+  }
+}
+
 // ── Test harness ──
 
 let activeServer: Server | undefined;
@@ -547,6 +560,21 @@ test("POST /api/sessions/save saves a session", async () => {
 
   const body = (await res.json()) as { label: string };
   assert.equal(body.label, "my-save");
+});
+
+test("POST /api/sessions/save rejects duplicate session labels", async () => {
+  const bridge = new DuplicateSessionLabelBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/sessions/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: "test-session" }),
+  });
+  assert.equal(res.status, 409);
+
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /already exists/);
 });
 
 test("session APIs support the first save when no sessions exist yet", async () => {

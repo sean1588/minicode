@@ -1485,17 +1485,21 @@ saveBtn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label }),
     });
-    if (res.ok) {
-      const data = await res.json() as SessionMeta;
-      saveLabelInput.value = "";
-      addMessage(
-        `${isUpdatingCurrentSession ? "Session updated" : "Session saved"}: "${data.label}"`,
-        "thinking",
-      );
-      await refreshSessionList();
+    const body = await res.json() as SessionMeta | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to save session (${res.status})`);
     }
-  } catch {
-    // ignore
+
+    const data = body as SessionMeta;
+    saveLabelInput.value = "";
+    addMessage(
+      `${isUpdatingCurrentSession ? "Session updated" : "Session saved"}: "${data.label}"`,
+      "thinking",
+    );
+    await refreshSessionList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to save session";
+    addMessage(message, "error");
   } finally {
     saveBtn.removeAttribute("disabled");
   }
@@ -1589,13 +1593,17 @@ sessionUpdateBtn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label: activeSavedSession.label }),
     });
-    if (res.ok) {
-      const data = await res.json() as SessionMeta;
-      addMessage(`Session updated: "${data.label}"`, "thinking");
-      await refreshSessionList();
+    const body = await res.json() as SessionMeta | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to update session (${res.status})`);
     }
-  } catch {
-    // ignore
+
+    const data = body as SessionMeta;
+    addMessage(`Session updated: "${data.label}"`, "thinking");
+    await refreshSessionList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update session";
+    addMessage(message, "error");
   } finally {
     sessionUpdateBtn.disabled = false;
   }

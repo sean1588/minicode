@@ -14,6 +14,8 @@ interface CommandExecutionResult {
   timedOut: boolean;
 }
 
+const COMMAND_KILL_GRACE_MS = 1_000;
+
 export interface RunCommandHooks {
   afterCommand?: ((command: string, result: CommandExecutionResult) => Promise<void> | void) | undefined;
 }
@@ -24,15 +26,67 @@ function executeBashCommand(
   timeoutMs: number,
 ): Promise<CommandExecutionResult> {
   return new Promise<CommandExecutionResult>((resolve, reject) => {
-    const child = spawn("bash", ["-lc", command], { cwd });
+    const useProcessGroup = process.platform !== "win32";
+    const child = spawn("bash", ["-lc", command], {
+      cwd,
+      detached: useProcessGroup,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let forceKillTimeout: ReturnType<typeof setTimeout> | undefined;
+    let forceResolveTimeout: ReturnType<typeof setTimeout> | undefined;
 
-    const timeout = setTimeout(() => {
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout);
+      if (forceKillTimeout) clearTimeout(forceKillTimeout);
+      if (forceResolveTimeout) clearTimeout(forceResolveTimeout);
+    };
+
+    const settle = (result: CommandExecutionResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const terminate = (signal: NodeJS.Signals) => {
+      if (child.pid && useProcessGroup) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // Fall through to killing the shell process directly.
+        }
+      }
+
+      try {
+        child.kill(signal);
+      } catch {
+        // The process may have already exited.
+      }
+    };
+
+    timeout = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      terminate("SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        terminate("SIGKILL");
+        forceResolveTimeout = setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          settle({
+            stdout: stdout.trimEnd(),
+            stderr: stderr.trimEnd(),
+            exitCode: null,
+            timedOut,
+          });
+        }, COMMAND_KILL_GRACE_MS);
+      }, COMMAND_KILL_GRACE_MS);
     }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
@@ -42,12 +96,11 @@ function executeBashCommand(
       stderr += chunk.toString();
     });
     child.on("error", (error) => {
-      clearTimeout(timeout);
+      cleanup();
       reject(error);
     });
     child.on("close", (code) => {
-      clearTimeout(timeout);
-      resolve({
+      settle({
         stdout: stdout.trimEnd(),
         stderr: stderr.trimEnd(),
         exitCode: code,

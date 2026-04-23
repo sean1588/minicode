@@ -7,6 +7,7 @@ import os from "node:os";
 import { Session } from "@minicode/agent-sdk";
 
 import {
+  DuplicateSessionLabelError,
   listSessions,
   loadSession,
   loadSessionByLabel,
@@ -123,6 +124,28 @@ test("loadSessionByLabel returns undefined for no match", async () => {
   await withTmpDir(async () => {
     const result = await loadSessionByLabel("nope");
     assert.equal(result, undefined);
+  });
+});
+
+test("saveSession rejects duplicate labels for different sessions", async () => {
+  await withTmpDir(async (dir) => {
+    const firstSession = new Session("first-id");
+    firstSession.addMessage({ role: "user", content: "first" });
+    await saveSession(firstSession, "My Label");
+
+    const secondSession = new Session("second-id");
+    secondSession.addMessage({ role: "user", content: "second" });
+
+    await assert.rejects(
+      () => saveSession(secondSession, " my label "),
+      (error) =>
+        error instanceof DuplicateSessionLabelError &&
+        error.label === "my label" &&
+        error.existingSessionId === "first-id",
+    );
+
+    const files = await readdir(dir);
+    assert.deepEqual(files, ["first-id.json"]);
   });
 });
 

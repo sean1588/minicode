@@ -137,6 +137,24 @@ test("run_command refresh removes deleted files from the index", async () => {
   assert.equal(index.getSymbol("add"), undefined, "deleted file should be removed from the index");
 });
 
+test("run_command times out commands that ignore SIGTERM", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const config = createTestAgentConfig(workspaceRoot);
+  config.commandTimeoutMs = 100;
+  const runTool = createRunCommandTool(config);
+  const start = Date.now();
+
+  const output = await runTool.execute({
+    command: `node -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'`,
+  });
+
+  assert.match(output, /timed_out: true/);
+  assert.ok(
+    Date.now() - start < 5_000,
+    "run_command should return after the timeout and kill grace period",
+  );
+});
+
 test("read_file supports negative offset and line limits", async () => {
   const workspaceRoot = await createTempWorkspace();
   const filePath = path.join(workspaceRoot, "lines.txt");
