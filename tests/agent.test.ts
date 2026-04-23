@@ -97,6 +97,23 @@ function createEchoTool(): ToolDefinition {
   };
 }
 
+function assertToolCallTranscriptIsComplete(messages: SessionMessage[]): void {
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message?.role !== "assistant" || !message.toolCalls?.length) {
+      continue;
+    }
+
+    const toolCalls = message.toolCalls;
+    for (let offset = 0; offset < toolCalls.length; offset += 1) {
+      const toolCall = toolCalls[offset]!;
+      const toolResult = messages[i + offset + 1];
+      assert.equal(toolResult?.role, "tool");
+      assert.equal(toolResult?.role === "tool" ? toolResult.toolCallId : undefined, toolCall.id);
+    }
+  }
+}
+
 test("agent executes tool calls and returns final assistant text", async () => {
   const responses: ModelResponse[] = [
     {
@@ -139,6 +156,7 @@ test("agent stops on repeated identical tool calls", async () => {
 
   const { text } = await agent.runTurn("Do something");
   assert.match(text, /repeated identical tool calls/);
+  assertToolCallTranscriptIsComplete(agent.getSession().getMessages());
 });
 
 test("agent tells the user how to continue when the turn call limit is reached", async () => {

@@ -17,6 +17,7 @@ import type { ServerMessage } from "./types.js";
 import type { WebSocketServer } from "ws";
 import { handleMcpRequest } from "./mcp-server.js";
 import { buildSessionPreview } from "../session/session-preview.js";
+import { DuplicateSessionLabelError } from "../session/session-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -563,8 +564,15 @@ export function createRequestHandler(
 
       if (pathname === "/api/sessions/save" && method === "POST") {
         const body = JSON.parse(await readBody(req)) as { label?: string };
-        const meta = await bridge.saveSess(body.label);
-        sendJson(res, 200, meta);
+        try {
+          const meta = await bridge.saveSess(body.label);
+          sendJson(res, 200, meta);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to save session";
+          sendJson(res, error instanceof DuplicateSessionLabelError ? 409 : 500, {
+            error: message,
+          });
+        }
         return;
       }
 

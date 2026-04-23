@@ -130,6 +130,55 @@ test("openai-compatible client sends correct app URL in HTTP-Referer header", as
   assert.equal(capturedHeaders["X-Title"], "minicode");
 });
 
+test("openai-compatible client repairs missing tool results before sending", async () => {
+  let capturedBody = "";
+
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    capturedBody = String(init?.body ?? "");
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: "ok", tool_calls: [] },
+          },
+        ],
+        usage: { prompt_tokens: 5, completion_tokens: 3 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+
+  await client.chat({
+    model: "test-model",
+    system: "sys",
+    messages: [
+      { role: "user", content: "start" },
+      {
+        role: "assistant",
+        content: "checking",
+        toolCalls: [{ id: "call-missing", name: "read_file", input: { path: "src/index.ts" } }],
+      },
+      { role: "user", content: "continue" },
+    ],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+  const messages = parsedBody.messages as Array<Record<string, unknown>>;
+  assert.equal(messages[2]?.role, "assistant");
+  assert.equal(messages[3]?.role, "tool");
+  assert.equal(messages[3]?.tool_call_id, "call-missing");
+  assert.match(String(messages[3]?.content), /Tool result unavailable/);
+  assert.equal(messages[4]?.role, "user");
+});
+
 test("createModelClient returns openai-compatible client", () => {
   const config: AgentConfig = {
     ...createTestAgentConfig("/tmp"),

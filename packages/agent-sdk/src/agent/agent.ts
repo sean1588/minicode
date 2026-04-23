@@ -470,7 +470,8 @@ export class CodingAgent {
         toolCalls: response.toolCalls,
       });
 
-      for (const toolCall of response.toolCalls) {
+      for (let toolCallIndex = 0; toolCallIndex < response.toolCalls.length; toolCallIndex += 1) {
+        const toolCall = response.toolCalls[toolCallIndex]!;
         const fingerprint = signatureForToolCall(toolCall);
         recentToolCallFingerprints.push(fingerprint);
         if (
@@ -486,6 +487,14 @@ export class CodingAgent {
         if (repeatedCalls >= 3) {
           const loopMessage =
             "Stopped due to repeated identical tool calls. Please refine the prompt or provide additional constraints.";
+          for (const skippedToolCall of response.toolCalls.slice(toolCallIndex)) {
+            this.session.addMessage({
+              role: "tool",
+              toolCallId: skippedToolCall.id,
+              toolName: skippedToolCall.name,
+              content: `Tool skipped: ${loopMessage}`,
+            });
+          }
           this.session.addMessage({
             role: "assistant",
             content: loopMessage,
