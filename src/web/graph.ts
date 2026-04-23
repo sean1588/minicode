@@ -98,6 +98,21 @@ interface RawEdge {
   type?: string;
 }
 
+interface GraphResponse {
+  nodes?: GraphNode[];
+  edges?: RawEdge[];
+}
+
+interface FocusResponse {
+  pinned?: unknown[];
+}
+
+interface RefreshGraphDataOptions {
+  refreshIndex?: boolean;
+  preserveVisible?: boolean;
+  showFeedback?: boolean;
+}
+
 let cy: CyInstance | null = null;
 const graphNodes = new Map<string, GraphNode>();
 let graphEdges: GraphEdge[] = [];
@@ -113,6 +128,7 @@ let activeAnalysisFilter: AnalysisFindingFilter = 'all';
 const analysisExplanationCache = new Map<string, string>();
 let filePreviewModalInitialized = false;
 let latestFilePreviewRequestId = 0;
+let pendingGraphRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const LAYOUT_OPTIONS: Record<string, unknown> = {
   name: 'cose',
@@ -138,50 +154,9 @@ export async function initGraph(): Promise<void> {
   const cyEl = document.getElementById('cy')!;
   const detailEl = document.getElementById('symbol-detail')!;
   setupFilePreviewModal();
+  cyEl.innerHTML = '';
 
   try {
-    const [graphRes, symbolsRes, focusRes] = await Promise.all([
-      fetch('/api/graph'),
-      fetch('/api/symbols'),
-      fetch('/api/focus'),
-    ]);
-
-    if (!graphRes.ok || !symbolsRes.ok) {
-      cyEl.innerHTML = '<div class="graph-empty">No index available. Run minicode with a project to generate the code graph.</div>';
-      return;
-    }
-
-    const graphData = await graphRes.json();
-    const focusData = focusRes.ok ? await focusRes.json() : { pinned: [] };
-
-    if (!graphData.nodes || graphData.nodes.length === 0) {
-      cyEl.innerHTML = '<div class="graph-empty">No index available. Run minicode with a project to generate the code graph.</div>';
-      return;
-    }
-
-    // Build lookup maps from full graph data
-    for (const node of graphData.nodes as GraphNode[]) {
-      const id = node.qualifiedName || node.id || node.name || '';
-      graphNodes.set(id, node);
-    }
-    graphEdges = ((graphData.edges || []) as RawEdge[]).map((e) => ({
-      source: e.source || e.from || '',
-      target: e.target || e.to || '',
-      kind: (e.kind || e.type || 'references').toLowerCase(),
-    }));
-    edgeIndex = buildGraphEdgeIndex(graphEdges);
-    fileToSymbolIds = buildGraphFileIndex(graphNodes);
-
-    allSymbolNames = Array.from(graphNodes.keys()).sort();
-
-    // Track pinned
-    const pinned: unknown[] = focusData.pinned || [];
-    for (const f of pinned) {
-      const name = typeof f === 'string' ? f : (f as Record<string, string>).name || (f as Record<string, string>).qualifiedName;
-      if (name) pinnedNames.add(name);
-    }
-
-    // Create empty cytoscape instance
     cy = cytoscape({
       container: cyEl,
       elements: [],
@@ -192,21 +167,72 @@ export async function initGraph(): Promise<void> {
     setupInteractions(cy, detailEl);
     setupToolbar();
 
-    // If there are pinned symbols, seed with those; otherwise show onboarding hint
-    if (pinnedNames.size > 0) {
-      for (const name of pinnedNames) {
-        addNodeNeighborhood(name, 1);
-      }
-      runLayout();
-    } else {
-      showOnboardingHint(cyEl);
+    const loaded = await loadGraphSnapshot(false);
+    if (!loaded) {
+      showOnboardingHint(cyEl, 'No project index is available yet. Refresh after files are available, or restart minicode serve.');
+      return;
     }
+
+    seedPinnedSymbolsOrOnboarding(
+      graphNodes.size === 0
+        ? 'No JavaScript or TypeScript symbols are indexed yet. Create a file, then refresh the graph.'
+        : undefined,
+    );
 
   } catch (err) {
     console.error('Graph init failed:', err);
     const msg = err instanceof Error ? err.message : String(err);
     cyEl.innerHTML = `<div class="graph-empty">Failed to load graph: ${msg}</div>`;
   }
+}
+
+export async function refreshGraphData(options: RefreshGraphDataOptions = {}): Promise<void> {
+  if (!initialized || !cy) return;
+
+  const {
+    refreshIndex = false,
+    preserveVisible = true,
+    showFeedback = false,
+  } = options;
+  const refreshBtn = document.getElementById('graph-refresh') as HTMLButtonElement | null;
+  const visibleIds = preserveVisible ? cy.nodes().map((node: CyElement) => node.id()) : [];
+
+  if (showFeedback && refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = 'Refreshing...';
+  }
+
+  try {
+    const loaded = await loadGraphSnapshot(refreshIndex);
+    if (!loaded) {
+      throw new Error('No project index available');
+    }
+    renderGraphAfterDataRefresh(visibleIds, preserveVisible);
+  } catch (err) {
+    console.error('Graph refresh failed:', err);
+    if (showFeedback) {
+      const cyEl = document.getElementById('cy');
+      if (cyEl && graphNodes.size === 0) {
+        showOnboardingHint(cyEl, 'Could not refresh the project index. Check the minicode serve logs, then try again.');
+      }
+    }
+  } finally {
+    if (showFeedback && refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = 'Refresh';
+    }
+  }
+}
+
+export function scheduleGraphDataRefresh(): void {
+  if (!initialized) return;
+  if (pendingGraphRefreshTimer) {
+    clearTimeout(pendingGraphRefreshTimer);
+  }
+  pendingGraphRefreshTimer = setTimeout(() => {
+    pendingGraphRefreshTimer = null;
+    void refreshGraphData({ preserveVisible: true });
+  }, 250);
 }
 
 export function highlightAgentActivity(symbolName: string): void {
@@ -227,14 +253,135 @@ export function resizeGraph(): void {
 
 // -- Graph building (incremental) --
 
-function showOnboardingHint(container: HTMLElement): void {
-  if (container.querySelector('.graph-onboarding')) return;
+async function loadGraphSnapshot(refreshIndex: boolean): Promise<boolean> {
+  if (refreshIndex) {
+    const refreshRes = await fetch('/api/index/refresh', { method: 'POST' });
+    if (!refreshRes.ok) {
+      return false;
+    }
+  }
+
+  const [graphRes, focusRes] = await Promise.all([
+    fetch('/api/graph'),
+    fetch('/api/focus'),
+  ]);
+
+  if (!graphRes.ok) {
+    return false;
+  }
+
+  const graphData = await graphRes.json() as GraphResponse;
+  const focusData = focusRes.ok ? await focusRes.json() as FocusResponse : { pinned: [] };
+  applyGraphSnapshot(graphData, focusData);
+  return true;
+}
+
+function applyGraphSnapshot(graphData: GraphResponse, focusData: FocusResponse): void {
+  graphNodes.clear();
+  for (const node of graphData.nodes || []) {
+    const id = node.qualifiedName || node.id || node.name || '';
+    if (id) {
+      graphNodes.set(id, node);
+    }
+  }
+
+  graphEdges = (graphData.edges || []).map((e) => ({
+    source: e.source || e.from || '',
+    target: e.target || e.to || '',
+    kind: (e.kind || e.type || 'references').toLowerCase(),
+  })).filter((edge) => edge.source && edge.target);
+  edgeIndex = buildGraphEdgeIndex(graphEdges);
+  fileToSymbolIds = buildGraphFileIndex(graphNodes);
+  allSymbolNames = Array.from(graphNodes.keys()).sort();
+
+  pinnedNames.clear();
+  for (const pinned of focusData.pinned || []) {
+    const name = typeof pinned === 'string'
+      ? pinned
+      : (pinned as Record<string, string>).name || (pinned as Record<string, string>).qualifiedName;
+    if (name) pinnedNames.add(name);
+  }
+
+  resetAnalysisForGraphRefresh();
+}
+
+function resetAnalysisForGraphRefresh(): void {
+  analysisReport = null;
+  activeAnalysisFindingId = null;
+  activeAnalysisFilter = 'all';
+  analysisExplanationCache.clear();
+  clearAnalysisGraphClasses();
+
+  const panel = document.getElementById('analysis-panel');
+  if (!panel || panel.classList.contains('hidden')) {
+    return;
+  }
+
+  const { summary, findings } = getAnalysisPanelEls();
+  summary.innerHTML = '';
+  findings.innerHTML = '<div class="analysis-empty">Graph refreshed. Re-run analysis to inspect the latest dependency graph.</div>';
+  setAnalysisStatus('Graph refreshed. Re-run analysis to inspect the latest snapshot.');
+}
+
+function renderGraphAfterDataRefresh(previousVisibleIds: string[], preserveVisible: boolean): void {
+  if (!cy) return;
+
+  cy.elements().remove();
+  document.getElementById('symbol-detail')?.classList.add('hidden');
+
+  const visibleIds = preserveVisible
+    ? [...new Set(previousVisibleIds)].filter((id) => graphNodes.has(id))
+    : [];
+
+  for (const id of visibleIds) {
+    addNodeToGraph(id);
+  }
+  connectExistingNodes();
+
+  if (cy.nodes().length > 0) {
+    refreshAnalysisGraphState();
+    runLayout();
+    return;
+  }
+
+  seedPinnedSymbolsOrOnboarding(
+    graphNodes.size === 0
+      ? 'No JavaScript or TypeScript symbols are indexed yet. Create a file, then refresh the graph.'
+      : undefined,
+  );
+}
+
+function seedPinnedSymbolsOrOnboarding(subtitle?: string): void {
+  if (!cy) return;
+  for (const name of pinnedNames) {
+    addNodeNeighborhood(name, 1);
+  }
+  connectExistingNodes();
+
+  if (cy.nodes().length > 0) {
+    refreshAnalysisGraphState();
+    runLayout();
+    return;
+  }
+
+  const cyEl = document.getElementById('cy');
+  if (cyEl) showOnboardingHint(cyEl, subtitle);
+  refreshAnalysisGraphState();
+}
+
+function showOnboardingHint(container: HTMLElement, subtitle = 'Search for a symbol or file above to start exploring.<br/>Nodes expand on click to reveal connections.'): void {
+  const existing = container.querySelector('.graph-onboarding');
+  if (existing) {
+    const subtitleEl = existing.querySelector('.graph-onboarding-subtitle');
+    if (subtitleEl) subtitleEl.innerHTML = subtitle;
+    return;
+  }
   const hint = document.createElement('div');
   hint.className = 'graph-onboarding';
   hint.innerHTML =
     '<div class="graph-onboarding-icon">&#9670; &#8212; &#9670;</div>' +
     '<div class="graph-onboarding-title">Code dependency graph</div>' +
-    '<div class="graph-onboarding-subtitle">Search for a symbol or file above to start exploring.<br/>Nodes expand on click to reveal connections.</div>';
+    `<div class="graph-onboarding-subtitle">${subtitle}</div>`;
   container.appendChild(hint);
 }
 
@@ -1309,6 +1456,7 @@ async function togglePin(name: string, node: CyCollection, btnEl: HTMLButtonElem
 function setupToolbar(): void {
   const searchInput = document.getElementById('graph-search') as HTMLInputElement;
   const analyzeBtn = document.getElementById('graph-analyze') as HTMLButtonElement;
+  const refreshBtn = document.getElementById('graph-refresh') as HTMLButtonElement;
   const fitBtn = document.getElementById('graph-fit') as HTMLButtonElement;
   const relayoutBtn = document.getElementById('graph-relayout') as HTMLButtonElement;
   const clearBtn = document.getElementById('graph-clear') as HTMLButtonElement;
@@ -1321,9 +1469,6 @@ function setupToolbar(): void {
   dropdown.className = 'search-dropdown hidden';
   (searchInput.parentNode as HTMLElement).style.position = 'relative';
   searchInput.parentNode!.appendChild(dropdown);
-
-  // Rank symbols: exported first, then alphabetical by short name
-  const rankedSymbols = allSymbolNames.slice().sort((a, b) => compareGraphNodeIds(a, b, graphNodes));
 
   function showDropdownResults(results: GraphSearchResult[]): void {
     if (results.length === 0) {
@@ -1369,6 +1514,8 @@ function setupToolbar(): void {
   }
 
   function updateDropdownResults(): void {
+    // Rank symbols from the latest graph snapshot so new files appear after refresh.
+    const rankedSymbols = allSymbolNames.slice().sort((a, b) => compareGraphNodeIds(a, b, graphNodes));
     const results = buildGraphSearchResults({
       query: searchInput.value,
       symbolIds: rankedSymbols,
@@ -1405,6 +1552,10 @@ function setupToolbar(): void {
     if (cy && cy.nodes().length > 0) {
       cy.fit(40);
     }
+  });
+
+  refreshBtn.addEventListener('click', () => {
+    void refreshGraphData({ refreshIndex: true, preserveVisible: true, showFeedback: true });
   });
 
   analyzeBtn.addEventListener('click', () => {

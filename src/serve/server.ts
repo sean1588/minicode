@@ -716,6 +716,22 @@ export function createRequestHandler(
         return;
       }
 
+      if (pathname === "/api/index/refresh" && method === "POST") {
+        const refreshed = await bridge.refreshIndex();
+        if (!refreshed) {
+          sendJson(res, 404, { error: "No project index available" });
+          return;
+        }
+
+        const graph = bridge.getGraph();
+        sendJson(res, 200, {
+          ok: true,
+          symbolCount: graph?.nodes.length ?? 0,
+          edgeCount: graph?.edges.length ?? 0,
+        });
+        return;
+      }
+
       if (pathname === "/api/analysis" && method === "GET") {
         const result = bridge.getStructuralAnalysis();
         if (!result) {
