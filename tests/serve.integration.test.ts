@@ -28,6 +28,7 @@ class MockBridge extends AgentBridge {
   openRouterSessionActive = false;
   openAiCompatibleApiKey: string | undefined;
   openAiCompatibleSessionActive = false;
+  refreshIndexCount = 0;
 
   constructor() {
     super(() => {}, false);
@@ -173,6 +174,11 @@ class MockBridge extends AgentBridge {
   }
 
   override hasIndex(): boolean {
+    return true;
+  }
+
+  override async refreshIndex(): Promise<boolean> {
+    this.refreshIndexCount += 1;
     return true;
   }
 
@@ -1384,6 +1390,20 @@ test("GET /api/graph returns nodes and edges", async () => {
   assert.equal(body.edges[0]!.from, "foo");
   assert.equal(body.edges[0]!.to, "Bar");
   assert.equal(body.edges[0]!.kind, "calls");
+});
+
+test("POST /api/index/refresh rebuilds the project index", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/index/refresh`, { method: "POST" });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { ok: boolean; symbolCount: number; edgeCount: number };
+  assert.equal(body.ok, true);
+  assert.equal(body.symbolCount, 2);
+  assert.equal(body.edgeCount, 1);
+  assert.equal(bridge.refreshIndexCount, 1);
 });
 
 test("GET /api/analysis returns deterministic structural findings", async () => {

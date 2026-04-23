@@ -88,19 +88,10 @@ export class AgentBridge {
       projectIndex = undefined;
     }
 
-    const toolRegistry = createToolRegistry(config, projectIndex);
-
-    // Wrap tool registry execute to inject annotations into tool results
-    const originalExecute = toolRegistry.execute.bind(toolRegistry);
-    toolRegistry.execute = async (name: string, input: unknown) => {
-      const result = await originalExecute(name, input);
-      return this.appendAnnotationsToResult(name, input, result);
-    };
-
     this.config = config;
     this.baseConfig = AgentBridge.cloneConfig(config);
     this.projectIndex = projectIndex;
-    this.toolRegistry = toolRegistry;
+    this.installToolRegistry(projectIndex);
 
     if (this.modelClient) {
       this.agent = this.createAgent();
@@ -128,6 +119,19 @@ export class AgentBridge {
     }
 
     Object.assign(targetRecord, AgentBridge.cloneConfig(source));
+  }
+
+  private installToolRegistry(projectIndex: ProjectIndex | undefined): void {
+    const toolRegistry = createToolRegistry(this.config, projectIndex);
+
+    // Wrap tool registry execute to inject annotations into tool results.
+    const originalExecute = toolRegistry.execute.bind(toolRegistry);
+    toolRegistry.execute = async (name: string, input: unknown) => {
+      const result = await originalExecute(name, input);
+      return this.appendAnnotationsToResult(name, input, result);
+    };
+
+    this.toolRegistry = toolRegistry;
   }
 
   private createAgent(
@@ -225,7 +229,8 @@ export class AgentBridge {
         console.error(`[watch] Reindexed: ${relPath}`);
       }
     } catch {
-      // File may have been deleted — ignore
+      // File may have been deleted or renamed. A workspace refresh prunes stale symbols.
+      await this.refreshIndex();
     }
   }
 
@@ -430,6 +435,37 @@ export class AgentBridge {
 
   hasIndex(): boolean {
     return this.projectIndex !== undefined;
+  }
+
+  async refreshIndex(): Promise<boolean> {
+    try {
+      if (this.projectIndex) {
+        await this.projectIndex.refreshFromWorkspace();
+      } else {
+        this.projectIndex = await buildProjectIndex(this.config.workspaceRoot);
+        this.installToolRegistry(this.projectIndex);
+        if (this.modelClient) {
+          this.agent = this.createAgent(this.agent?.getSession());
+        }
+      }
+
+      const index = this.projectIndex;
+      if (!index) {
+        return false;
+      }
+
+      const cacheDir = getWorkspaceCacheDir(this.config.workspaceRoot);
+      const fileHashes = await computeFileHashes(this.config.workspaceRoot);
+      await saveIndex(index, cacheDir, fileHashes);
+      this.evictStaleAnnotations();
+      return true;
+    } catch (error) {
+      if (this.verbose) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[index] Refresh failed: ${message}`);
+      }
+      return false;
+    }
   }
 
   getSymbols() {

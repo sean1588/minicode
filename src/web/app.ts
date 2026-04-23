@@ -1,4 +1,4 @@
-import { initGraph, highlightAgentActivity, resizeGraph } from './graph.ts';
+import { initGraph, highlightAgentActivity, resizeGraph, scheduleGraphDataRefresh } from './graph.ts';
 import { closeModal, openModal } from './modal-state.ts';
 import { filterModelsByQuery, getModelDisplayName } from '../model-utils.ts';
 import { createLatestRequestTracker } from './request-tracker.ts';
@@ -207,6 +207,7 @@ const connectOpenRouterButtons = Array.from(
 const connectOpenAiCompatibleButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-openai-compatible-connect]"),
 );
+const GRAPH_REFRESH_TOOL_NAMES = new Set(["write_file", "edit_file", "run_command"]);
 const configOverlayQuickConnects = document.getElementById("config-overlay-quick-connects");
 const configOverlaySpotlight = document.getElementById("config-overlay-spotlight");
 const configOverlayIntro = document.getElementById("config-overlay-intro");
@@ -697,6 +698,9 @@ function handleServerMessage(msg: ServerMessage): void {
 
     case "tool_call_end":
       finalizeToolCall(msg.name || '', msg.result || '', msg.elapsedMs || 0);
+      if (GRAPH_REFRESH_TOOL_NAMES.has(msg.name || "")) {
+        scheduleGraphDataRefresh();
+      }
       break;
 
     case "turn_end":

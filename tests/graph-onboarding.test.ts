@@ -28,6 +28,7 @@ test('built HTML contains #cy graph container', () => {
   assert.ok(html.includes('id="cy"'), 'HTML should contain the #cy graph container');
   assert.ok(html.includes('id="graph-pane"'), 'HTML should contain the #graph-pane wrapper');
   assert.ok(html.includes('Search symbols or files...'), 'HTML should expose mixed symbol/file search');
+  assert.ok(html.includes('id="graph-refresh"'), 'HTML should expose a graph refresh button');
   assert.ok(html.includes('id="file-preview-modal"'), 'HTML should contain the file preview modal shell');
   assert.ok(html.includes('id="file-preview-code"'), 'HTML should contain the file preview code surface');
 });
@@ -126,6 +127,26 @@ test('built JS supports file search results and file-centered neighborhood rende
   assert.ok(
     js.includes('detail-file-link'),
     'JS should wire the symbol detail filename into the preview modal',
+  );
+});
+
+test('built JS refreshes graph data manually and after mutating tool calls', () => {
+  const js = readFileSync(join(distWeb, 'app.js'), 'utf-8');
+  assert.ok(
+    js.includes('/api/index/refresh'),
+    'manual graph refresh should call the backend index refresh endpoint',
+  );
+  assert.ok(
+    js.includes('refreshGraphData'),
+    'JS should define a graph data refresh helper',
+  );
+  assert.ok(
+    js.includes('scheduleGraphDataRefresh'),
+    'JS should debounce automatic graph refreshes after tool calls',
+  );
+  assert.ok(
+    js.includes('"write_file"') && js.includes('"edit_file"') && js.includes('"run_command"'),
+    'mutating tools should trigger a graph data refresh so new symbols appear in search',
   );
 });
 
