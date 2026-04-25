@@ -29,6 +29,7 @@ class MockBridge extends AgentBridge {
   openAiCompatibleApiKey: string | undefined;
   openAiCompatibleSessionActive = false;
   refreshIndexCount = 0;
+  deletedSessionIds: string[] = [];
 
   constructor() {
     super(() => {}, false);
@@ -99,6 +100,14 @@ class MockBridge extends AgentBridge {
       });
     }
     return { session, label };
+  }
+
+  override async deleteSess(sessionId: string) {
+    if (sessionId !== "sess-1") {
+      return false;
+    }
+    this.deletedSessionIds.push(sessionId);
+    return true;
   }
 
   override getCurrentSessionId(): string {
@@ -642,6 +651,35 @@ test("POST /api/sessions/load returns success for known session", async () => {
   assert.ok(
     body.messages.every((message) => !message.content.startsWith("[Conversation Summary")),
   );
+});
+
+test("DELETE /api/sessions/:id deletes a saved session", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/sessions/sess-1`, {
+    method: "DELETE",
+  });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { ok: boolean; deleted: boolean; id: string };
+  assert.equal(body.ok, true);
+  assert.equal(body.deleted, true);
+  assert.equal(body.id, "sess-1");
+  assert.deepEqual(bridge.deletedSessionIds, ["sess-1"]);
+});
+
+test("DELETE /api/sessions/:id returns 404 for unknown session", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/sessions/missing`, {
+    method: "DELETE",
+  });
+  assert.equal(res.status, 404);
+
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /Session not found/);
 });
 
 test("POST /api/chat returns agent response", async () => {

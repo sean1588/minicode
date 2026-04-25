@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test, afterEach } from "node:test";
 import type { Server } from "node:http";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createRequestHandler } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import type { UiUpdate } from "@minicode/agent-sdk";
@@ -18,6 +20,8 @@ import type {
 } from "@minicode/agent-sdk";
 import { UiStore } from "../src/ui/state/ui-store.js";
 import { createTestAgentConfig } from "./test-utils.js";
+
+const distWeb = join(import.meta.dirname, "..", "dist", "src", "web");
 
 // ── Mock model client ──
 
@@ -152,6 +156,20 @@ test("GET /api/context reflects updated context state", async () => {
   const body = (await res.json()) as { contextTokens: number; maxContextTokens: number };
   assert.equal(body.contextTokens, 8000);
   assert.equal(body.maxContextTokens, 16000);
+});
+
+test("built web UI explains that context size can be adjusted in Settings", () => {
+  const html = readFileSync(join(distWeb, "index.html"), "utf8");
+  const js = readFileSync(join(distWeb, "app.js"), "utf8");
+
+  assert.ok(
+    html.includes("Context window usage. Adjust context size in Settings"),
+    "HTML should provide a helpful default tooltip for the context indicator",
+  );
+  assert.ok(
+    js.includes("Adjust context size in Settings if you want it larger or smaller."),
+    "JS should include guidance about adjusting context size in Settings",
+  );
 });
 
 // ── Agent emits context_status UiUpdate ──
