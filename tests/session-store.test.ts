@@ -7,6 +7,7 @@ import os from "node:os";
 import { Session } from "@minicode/agent-sdk";
 
 import {
+  deleteSession,
   DuplicateSessionLabelError,
   listSessions,
   loadSession,
@@ -165,5 +166,26 @@ test("saving same session twice overwrites the file", async () => {
     assert.ok(result);
     assert.equal(result.label, "v2");
     assert.equal(result.session.getMessages().length, 2);
+  });
+});
+
+test("deleteSession removes the saved session file", async () => {
+  await withTmpDir(async (dir) => {
+    const session = new Session("test-id");
+    session.addMessage({ role: "user", content: "hello" });
+    await saveSession(session, "delete me");
+
+    const deleted = await deleteSession("test-id");
+    assert.equal(deleted, true);
+
+    const files = await readdir(dir);
+    assert.equal(files.length, 0);
+  });
+});
+
+test("deleteSession returns false for a missing session", async () => {
+  await withTmpDir(async () => {
+    const deleted = await deleteSession("missing-session");
+    assert.equal(deleted, false);
   });
 });

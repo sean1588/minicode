@@ -73,6 +73,12 @@ interface SessionsResponse {
   currentSessionId: string;
 }
 
+interface DeleteSessionResponse {
+  ok: boolean;
+  deleted: boolean;
+  id: string;
+}
+
 type SettingsValue = string | number | boolean | null;
 type SettingsFieldType = "string" | "number" | "boolean" | "enum";
 
@@ -165,6 +171,7 @@ const sessionDropdown = document.getElementById("session-dropdown")!;
 const sessionList = document.getElementById("session-list")!;
 const sessionUpdateRow = document.getElementById("session-update-row")!;
 const sessionUpdateBtn = document.getElementById("session-update-btn") as HTMLButtonElement;
+const sessionAutoSaveToggle = document.getElementById("session-autosave-toggle") as HTMLInputElement;
 const saveBtn = document.getElementById("save-btn")!;
 const saveLabelInput = document.getElementById("save-label") as HTMLInputElement;
 const contextFill = document.getElementById("context-fill")!;
@@ -227,6 +234,8 @@ const sessionRefreshTracker = createLatestRequestTracker();
 const TOOL_RESULT_MAX = 500;
 const OPENROUTER_PKCE_VERIFIER_KEY = "minicode:openrouter:pkce-verifier";
 const OPENROUTER_PERSIST_TO_ENV_KEY = "minicode:openrouter:persist-to-env";
+const SESSION_AUTOSAVE_KEY = "minicode:session:auto-save";
+const SESSION_AUTOSAVE_LABEL_PREFIX = "Autosave";
 type OpenAiCompatiblePreset = "lmstudio" | "openai" | "ollama" | "custom";
 
 const OPENAI_COMPATIBLE_PRESETS: Record<OpenAiCompatiblePreset, {
@@ -255,6 +264,13 @@ const OPENAI_COMPATIBLE_PRESETS: Record<OpenAiCompatiblePreset, {
     apiKeyPlaceholder: "Add an API key only if this endpoint requires auth",
   },
 };
+
+let sessionAutoSaveEnabled = loadSessionAutoSavePreference();
+let pendingAutoSaveLabel: string | null = null;
+let autoSaveInFlight: Promise<void> | null = null;
+let autoSaveQueued = false;
+
+sessionAutoSaveToggle.checked = sessionAutoSaveEnabled;
 
 function connect(): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -722,6 +738,7 @@ function handleServerMessage(msg: ServerMessage): void {
       if (msg.usage) {
         addUsageInfo(msg.usage);
       }
+      queueSessionAutoSave();
       break;
 
     case "error":
@@ -905,7 +922,9 @@ function updateContextIndicator(contextTokens: number, maxContextTokens: number)
   }
   contextLabel.textContent = pct + "%";
   const indicator = document.getElementById("context-indicator")!;
-  indicator.title = `Context: ~${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens (${pct}%)`;
+  indicator.title =
+    `Context: ~${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens (${pct}%)\n` +
+    "Adjust context size in Settings if you want it larger or smaller.";
 }
 
 async function fetchContext(): Promise<void> {
@@ -1477,6 +1496,134 @@ document.addEventListener("click", (e: Event) => {
   }
 });
 
+function loadSessionAutoSavePreference(): boolean {
+  try {
+    return localStorage.getItem(SESSION_AUTOSAVE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistSessionAutoSavePreference(enabled: boolean): void {
+  try {
+    if (enabled) {
+      localStorage.setItem(SESSION_AUTOSAVE_KEY, "1");
+    } else {
+      localStorage.removeItem(SESSION_AUTOSAVE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function buildAutoSaveLabel(): string {
+  return `${SESSION_AUTOSAVE_LABEL_PREFIX} ${new Date().toLocaleString()}`;
+}
+
+async function persistCurrentSession(label?: string): Promise<SessionMeta> {
+  const res = await fetch("/api/sessions/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label }),
+  });
+  const body = await res.json() as SessionMeta | { error: string };
+  if (!res.ok) {
+    throw new Error("error" in body ? body.error : `Failed to save session (${res.status})`);
+  }
+  return body as SessionMeta;
+}
+
+async function deleteSavedSession(session: SessionMeta): Promise<void> {
+  const isCurrentSavedSession = activeSavedSession?.id === session.id;
+  const confirmed = window.confirm(`Delete saved session "${session.label}"?`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+      method: "DELETE",
+    });
+    const body = await res.json() as DeleteSessionResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to delete session (${res.status})`);
+    }
+
+    if (isCurrentSavedSession) {
+      activeSavedSession = null;
+    }
+    if (pendingAutoSaveLabel === session.label) {
+      pendingAutoSaveLabel = null;
+    }
+
+    addMessage(
+      isCurrentSavedSession
+        ? `Deleted saved session "${session.label}". The current chat stays open until you load another session or refresh.`
+        : `Session deleted: "${session.label}"`,
+      "thinking",
+    );
+    await refreshSessionList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete session";
+    addMessage(message, "error");
+  }
+}
+
+async function maybeAutoSaveSession(): Promise<void> {
+  if (!sessionAutoSaveEnabled) {
+    return;
+  }
+
+  const label = activeSavedSession?.label ?? pendingAutoSaveLabel ?? buildAutoSaveLabel();
+  try {
+    const data = await persistCurrentSession(label);
+    pendingAutoSaveLabel = data.label;
+    await refreshSessionList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to auto-save session";
+    addMessage(message, "error");
+  }
+}
+
+function queueSessionAutoSave(): void {
+  if (!sessionAutoSaveEnabled) {
+    return;
+  }
+
+  if (autoSaveInFlight) {
+    autoSaveQueued = true;
+    return;
+  }
+
+  autoSaveInFlight = (async () => {
+    await maybeAutoSaveSession();
+  })();
+
+  void autoSaveInFlight.finally(() => {
+    autoSaveInFlight = null;
+    if (autoSaveQueued) {
+      autoSaveQueued = false;
+      queueSessionAutoSave();
+    }
+  });
+}
+
+sessionAutoSaveToggle.addEventListener("change", () => {
+  sessionAutoSaveEnabled = sessionAutoSaveToggle.checked;
+  persistSessionAutoSavePreference(sessionAutoSaveEnabled);
+
+  if (sessionAutoSaveEnabled) {
+    addMessage(
+      activeSavedSession
+        ? `Auto-save enabled. minicode will update "${activeSavedSession.label}" after each completed turn.`
+        : "Auto-save enabled. minicode will save this chat after the next completed turn.",
+      "thinking",
+    );
+  } else {
+    addMessage("Auto-save disabled.", "thinking");
+  }
+});
+
 saveBtn.addEventListener("click", async () => {
   const requestedLabel = saveLabelInput.value.trim();
   const label = requestedLabel || activeSavedSession?.label || undefined;
@@ -1484,18 +1631,9 @@ saveBtn.addEventListener("click", async () => {
     !!activeSavedSession && (requestedLabel.length === 0 || requestedLabel === activeSavedSession.label);
   try {
     saveBtn.setAttribute("disabled", "true");
-    const res = await fetch("/api/sessions/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label }),
-    });
-    const body = await res.json() as SessionMeta | { error: string };
-    if (!res.ok) {
-      throw new Error("error" in body ? body.error : `Failed to save session (${res.status})`);
-    }
-
-    const data = body as SessionMeta;
+    const data = await persistCurrentSession(label);
     saveLabelInput.value = "";
+    pendingAutoSaveLabel = data.label;
     addMessage(
       `${isUpdatingCurrentSession ? "Session updated" : "Session saved"}: "${data.label}"`,
       "thinking",
@@ -1529,6 +1667,7 @@ async function refreshSessionList(): Promise<void> {
       sessions.find((session) => session.id === data.currentSessionId) ?? null;
 
     if (activeSavedSession) {
+      pendingAutoSaveLabel = activeSavedSession.label;
       sessionUpdateRow.classList.remove("hidden");
       sessionUpdateBtn.textContent = `Update "${activeSavedSession.label}"`;
       sessionUpdateBtn.title = `Save changes back to "${activeSavedSession.label}"`;
@@ -1548,10 +1687,26 @@ async function refreshSessionList(): Promise<void> {
       const el = document.createElement("div");
       const isActive = activeSavedSession?.id === s.id;
       el.className = "session-item" + (isActive ? " active" : "");
-      el.innerHTML =
+      const loadBtn = document.createElement("button");
+      loadBtn.type = "button";
+      loadBtn.className = "session-load-btn";
+      loadBtn.innerHTML =
         `<span class="session-label">${escapeHtml(s.label)}</span>` +
         `<span class="session-meta">${s.messageCount} msgs${isActive ? ' <span class="session-active-badge">• active</span>' : ""}</span>`;
-      el.addEventListener("click", () => loadSession(s.label));
+      loadBtn.addEventListener("click", () => loadSession(s.label));
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "session-delete-btn";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.title = `Delete "${s.label}"`;
+      deleteBtn.addEventListener("click", (event: Event) => {
+        event.stopPropagation();
+        void deleteSavedSession(s);
+      });
+
+      el.appendChild(loadBtn);
+      el.appendChild(deleteBtn);
       sessionList.appendChild(el);
     }
   } catch {
@@ -1574,6 +1729,7 @@ async function loadSession(label: string): Promise<void> {
     if (res.ok) {
       const body = await res.json() as LoadSessionResponse;
       sessionDropdown.classList.add("hidden");
+      pendingAutoSaveLabel = body.label;
       renderLoadedSessionMessages(body.messages);
       if (body.messages.length === 0) {
         addMessage(`Session "${body.label}" restored`, "thinking");
@@ -1592,17 +1748,8 @@ sessionUpdateBtn.addEventListener("click", async () => {
 
   try {
     sessionUpdateBtn.disabled = true;
-    const res = await fetch("/api/sessions/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: activeSavedSession.label }),
-    });
-    const body = await res.json() as SessionMeta | { error: string };
-    if (!res.ok) {
-      throw new Error("error" in body ? body.error : `Failed to update session (${res.status})`);
-    }
-
-    const data = body as SessionMeta;
+    const data = await persistCurrentSession(activeSavedSession.label);
+    pendingAutoSaveLabel = data.label;
     addMessage(`Session updated: "${data.label}"`, "thinking");
     await refreshSessionList();
   } catch (error) {

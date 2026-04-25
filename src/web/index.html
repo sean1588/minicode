@@ -16,7 +16,7 @@
       <div class="header-left">
         <h1>minicode</h1>
         <span id="status-badge" class="badge ready">ready</span>
-        <div id="context-indicator" title="Context window usage">
+        <div id="context-indicator" title="Context window usage. Adjust context size in Settings if you want it larger or smaller.">
           <div id="context-bar">
             <div id="context-fill"></div>
           </div>
@@ -45,6 +45,10 @@
               <div id="session-update-row" class="session-update-row hidden">
                 <button id="session-update-btn" class="dropdown-action" type="button">Update current saved session</button>
               </div>
+              <label id="session-autosave-row" class="session-autosave-row" title="Automatically save or update this chat after each completed turn.">
+                <input id="session-autosave-toggle" type="checkbox" />
+                <span>Auto-save after each turn</span>
+              </label>
               <div class="dropdown-row">
                 <input id="save-label" type="text" placeholder="Label (optional)" />
                 <button id="save-btn" class="dropdown-action">Save</button>

@@ -16,6 +16,7 @@ import type { ProjectIndex } from "../indexer/types.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
 import { createToolRegistry } from "../tools/registry.js";
 import {
+  deleteSession,
   listSessions,
   loadSession,
   loadSessionByLabel,
@@ -429,6 +430,10 @@ export class AgentBridge {
 
   async listSess() {
     return listSessions();
+  }
+
+  async deleteSess(sessionId: string) {
+    return deleteSession(sessionId);
   }
 
   // ── Project index queries ──

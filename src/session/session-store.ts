@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -138,4 +138,14 @@ export async function loadSessionByLabel(
   );
   if (!match) return undefined;
   return loadSession(match.id);
+}
+
+export async function deleteSession(sessionId: string): Promise<boolean> {
+  const filePath = path.join(sessionsDir, `${sessionId}.json`);
+  try {
+    await unlink(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }

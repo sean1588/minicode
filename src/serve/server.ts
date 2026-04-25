@@ -590,6 +590,23 @@ export function createRequestHandler(
         return;
       }
 
+      if (pathname.startsWith("/api/sessions/") && method === "DELETE") {
+        const sessionId = decodeURIComponent(pathname.slice("/api/sessions/".length));
+        if (!sessionId) {
+          sendJson(res, 400, { error: "Session id is required" });
+          return;
+        }
+
+        const deleted = await bridge.deleteSess(sessionId);
+        if (!deleted) {
+          sendJson(res, 404, { error: "Session not found" });
+          return;
+        }
+
+        sendJson(res, 200, { ok: true, deleted: true, id: sessionId });
+        return;
+      }
+
       // ── Graph / Index API ──
 
       if (pathname === "/api/symbols" && method === "GET") {
