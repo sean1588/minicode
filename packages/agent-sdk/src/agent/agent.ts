@@ -354,10 +354,10 @@ export class CodingAgent {
         });
       }
 
-      // When enableDynamicPrompt is true (default), rebuild the system prompt
-      // each step with the latest focus set so the code map dynamically adapts.
-      // When false, build once and cache — this keeps the prompt prefix stable
-      // across turns, improving KV cache hit rates for local models.
+      // When enableDynamicPrompt is true, rebuild the system prompt each step
+      // with the latest focus set so the code map dynamically adapts.
+      // By default this stays false, so we build once and cache to keep the
+      // prompt prefix stable across turns and improve KV cache hit rates.
       const dynamicPrompt = this.config.enableDynamicPrompt !== false;
       let systemPrompt: string;
       if (dynamicPrompt || !this.cachedSystemPrompt) {
