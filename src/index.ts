@@ -346,6 +346,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cliArgs.benchmarkRun) {
+    const { runBenchmarkCommand } = await import("./cli/benchmark-run.js");
+    await runBenchmarkCommand(cliArgs.benchmarkArgv ?? []);
+    process.exitCode = EXIT_CODE_SUCCESS;
+    return;
+  }
+
   if (cliArgs.serve) {
     const { runServe } = await import("./serve/server.js");
     await runServe(cliArgs.verbose, cliArgs.port);

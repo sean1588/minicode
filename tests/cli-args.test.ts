@@ -54,6 +54,30 @@ test("parseCliArgs supports --json and --out path", () => {
   assert.equal(parsed.task, "summarize todos");
 });
 
+test("parseCliArgs detects benchmark run and preserves subcommand argv", () => {
+  const parsed = parseCliArgs([
+    "node",
+    "src/index.ts",
+    "benchmark",
+    "run",
+    "--config",
+    "benchmarks/custom.json",
+    "--model",
+    "test-model",
+    "solve task",
+  ]);
+
+  assert.equal(parsed.benchmarkRun, true);
+  assert.deepEqual(parsed.benchmarkArgv, [
+    "--config",
+    "benchmarks/custom.json",
+    "--model",
+    "test-model",
+    "solve task",
+  ]);
+  assert.equal(parsed.task, "");
+});
+
 test("parseCliArgs supports --out=<file>", () => {
   const parsed = parseCliArgs([
     "node",

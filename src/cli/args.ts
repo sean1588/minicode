@@ -7,6 +7,8 @@ export interface CliArgs {
   port: number;
   task: string;
   pluginInstall?: boolean;
+  benchmarkRun?: boolean;
+  benchmarkArgv?: string[];
 }
 
 export class CliUsageError extends Error {
@@ -18,6 +20,20 @@ export class CliUsageError extends Error {
 
 export function parseCliArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
+  if (args[0] === "benchmark" && args[1] === "run") {
+    return {
+      verbose: false,
+      oneshot: false,
+      json: false,
+      serve: false,
+      port: 4567,
+      task: "",
+      pluginInstall: false,
+      benchmarkRun: true,
+      benchmarkArgv: args.slice(2),
+    };
+  }
+
   let verbose = false;
   let oneshot = false;
   let json = false;

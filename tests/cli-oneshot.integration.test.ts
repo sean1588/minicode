@@ -28,3 +28,9 @@ test("oneshot mode exits with usage code when --out has no value", () => {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /--out requires a file path/);
 });
+
+test("benchmark run exits with usage code when prompt is missing", () => {
+  const result = runCli(["benchmark", "run"]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /benchmark run requires prompt text or --prompt-file/);
+});
