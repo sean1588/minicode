@@ -37,7 +37,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
     "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
     "reasoningEffort: " + (config.reasoningEffort ?? "(unset — no reasoning parameters sent)"),
-    "enableDynamicPrompt: " + (config.enableDynamicPrompt ?? true),
+    "enableDynamicPrompt: " + (config.enableDynamicPrompt ?? false),
   ];
   return lines.join("\n");
 }
@@ -406,7 +406,7 @@ export async function loadAgentConfig(
       : {}),
     enableDynamicPrompt: parseBoolean(
       env.ENABLE_DYNAMIC_PROMPT,
-      true,
+      false,
     ),
     ...(() => {
       const effort = parseReasoningEffort(env.REASONING_EFFORT);

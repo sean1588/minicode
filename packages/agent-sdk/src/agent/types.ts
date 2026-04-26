@@ -57,7 +57,7 @@ export interface AgentConfig {
   compactionModel?: string;
   /** Reasoning effort level for models that support reasoning tokens. When unset, no reasoning parameters are sent. */
   reasoningEffort?: ReasoningEffort;
-  /** Rebuild the system prompt (including code map) every agent step. Disabling improves KV cache hit rates for local models. Default: true */
+  /** Rebuild the system prompt (including code map) every agent step. Disabling improves KV cache hit rates for local models. Default: false */
   enableDynamicPrompt?: boolean;
 }
 

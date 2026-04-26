@@ -118,3 +118,29 @@ test("loadAgentConfig reads model start timeout in seconds", async () => {
   const config = await loadAgentConfig("/tmp", { minicodeHome });
   assert.equal(config.modelTimeoutSeconds, 75);
 });
+
+test("loadAgentConfig disables dynamic prompts by default", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "minicode-config-test-"));
+  tempDirs.push(base);
+
+  const minicodeHome = path.join(base, "home");
+  await mkdir(minicodeHome, { recursive: true });
+  await writeFile(
+    path.join(minicodeHome, ".env"),
+    "MODEL=test-model\n",
+    "utf8",
+  );
+
+  const previousDynamicPrompt = process.env.ENABLE_DYNAMIC_PROMPT;
+  try {
+    delete process.env.ENABLE_DYNAMIC_PROMPT;
+    const config = await loadAgentConfig("/tmp", { minicodeHome });
+    assert.equal(config.enableDynamicPrompt, false);
+  } finally {
+    if (previousDynamicPrompt === undefined) {
+      delete process.env.ENABLE_DYNAMIC_PROMPT;
+    } else {
+      process.env.ENABLE_DYNAMIC_PROMPT = previousDynamicPrompt;
+    }
+  }
+});
