@@ -158,6 +158,30 @@ interface DependencyEdge {
 
 ---
 
+## Choosing an approach
+
+`indexFile` and `resolveDependencies` are unconstrained — implement them with an AST parser, a language server, regex, or anything else. The right tool depends on what each method actually needs to do:
+
+- `indexFile` is single-file and structural ("extract symbols, signatures, and line ranges from this string"). An in-process parser — the language's own compiler API or a grammar-based parser — maps directly onto this shape and stays sync.
+- `resolveDependencies` is whole-project and semantic. Heuristic AST analysis works well for statically-typed languages; precise cross-file resolution or dynamic-language accuracy is where an external semantic source (e.g. a language server) starts to pay off.
+
+A reasonable default for a new plugin: in-process AST for both, accepting that `resolveDependencies` will be heuristic. Reach for an external/async source when heuristics produce too many false matches, when you need cross-file type information you can't get from a single file, or when an authoritative source (one your users already run) is available.
+
+Properties to weigh:
+
+| Dimension | In-process AST | External (async) source |
+|-----------|----------------|-------------------------|
+| Startup time | Negligible | Seconds, sometimes much longer |
+| Memory | Bounded by file size | Often substantial |
+| Dependencies | A library | A server or binary the user must install |
+| Sync/async | Naturally sync | Inherently async |
+| Cross-file accuracy | Heuristic | Authoritative |
+| Failure mode | Bad parse → no symbols | Process crash, retries, version drift |
+
+Both options satisfy the contract; pick whichever fits your language and constraints.
+
+---
+
 ## Step-by-Step: Creating a Plugin
 
 ### 1. Set up the project
