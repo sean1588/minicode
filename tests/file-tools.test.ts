@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import { createEditFileTool, createReadFileTool, createRunCommandTool, createWriteFileTool } from "@minicode/agent-sdk";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
+import { createToolRegistry } from "../src/tools/registry.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
 async function createTempWorkspace(): Promise<string> {
@@ -94,6 +95,54 @@ test("write_file triggers reindex when projectIndex provided", async () => {
 
   const added = index.getSymbol("add");
   assert.ok(added?.signature.includes("a: number, b: number"), "index should reflect newly written file");
+});
+
+test("write_file succeeds even when post-write reindex fails", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const index = await buildProjectIndex(workspaceRoot);
+  index.reindexFile = async () => {
+    throw new Error("reindex failed");
+  };
+
+  const registry = createToolRegistry(createTestAgentConfig(workspaceRoot), index);
+
+  const result = await registry.execute("write_file", {
+    path: "src/util.ts",
+    content: `export function add(a: number, b: number): number {\n  return a + b;\n}\n`,
+  });
+
+  assert.match(result, /Wrote \d+ characters to "src\/util\.ts"\./);
+  const written = await readFile(path.join(workspaceRoot, "src", "util.ts"), "utf8");
+  assert.match(written, /export function add/);
+});
+
+test("edit_file succeeds even when post-edit reindex fails", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const { mkdir } = await import("node:fs/promises");
+  const filePath = path.join(workspaceRoot, "src", "util.ts");
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(
+    filePath,
+    `export function add(a: number, b: number): number {\n  return a + b;\n}\n`,
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  index.reindexFile = async () => {
+    throw new Error("reindex failed");
+  };
+
+  const registry = createToolRegistry(createTestAgentConfig(workspaceRoot), index);
+
+  const result = await registry.execute("edit_file", {
+    path: "src/util.ts",
+    old_string: "return a + b;",
+    new_string: "return a + b + 1;",
+  });
+
+  assert.match(result, /Updated "src\/util\.ts" successfully\./);
+  const updated = await readFile(filePath, "utf8");
+  assert.match(updated, /return a \+ b \+ 1;/);
 });
 
 test("run_command refreshes index after shell-created file changes", async () => {
