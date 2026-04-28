@@ -50,16 +50,24 @@ export interface DependencyEdge {
 
 /**
  * Contract for language-specific indexer plugins.
+ *
+ * `indexFile` and `resolveDependencies` may return either a value or a Promise;
+ * the host awaits the result, so plugins backed by async sources (LSP, network,
+ * WASM parsers with async init) can return promises while sync plugins continue
+ * to return arrays directly.
  */
 export interface LanguagePlugin {
   name: string;
   extensions: string[];
   canIndex(filePath: string): boolean;
-  indexFile(filePath: string, content: string): IndexedSymbol[];
+  indexFile(
+    filePath: string,
+    content: string,
+  ): IndexedSymbol[] | Promise<IndexedSymbol[]>;
   resolveDependencies?(
     symbols: IndexedSymbol[],
     projectFiles: Map<string, string>,
-  ): DependencyEdge[];
+  ): DependencyEdge[] | Promise<DependencyEdge[]>;
 }
 
 /**
@@ -95,7 +103,7 @@ export interface ProjectIndex {
   findPathToEntryPoint(symbolName: string, maxDepth?: number): IndexedSymbol[][];
 
   /** Re-index a file after it has been modified. Updates symbols and dependency edges. */
-  reindexFile(filePath: string, content: string): void;
+  reindexFile(filePath: string, content: string): Promise<void>;
 
   /** Re-scan the workspace from disk and rebuild indexed files, symbols, and dependency edges in place. */
   refreshFromWorkspace(): Promise<void>;

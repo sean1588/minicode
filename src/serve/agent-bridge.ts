@@ -225,7 +225,7 @@ export class AgentBridge {
     const absPath = path.resolve(this.config.workspaceRoot, relPath);
     try {
       const content = await readFile(absPath, "utf-8");
-      this.projectIndex.reindexFile(relPath, content);
+      await this.projectIndex.reindexFile(relPath, content);
       if (this.verbose) {
         console.error(`[watch] Reindexed: ${relPath}`);
       }

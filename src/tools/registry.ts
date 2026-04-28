@@ -17,6 +17,18 @@ import { createSearchCodeMapTool } from "./search-code-map.js";
 
 export { ToolRegistry };
 
+async function reindexBestEffort(
+  projectIndex: ProjectIndex,
+  relPath: string,
+  content: string,
+): Promise<void> {
+  try {
+    await projectIndex.reindexFile(relPath, content);
+  } catch {
+    // Best effort only: the file mutation already succeeded.
+  }
+}
+
 /**
  * Create a ToolRegistry with the SDK's core tools plus indexer-specific tools
  * when a ProjectIndex is available.
@@ -28,9 +40,9 @@ export function createToolRegistry(
   const hooks = projectIndex
     ? {
         afterWrite: (relPath: string, content: string) =>
-          projectIndex.reindexFile(relPath, content),
+          reindexBestEffort(projectIndex, relPath, content),
         afterEdit: (relPath: string, content: string) =>
-          projectIndex.reindexFile(relPath, content),
+          reindexBestEffort(projectIndex, relPath, content),
         afterCommand: async () => {
           await projectIndex.refreshFromWorkspace();
         },

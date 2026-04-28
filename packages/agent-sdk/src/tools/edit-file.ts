@@ -31,7 +31,9 @@ function countOccurrences(haystack: string, needle: string): number {
 }
 
 export interface EditFileHooks {
-  afterEdit?: ((filePath: string, content: string) => void) | undefined;
+  afterEdit?:
+    | ((filePath: string, content: string) => void | Promise<void>)
+    | undefined;
 }
 
 export function createEditFileTool(
@@ -85,7 +87,7 @@ export function createEditFileTool(
       await writeFile(filePath, updated, "utf8");
 
       if (hooks?.afterEdit) {
-        hooks.afterEdit(filePath, updated);
+        await hooks.afterEdit(filePath, updated);
       }
 
       return `Updated "${requestedPath}" successfully.`;
