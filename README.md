@@ -77,6 +77,14 @@ minicode --oneshot --json "Summarize recent changes"
 minicode --oneshot --out result.txt "Generate release notes"
 ```
 
+Run the benchmark-friendly non-interactive entrypoint for external eval harnesses:
+
+```bash
+minicode benchmark run --prompt-file prompt.txt --out result.json
+```
+
+See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for the reproducible benchmark config/env flow.
+
 **Requirements:** Node.js 22+, LM Studio (or any OpenAI-compatible local server), `rg` in PATH (recommended). Set `MODEL` to match the model name in LM Studio.
 
 ### Install from source
