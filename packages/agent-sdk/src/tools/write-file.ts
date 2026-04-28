@@ -14,7 +14,9 @@ function expectString(input: Record<string, unknown>, key: string): string {
 }
 
 export interface WriteFileHooks {
-  afterWrite?: ((filePath: string, content: string) => void) | undefined;
+  afterWrite?:
+    | ((filePath: string, content: string) => void | Promise<void>)
+    | undefined;
 }
 
 export function createWriteFileTool(
@@ -49,7 +51,7 @@ export function createWriteFileTool(
       await writeFile(filePath, content, "utf8");
 
       if (hooks?.afterWrite) {
-        hooks.afterWrite(filePath, content);
+        await hooks.afterWrite(filePath, content);
       }
 
       return `Wrote ${content.length} characters to "${requestedPath}".`;

@@ -32,16 +32,21 @@ interface LanguagePlugin {
   /** Return true if this plugin can index the given file path */
   canIndex(filePath: string): boolean;
 
-  /** Parse file content and return extracted symbols */
-  indexFile(filePath: string, content: string): IndexedSymbol[];
+  /** Parse file content and return extracted symbols. May be sync or async. */
+  indexFile(
+    filePath: string,
+    content: string,
+  ): IndexedSymbol[] | Promise<IndexedSymbol[]>;
 
-  /** Optional: resolve dependency edges between symbols (for find_references, get_dependencies) */
+  /** Optional: resolve dependency edges between symbols (for find_references, get_dependencies). May be sync or async. */
   resolveDependencies?(
     symbols: IndexedSymbol[],
     projectFiles: Map<string, string>,
-  ): DependencyEdge[];
+  ): DependencyEdge[] | Promise<DependencyEdge[]>;
 }
 ```
+
+Both `indexFile` and `resolveDependencies` may return either a value or a `Promise`. The host always awaits the result, so plugins backed by async sources — language servers (LSP), network calls, or parsers with async initialization (e.g. tree-sitter WASM) — can return promises without changing how they're consumed. Sync plugins continue to return arrays directly.
 
 ### `canIndex(filePath: string): boolean`
 

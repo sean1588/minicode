@@ -248,7 +248,7 @@ test("reindexFile updates symbols and code map after file change", async () => {
   return title ? \`Hello, \${title} \${name}\` : \`Hello, \${name}\`;
 }
 `;
-  index.reindexFile("sample.ts", updatedContent);
+  await index.reindexFile("sample.ts", updatedContent);
 
   const updatedSym = index.getSymbol("greet");
   assert.ok(updatedSym, "should still find greet");

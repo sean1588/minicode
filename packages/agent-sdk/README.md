@@ -203,13 +203,13 @@ When integrating with a project indexer, use `CoreToolHooks` to get notified aft
 import { ToolRegistry } from "@minicode/agent-sdk";
 
 const toolRegistry = ToolRegistry.createDefault(config, {
-  afterWrite: (relativePath, content) => {
+  afterWrite: async (relativePath, content) => {
     // Re-index the file after it's written
-    projectIndex.reindexFile(relativePath, content);
+    await projectIndex.reindexFile(relativePath, content);
   },
-  afterEdit: (relativePath, content) => {
+  afterEdit: async (relativePath, content) => {
     // Re-index the file after it's edited
-    projectIndex.reindexFile(relativePath, content);
+    await projectIndex.reindexFile(relativePath, content);
   },
 });
 ```

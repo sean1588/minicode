@@ -116,11 +116,11 @@ export function createProjectIndex(
     }
   }
 
-  function rebuildDependencyEdges(): void {
+  async function rebuildDependencyEdges(): Promise<void> {
     for (const p of plugins) {
       if (p.resolveDependencies) {
         const allSymbols = [...symbols.values()];
-        const edges = p.resolveDependencies(allSymbols, projectFiles);
+        const edges = await p.resolveDependencies(allSymbols, projectFiles);
         dependencyEdges.splice(0, dependencyEdges.length, ...edges);
         adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
         break;
@@ -149,12 +149,12 @@ export function createProjectIndex(
       }
 
       projectFiles.set(relPath, content);
-      const extracted = plugin.indexFile(relPath, content);
+      const extracted = await plugin.indexFile(relPath, content);
       files.set(relPath, extracted);
     }
 
     rebuildSymbolsMap();
-    rebuildDependencyEdges();
+    await rebuildDependencyEdges();
   }
 
   return {
@@ -323,7 +323,7 @@ export function createProjectIndex(
       return generateCodeMap(files, tokenBudget, dependencyEdges, focusSymbols);
     },
 
-    reindexFile(filePath: string, content: string): void {
+    async reindexFile(filePath: string, content: string): Promise<void> {
       const relPath = path.isAbsolute(filePath)
         ? path.relative(workspaceRoot, filePath)
         : path.normalize(filePath);
@@ -334,10 +334,10 @@ export function createProjectIndex(
       files.delete(relPath);
 
       projectFiles.set(relPath, content);
-      const extracted = plugin.indexFile(relPath, content);
+      const extracted = await plugin.indexFile(relPath, content);
       files.set(relPath, extracted);
       rebuildSymbolsMap();
-      rebuildDependencyEdges();
+      await rebuildDependencyEdges();
     },
 
     refreshFromWorkspace,
@@ -374,7 +374,7 @@ export async function buildProjectIndex(
     }
 
     projectFiles.set(relPath, content);
-    const extracted = plugin.indexFile(relPath, content);
+    const extracted = await plugin.indexFile(relPath, content);
     files.set(relPath, extracted);
   }
 
@@ -388,7 +388,7 @@ export async function buildProjectIndex(
   for (const plugin of plugins) {
     if (plugin.resolveDependencies) {
       const allSymbols = [...symbols.values()];
-      const edges = plugin.resolveDependencies(allSymbols, projectFiles);
+      const edges = await plugin.resolveDependencies(allSymbols, projectFiles);
       dependencyEdges = edges;
       break;
     }

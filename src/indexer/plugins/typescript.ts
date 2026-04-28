@@ -74,7 +74,7 @@ function extractJSDoc(node: ts.Node, sourceFile: ts.SourceFile): string | undefi
   return cleaned.length > 0 ? cleaned : undefined;
 }
 
-function createPlugin(): LanguagePlugin {
+function createPlugin() {
   const astCache = new Map<string, ts.SourceFile>();
 
   return {
@@ -495,4 +495,4 @@ function createPlugin(): LanguagePlugin {
   };
 }
 
-export const typescriptPlugin: LanguagePlugin = createPlugin();
+export const typescriptPlugin = createPlugin() satisfies LanguagePlugin;
