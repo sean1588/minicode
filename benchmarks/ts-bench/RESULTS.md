@@ -7,6 +7,7 @@ This file records the current benchmark numbers we have gathered for `minicode` 
 | Date | Agent | Provider | Model | Context | Start timeout | Score | Solved | Avg time | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-04-29 | minicode | OpenRouter | `anthropic/claude-sonnet-4.6` | `100k` | `120s` | `100%` | `25/25` | `31.6s` | Post-hardening full top-25 run |
+| 2026-04-29 | minicode | OpenRouter | `z-ai/glm-4.6` | `100k` | `120s` | `0%` | `0/25` | `55.7s` | All tasks stopped on repeated identical tool calls before source edits |
 | 2026-04-29 | minicode | OpenRouter | `google/gemini-3-flash-preview` | `32k` | `60s` | `88%` | `22/25` | `39.3s` | Failed: `accumulate`, `all-your-base`, `diamond` |
 | 2026-04-29 | minicode | OpenRouter | `openai/gpt-5` | `100k` | `60s` | `92%` | `23/25` | `93.7s` | Failed: `alphametics` (`300s` task timeout), `bowling` (`60s` model-start timeout) |
 
@@ -37,6 +38,7 @@ Observed from the official `ts-bench` README leaderboard snapshot on 2026-04-28:
 ## Reading the numbers
 
 - The strongest local baseline we currently have is `minicode + anthropic/claude-sonnet-4.6` at `100%`.
+- The `z-ai/glm-4.6` lane is not competitive under the current minicode harness; every task stopped on repeated identical tool calls before modifying the exercise source.
 - The `gemini-3-flash-preview` lane is much faster and cheaper, but clearly not as capable on this benchmark.
 - The Codex-model lane surfaced a prompt-mode mismatch rather than a pure capability limit, which is why this branch adds benchmark-specific non-interactive execution guidance.
 
