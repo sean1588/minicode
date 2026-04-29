@@ -97,6 +97,37 @@ function createEchoTool(): ToolDefinition {
   };
 }
 
+function createEditTool(): ToolDefinition {
+  return {
+    name: "edit_file",
+    description: "Edits a file",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+      },
+      required: ["path", "content"],
+    },
+    execute: async (input) => `edited:${String(input.path)}`,
+  };
+}
+
+function createRunCommandTool(): ToolDefinition {
+  return {
+    name: "run_command",
+    description: "Runs a shell command",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+      },
+      required: ["command"],
+    },
+    execute: async (input) => `ran:${String(input.command)}`,
+  };
+}
+
 function assertToolCallTranscriptIsComplete(messages: SessionMessage[]): void {
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i];
@@ -155,6 +186,95 @@ test("agent stops on repeated identical tool calls", async () => {
   });
 
   const { text } = await agent.runTurn("Do something");
+  assert.match(text, /repeated identical tool calls/);
+  assertToolCallTranscriptIsComplete(agent.getSession().getMessages());
+});
+
+test("agent does not treat repeated validation commands after edits as a loop", async () => {
+  const responses: ModelResponse[] = [
+    {
+      text: "test current state",
+      toolCalls: [{ id: "run-1", name: "run_command", input: { command: "npm test" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "first edit",
+      toolCalls: [{ id: "edit-1", name: "edit_file", input: { path: "app.ts", content: "one" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "test after first edit",
+      toolCalls: [{ id: "run-2", name: "run_command", input: { command: "npm test" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "second edit",
+      toolCalls: [{ id: "edit-2", name: "edit_file", input: { path: "app.ts", content: "two" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "test after second edit",
+      toolCalls: [{ id: "run-3", name: "run_command", input: { command: "npm test" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "Done.",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([
+      createEditTool(),
+      createRunCommandTool(),
+    ]),
+  });
+
+  const { text } = await agent.runTurn("Fix and test");
+
+  assert.equal(text, "Done.");
+  assertToolCallTranscriptIsComplete(agent.getSession().getMessages());
+});
+
+test("agent still stops on repeated identical mutations", async () => {
+  const responses: ModelResponse[] = [
+    {
+      text: "first edit",
+      toolCalls: [{ id: "edit-1", name: "edit_file", input: { path: "app.ts", content: "same" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "second edit",
+      toolCalls: [{ id: "edit-2", name: "edit_file", input: { path: "app.ts", content: "same" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "third edit",
+      toolCalls: [{ id: "edit-3", name: "edit_file", input: { path: "app.ts", content: "same" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEditTool()]),
+  });
+
+  const { text } = await agent.runTurn("Edit repeatedly");
+
   assert.match(text, /repeated identical tool calls/);
   assertToolCallTranscriptIsComplete(agent.getSession().getMessages());
 });

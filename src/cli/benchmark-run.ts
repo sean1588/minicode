@@ -2,7 +2,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import { CodingAgent, createModelClient } from "@minicode/agent-sdk";
+import {
+  CodingAgent,
+  createModelClient,
+  type SessionMessage,
+  type ToolCall,
+} from "@minicode/agent-sdk";
 
 import { getConfigSetupMessage } from "../agent/config.js";
 import {
@@ -47,6 +52,36 @@ export interface BenchmarkRunResult {
   isGitRepo: boolean;
   changedFiles: string[];
   diffOut?: string;
+  toolCalls: BenchmarkToolCallTrace[];
+  toolUsage: BenchmarkToolUsageSummary;
+}
+
+export interface BenchmarkToolCallTrace {
+  step: number;
+  name: string;
+  input: Record<string, unknown>;
+  result: string | null;
+  skipped: boolean;
+}
+
+export interface BenchmarkRepeatedToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  count: number;
+}
+
+export interface BenchmarkToolUsageSummary {
+  total: number;
+  byName: Record<string, number>;
+  specializedTotal: number;
+  specializedByName: Record<string, number>;
+  fileReadTotal: number;
+  searchTotal: number;
+  mutationTotal: number;
+  commandTotal: number;
+  skippedTotal: number;
+  repeatedStop: boolean;
+  repeatedToolCalls: BenchmarkRepeatedToolCall[];
 }
 
 const BENCHMARK_SYSTEM_PROMPT_SUFFIX = [
@@ -78,6 +113,20 @@ const CONFIRMATION_REQUEST_PATTERNS = [
   /\bpermission\b/i,
 ];
 
+const SPECIALIZED_TOOL_NAMES = new Set([
+  "read_symbol",
+  "find_references",
+  "get_dependencies",
+  "search_code_map",
+  "find_path",
+]);
+
+const FILE_READ_TOOL_NAMES = new Set(["read_file"]);
+const SEARCH_TOOL_NAMES = new Set(["search"]);
+const MUTATION_TOOL_NAMES = new Set(["edit_file", "write_file"]);
+const COMMAND_TOOL_NAMES = new Set(["run_command"]);
+const REPEATED_TOOL_CALL_STOP_TEXT = "Stopped due to repeated identical tool calls";
+
 interface BenchmarkAttemptResult {
   text: string;
   usage?: {
@@ -85,6 +134,7 @@ interface BenchmarkAttemptResult {
     outputTokens: number;
   };
   streamed?: boolean;
+  messages: SessionMessage[];
 }
 
 export function getBenchmarkSystemPromptSuffix(): string {
@@ -96,6 +146,127 @@ export function isBenchmarkApprovalSeekingResponse(text: string): boolean {
     return false;
   }
   return CONFIRMATION_REQUEST_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function signatureForToolCall(toolCall: Pick<ToolCall, "name" | "input">): string {
+  return `${toolCall.name}:${stableSerialize(toolCall.input)}`;
+}
+
+export function buildBenchmarkToolTrace(messages: SessionMessage[]): BenchmarkToolCallTrace[] {
+  const toolResults = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role === "tool") {
+      toolResults.set(message.toolCallId, message.content);
+    }
+  }
+
+  const traces: BenchmarkToolCallTrace[] = [];
+  let step = 0;
+  for (const message of messages) {
+    if (message.role !== "assistant" || !message.toolCalls?.length) {
+      continue;
+    }
+    step += 1;
+    for (const toolCall of message.toolCalls) {
+      const result = toolResults.get(toolCall.id) ?? null;
+      traces.push({
+        step,
+        name: toolCall.name,
+        input: toolCall.input,
+        result,
+        skipped: result?.startsWith("Tool skipped:") ?? false,
+      });
+    }
+  }
+
+  return traces;
+}
+
+export function summarizeBenchmarkToolUsage(
+  toolCalls: BenchmarkToolCallTrace[],
+  finalText: string,
+): BenchmarkToolUsageSummary {
+  const byName: Record<string, number> = {};
+  const specializedByName: Record<string, number> = {};
+  const repeatedCounts = new Map<string, {
+    name: string;
+    input: Record<string, unknown>;
+    count: number;
+  }>();
+
+  let specializedTotal = 0;
+  let fileReadTotal = 0;
+  let searchTotal = 0;
+  let mutationTotal = 0;
+  let commandTotal = 0;
+  let skippedTotal = 0;
+
+  for (const toolCall of toolCalls) {
+    byName[toolCall.name] = (byName[toolCall.name] ?? 0) + 1;
+
+    if (SPECIALIZED_TOOL_NAMES.has(toolCall.name)) {
+      specializedTotal += 1;
+      specializedByName[toolCall.name] = (specializedByName[toolCall.name] ?? 0) + 1;
+    }
+    if (FILE_READ_TOOL_NAMES.has(toolCall.name)) {
+      fileReadTotal += 1;
+    }
+    if (SEARCH_TOOL_NAMES.has(toolCall.name)) {
+      searchTotal += 1;
+    }
+    if (MUTATION_TOOL_NAMES.has(toolCall.name)) {
+      mutationTotal += 1;
+    }
+    if (COMMAND_TOOL_NAMES.has(toolCall.name)) {
+      commandTotal += 1;
+    }
+    if (toolCall.skipped) {
+      skippedTotal += 1;
+    }
+
+    const signature = signatureForToolCall(toolCall);
+    const existing = repeatedCounts.get(signature);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      repeatedCounts.set(signature, {
+        name: toolCall.name,
+        input: toolCall.input,
+        count: 1,
+      });
+    }
+  }
+
+  return {
+    total: toolCalls.length,
+    byName,
+    specializedTotal,
+    specializedByName,
+    fileReadTotal,
+    searchTotal,
+    mutationTotal,
+    commandTotal,
+    skippedTotal,
+    repeatedStop:
+      finalText.includes(REPEATED_TOOL_CALL_STOP_TEXT) ||
+      toolCalls.some((toolCall) => toolCall.result?.includes(REPEATED_TOOL_CALL_STOP_TEXT)),
+    repeatedToolCalls: [...repeatedCounts.values()]
+      .filter((entry) => entry.count > 1)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+  };
 }
 
 function readFlagValue(
@@ -287,7 +458,11 @@ async function runBenchmarkAttempt(
   },
 ): Promise<BenchmarkAttemptResult> {
   const agent = createBenchmarkAgent(params);
-  return agent.runTurn(prompt);
+  const result = await agent.runTurn(prompt);
+  return {
+    ...result,
+    messages: agent.getSession().getMessages(),
+  };
 }
 
 export async function runBenchmarkCommand(argv: string[]): Promise<void> {
@@ -373,6 +548,7 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       await writeWorkspaceDiff(config.workspaceRoot, diffOutPath);
     }
 
+    const toolCalls = buildBenchmarkToolTrace(attempt.messages);
     const result: BenchmarkRunResult = {
       text: attempt.text,
       usage: attempt.usage ?? null,
@@ -386,6 +562,8 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       isGitRepo: changes.isGitRepo,
       changedFiles: changes.changedFiles,
       ...(diffOutPath ? { diffOut: diffOutPath } : {}),
+      toolCalls,
+      toolUsage: summarizeBenchmarkToolUsage(toolCalls, attempt.text),
     };
     const payload = JSON.stringify(result, null, 2);
 

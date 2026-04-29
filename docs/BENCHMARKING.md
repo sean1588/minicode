@@ -83,6 +83,8 @@ Benchmark mode emits structured JSON with:
 - resolved workspace root
 - resolved provider/model/base URL
 - changed files detected from git status, scoped to the selected workspace subtree
+- tool-call trace with each tool name, input, result, step, and skipped status
+- tool-usage summary for structured tools, file reads, searches, mutations, commands, skipped calls, and repeated-call stops
 - whether the workspace is a git repo
 - optional diff artifact path
 
