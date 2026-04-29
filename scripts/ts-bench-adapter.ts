@@ -13,13 +13,26 @@ const MINICODE_REGISTRY_ENTRY = `
         getEnv(config: AgentConfig): Record<string, string> {
             const provider = config.provider ?? 'openrouter';
             const env: Record<string, string> = {
-                MAX_STEPS: process.env.MINICODE_BENCHMARK_MAX_STEPS || '50',
-                MAX_CONTEXT_TOKENS: process.env.MINICODE_BENCHMARK_MAX_CONTEXT_TOKENS || '32000',
-                COMMAND_TIMEOUT_MS: process.env.MINICODE_BENCHMARK_COMMAND_TIMEOUT_MS || '30000',
-                MODEL_TIMEOUT_SECONDS: process.env.MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS || '60',
-                MAX_TOOL_OUTPUT_CHARS: process.env.MINICODE_BENCHMARK_MAX_TOOL_OUTPUT_CHARS || '8000',
                 CONFIRM_DESTRUCTIVE: 'false'
             };
+
+            const optionalBenchmarkEnv = [
+                ['MINICODE_BENCHMARK_MAX_STEPS', 'MAX_STEPS'],
+                ['MINICODE_BENCHMARK_MAX_CONTEXT_TOKENS', 'MAX_CONTEXT_TOKENS'],
+                ['MINICODE_BENCHMARK_COMMAND_TIMEOUT_MS', 'COMMAND_TIMEOUT_MS'],
+                ['MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS', 'MODEL_TIMEOUT_SECONDS'],
+                ['MINICODE_BENCHMARK_MAX_TOOL_OUTPUT_CHARS', 'MAX_TOOL_OUTPUT_CHARS'],
+                ['MINICODE_BENCHMARK_REASONING_EFFORT', 'REASONING_EFFORT'],
+                ['MINICODE_BENCHMARK_ENABLE_DYNAMIC_PROMPT', 'ENABLE_DYNAMIC_PROMPT'],
+                ['MINICODE_BENCHMARK_KEEP_RECENT_MESSAGES', 'KEEP_RECENT_MESSAGES']
+            ] as const;
+
+            for (const [sourceKey, targetKey] of optionalBenchmarkEnv) {
+                const value = process.env[sourceKey];
+                if (value) {
+                    env[targetKey] = value;
+                }
+            }
 
             switch (provider) {
                 case 'openrouter':

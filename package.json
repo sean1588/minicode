@@ -44,7 +44,8 @@
     "pretest": "npm run build --workspace=packages/agent-sdk && node scripts/build-web.mjs",
     "test": "node --test --import tsx \"tests/**/*.test.ts\"",
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts",
-    "benchmark": "node --import tsx scripts/run-benchmarks.ts"
+    "benchmark": "node --import tsx scripts/run-benchmarks.ts",
+    "benchmark:ts-bench": "bash ./scripts/run-ts-bench.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",

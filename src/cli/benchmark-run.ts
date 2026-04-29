@@ -49,6 +49,55 @@ export interface BenchmarkRunResult {
   diffOut?: string;
 }
 
+const BENCHMARK_SYSTEM_PROMPT_SUFFIX = [
+  "[Benchmark Execution Mode]",
+  "- This task is running in a non-interactive benchmark harness.",
+  "- The task is already approved. Do not ask for confirmation, permission, or whether you should proceed.",
+  "- If the task requires code changes, make them immediately using the available tools.",
+  "- Do not stop after presenting a plan. Either complete the task or explain a concrete blocker.",
+  "- When validation is part of the task, run the required command once after making changes.",
+].join("\n");
+
+const BENCHMARK_RETRY_REMINDER = [
+  "Benchmark harness reminder:",
+  "- This task is already approved.",
+  "- Do not ask for confirmation or present a plan without acting.",
+  "- Use tools, make the required edits immediately, and finish the task.",
+].join("\n");
+
+const CONFIRMATION_REQUEST_PATTERNS = [
+  /\bplease confirm\b/i,
+  /\bconfirm and i(?:'|’)ll\b/i,
+  /\bmay i proceed\b/i,
+  /\bshould i proceed\b/i,
+  /\bwould you like me to proceed\b/i,
+  /\bwant me to proceed\b/i,
+  /\bdo you want me to proceed\b/i,
+  /\bask for your approval\b/i,
+  /\bneed your approval\b/i,
+  /\bpermission\b/i,
+];
+
+interface BenchmarkAttemptResult {
+  text: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+  streamed?: boolean;
+}
+
+export function getBenchmarkSystemPromptSuffix(): string {
+  return BENCHMARK_SYSTEM_PROMPT_SUFFIX;
+}
+
+export function isBenchmarkApprovalSeekingResponse(text: string): boolean {
+  if (text.trim().length === 0) {
+    return false;
+  }
+  return CONFIRMATION_REQUEST_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 function readFlagValue(
   args: string[],
   index: number,
@@ -205,6 +254,42 @@ async function resolvePrompt(args: BenchmarkRunArgs, cwd: string): Promise<strin
   return args.prompt;
 }
 
+function createBenchmarkAgent(params: {
+  config: Awaited<ReturnType<typeof buildBenchmarkAgentConfig>>;
+  modelClient: ReturnType<typeof createModelClient>;
+  toolRegistry: ReturnType<typeof createToolRegistry>;
+  verbose: boolean;
+  projectIndex?: Awaited<ReturnType<typeof buildProjectIndex>>;
+}): CodingAgent {
+  return new CodingAgent({
+    config: params.config,
+    modelClient: params.modelClient,
+    toolRegistry: params.toolRegistry,
+    verbose: params.verbose,
+    getSystemPromptSuffix: () => getBenchmarkSystemPromptSuffix(),
+    ...(params.projectIndex !== undefined
+      ? {
+          getCodeMap: (focusSymbols?: Set<string>) =>
+            params.projectIndex!.getCodeMap(undefined, focusSymbols),
+        }
+      : {}),
+  });
+}
+
+async function runBenchmarkAttempt(
+  prompt: string,
+  params: {
+    config: Awaited<ReturnType<typeof buildBenchmarkAgentConfig>>;
+    modelClient: ReturnType<typeof createModelClient>;
+    toolRegistry: ReturnType<typeof createToolRegistry>;
+    verbose: boolean;
+    projectIndex?: Awaited<ReturnType<typeof buildProjectIndex>>;
+  },
+): Promise<BenchmarkAttemptResult> {
+  const agent = createBenchmarkAgent(params);
+  return agent.runTurn(prompt);
+}
+
 export async function runBenchmarkCommand(argv: string[]): Promise<void> {
   const cwd = process.cwd();
   const args = parseBenchmarkRunArgs(argv);
@@ -254,19 +339,30 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
     }
 
     const toolRegistry = createToolRegistry(config, projectIndex);
-    const agent = new CodingAgent({
+
+    const startedAt = new Date().toISOString();
+    const started = performance.now();
+    let attempt = await runBenchmarkAttempt(prompt, {
       config,
       modelClient,
       toolRegistry,
       verbose: args.verbose,
-      ...(projectIndex !== undefined
-        ? { getCodeMap: (focusSymbols?: Set<string>) => projectIndex.getCodeMap(undefined, focusSymbols) }
-        : {}),
+      ...(projectIndex !== undefined ? { projectIndex } : {}),
     });
-
-    const startedAt = new Date().toISOString();
-    const started = performance.now();
-    const { text, usage } = await agent.runTurn(prompt);
+    if (isBenchmarkApprovalSeekingResponse(attempt.text)) {
+      if (args.verbose) {
+        console.error(
+          "[benchmark] Model asked for confirmation; retrying once with a non-interactive reminder.",
+        );
+      }
+      attempt = await runBenchmarkAttempt(`${prompt}\n\n${BENCHMARK_RETRY_REMINDER}`, {
+        config,
+        modelClient,
+        toolRegistry,
+        verbose: args.verbose,
+        ...(projectIndex !== undefined ? { projectIndex } : {}),
+      });
+    }
     const durationMs = performance.now() - started;
     const completedAt = new Date().toISOString();
 
@@ -278,8 +374,8 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
     }
 
     const result: BenchmarkRunResult = {
-      text,
-      usage: usage ?? null,
+      text: attempt.text,
+      usage: attempt.usage ?? null,
       durationMs,
       startedAt,
       completedAt,
