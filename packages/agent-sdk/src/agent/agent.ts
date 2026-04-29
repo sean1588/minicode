@@ -41,6 +41,36 @@ const SYMBOL_TOOLS = new Set([
   "search_code_map",
 ]);
 
+const MUTATING_TOOLS = new Set([
+  "edit_file",
+  "write_file",
+]);
+
+const STATE_SENSITIVE_TOOLS = new Set([
+  "find_path",
+  "find_references",
+  "get_dependencies",
+  "read_file",
+  "read_symbol",
+  "run_command",
+  "search",
+  "search_code_map",
+]);
+
+function isStateSensitiveFingerprint(fingerprint: string): boolean {
+  const separatorIndex = fingerprint.indexOf(":");
+  const toolName = separatorIndex === -1 ? fingerprint : fingerprint.slice(0, separatorIndex);
+  return STATE_SENSITIVE_TOOLS.has(toolName);
+}
+
+function clearStateSensitiveFingerprints(fingerprints: string[]): void {
+  for (let index = fingerprints.length - 1; index >= 0; index -= 1) {
+    if (isStateSensitiveFingerprint(fingerprints[index]!)) {
+      fingerprints.splice(index, 1);
+    }
+  }
+}
+
 /**
  * Extract the symbol name from a tool call input if the tool is symbol-aware.
  */
@@ -584,6 +614,9 @@ export class CodingAgent {
           toolName: toolCall.name,
           content: toolResult,
         });
+        if (MUTATING_TOOLS.has(toolCall.name)) {
+          clearStateSensitiveFingerprints(recentToolCallFingerprints);
+        }
       }
     }
 
