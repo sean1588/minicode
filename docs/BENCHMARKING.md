@@ -91,3 +91,5 @@ minicode benchmark run \
 ```
 
 This is the recommended surface for integrating minicode with `ts-bench`, Harbor-based benchmarks like CCBench, and future patch-based evaluators.
+
+For the concrete `ts-bench` workflow, see [`benchmarks/ts-bench/README.md`](../benchmarks/ts-bench/README.md).
