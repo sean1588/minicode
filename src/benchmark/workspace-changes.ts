@@ -74,6 +74,26 @@ async function isGitRepository(workspaceRoot: string): Promise<boolean> {
   }
 }
 
+async function getWorkspaceGitPrefix(workspaceRoot: string): Promise<string> {
+  const prefix = await runGit(workspaceRoot, ["rev-parse", "--show-prefix"], true);
+  return prefix.trim();
+}
+
+function stripWorkspacePrefix(
+  filePath: string,
+  workspacePrefix: string,
+): string {
+  if (!workspacePrefix) {
+    return filePath;
+  }
+  const normalizedPrefix = workspacePrefix.endsWith("/")
+    ? workspacePrefix
+    : `${workspacePrefix}/`;
+  return filePath.startsWith(normalizedPrefix)
+    ? filePath.slice(normalizedPrefix.length)
+    : filePath;
+}
+
 export async function collectWorkspaceChanges(workspaceRoot: string): Promise<WorkspaceChanges> {
   const isGitRepo = await isGitRepository(workspaceRoot);
   if (!isGitRepo) {
@@ -84,14 +104,25 @@ export async function collectWorkspaceChanges(workspaceRoot: string): Promise<Wo
     };
   }
 
+  const workspacePrefix = await getWorkspaceGitPrefix(workspaceRoot);
+
   const statusOutput = await runGit(
     workspaceRoot,
-    ["status", "--porcelain=v1", "--untracked-files=all"],
+    ["status", "--porcelain=v1", "--untracked-files=all", "--", "."],
     true,
   );
   const entries = statusOutput
     .split(/\r?\n/)
     .map((line) => parseStatusLine(line))
+    .map((entry) => entry
+      ? {
+          ...entry,
+          path: stripWorkspacePrefix(entry.path, workspacePrefix),
+          ...(entry.previousPath
+            ? { previousPath: stripWorkspacePrefix(entry.previousPath, workspacePrefix) }
+            : {}),
+        }
+      : undefined)
     .filter((entry): entry is WorkspaceStatusEntry => entry !== undefined);
 
   const changedFiles = [...new Set(entries.map((entry) => entry.path))];
@@ -113,7 +144,7 @@ export async function writeWorkspaceDiff(
 
   const trackedDiff = await runGit(
     workspaceRoot,
-    ["diff", "--binary", "--no-ext-diff", "--relative", "--"],
+    ["diff", "--binary", "--no-ext-diff", "--relative", "--", "."],
     true,
   );
 
