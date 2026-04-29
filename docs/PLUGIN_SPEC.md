@@ -307,7 +307,7 @@ It implements `resolveDependencies` using heuristic AST analysis (heritage claus
 
 ## Reference: Python Plugin
 
-The built-in Python plugin is powered by `tree-sitter-python` and lives at `src/indexer/plugins/python.ts`. It demonstrates async-friendly conventions even though it stays sync.
+The built-in Python plugin is powered by `tree-sitter-python` and lives in its own workspace package at `packages/minicode-plugin-python/`. It serves as the canonical example of how an external `minicode-plugin-*` package would be structured: it imports `LanguagePlugin` from `@minicode/agent-sdk`, declares its own native dependencies, and is bundled into minicode at publish time via `bundleDependencies`. Authors of new built-in or third-party plugins can copy this layout directly.
 
 It extracts:
 

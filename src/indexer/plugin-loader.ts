@@ -28,7 +28,7 @@ export async function loadPlugins(
  */
 async function loadPythonPlugin(plugins: LanguagePlugin[]): Promise<void> {
   try {
-    const mod = await import("./plugins/python.js");
+    const mod = await import("minicode-plugin-python");
     if (mod.pythonPlugin) plugins.push(mod.pythonPlugin);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
