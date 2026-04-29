@@ -305,10 +305,35 @@ It implements `resolveDependencies` using heuristic AST analysis (heritage claus
 
 ---
 
+## Reference: Python Plugin
+
+The built-in Python plugin is powered by `tree-sitter-python` and lives at `src/indexer/plugins/python.ts`. It demonstrates async-friendly conventions even though it stays sync.
+
+It extracts:
+
+- `function_definition` (top-level) → `function` (`async def` is naturally preserved in the signature text)
+- `function_definition` (inside `class`) → `method`
+- `class_definition` → `class` (or `interface` if it extends `Protocol` / `typing.Protocol` / `Protocol[T]`)
+- `type_alias_statement` (PEP 695 `type X = ...`) → `type`
+- Decorators are included in the symbol's `signature` and contribute to its `startLine`
+- Docstrings (first string-literal expression in a function/class body) become `docComment`
+- `__all__ = [...]` overrides the underscore-prefix convention for module-level `exported`
+
+It implements `resolveDependencies` with:
+
+- A project-wide module resolver: `src/parser.py` and `src/parser/__init__.py` both map to module `src.parser`
+- Per-file alias maps from `import` and `from ... import`, including relative imports (`from .x import y`)
+- `extends` edges from `class Foo(Bar):` headers, resolved through the alias map
+- `calls` edges for bare calls, `self.method()` / `cls.method()`, `module.attr()` (via the alias map), and `Class.method()`
+
+Both `.py` and `.pyi` (stub) files are indexed.
+
+---
+
 ## Plugin Discovery Order
 
 minicode loads plugins in this order (first match for a file wins):
 
-1. Built-in plugins (TypeScript)
+1. Built-in plugins (TypeScript, Python)
 2. npm packages matching `minicode-plugin-*` in workspace `package.json` dependencies
 3. Local plugins in `<workspace>/.minicode/plugins/*.js`

@@ -334,6 +334,114 @@ test("Python plugin calls edges resolve absolute imports", async () => {
   );
 });
 
+test("Python plugin includes decorators in signatures", () => {
+  const code = [
+    "@dataclass(frozen=True)",
+    "class Foo:",
+    "    pass",
+    "",
+    "@property",
+    "def value() -> int:",
+    "    return 1",
+    "",
+  ].join("\n");
+  const symbols = pythonPlugin.indexFile("sample.py", code);
+  const foo = symbols.find((s) => s.name === "Foo");
+  const value = symbols.find((s) => s.name === "value");
+  assert.ok(foo);
+  assert.ok(value);
+  assert.ok(
+    foo!.signature.includes("@dataclass(frozen=True)"),
+    `expected @dataclass in signature, got ${foo!.signature}`,
+  );
+  assert.ok(
+    value!.signature.startsWith("@property"),
+    `expected @property in signature, got ${value!.signature}`,
+  );
+});
+
+test("Python plugin honors __all__ for top-level exported flag", () => {
+  const code = [
+    "__all__ = ['public_helper', '_private_but_listed']",
+    "",
+    "def public_helper():",
+    "    pass",
+    "",
+    "def not_listed():",
+    "    pass",
+    "",
+    "def _private_but_listed():",
+    "    pass",
+    "",
+    "def _private():",
+    "    pass",
+    "",
+  ].join("\n");
+  const symbols = pythonPlugin.indexFile("sample.py", code);
+  const get = (name: string) =>
+    symbols.find((s) => s.name === name) ?? assert.fail(`missing ${name}`);
+  assert.equal(get("public_helper").exported, true);
+  assert.equal(get("not_listed").exported, false, "not in __all__ → not exported");
+  assert.equal(
+    get("_private_but_listed").exported,
+    true,
+    "underscored but in __all__ → exported",
+  );
+  assert.equal(get("_private").exported, false);
+});
+
+test("Python plugin marks Protocol classes as interfaces", () => {
+  const code = [
+    "from typing import Protocol",
+    "",
+    "class Animal(Protocol):",
+    "    def speak(self) -> str: ...",
+    "",
+    "class GenericIface(Protocol[int]):",
+    "    pass",
+    "",
+    "import typing",
+    "class QualifiedIface(typing.Protocol):",
+    "    pass",
+    "",
+    "class Plain:",
+    "    pass",
+    "",
+  ].join("\n");
+  const symbols = pythonPlugin.indexFile("sample.py", code);
+  assert.equal(symbols.find((s) => s.name === "Animal")!.kind, "interface");
+  assert.equal(symbols.find((s) => s.name === "GenericIface")!.kind, "interface");
+  assert.equal(symbols.find((s) => s.name === "QualifiedIface")!.kind, "interface");
+  assert.equal(symbols.find((s) => s.name === "Plain")!.kind, "class");
+});
+
+test("Python plugin Protocol→interface still receives extends edges as base class", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-proto-"));
+  await writeFile(
+    path.join(workspaceRoot, "iface.py"),
+    [
+      "from typing import Protocol",
+      "",
+      "class Animal(Protocol):",
+      "    def speak(self) -> str: ...",
+      "",
+      "class Dog(Animal):",
+      "    def speak(self) -> str:",
+      "        return 'woof'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const index = await buildProjectIndex(workspaceRoot);
+  const extendsEdges = index.dependencyEdges.filter(
+    (e) => e.kind === "extends" && e.from === "Dog",
+  );
+  assert.ok(
+    extendsEdges.some((e) => e.to === "Animal"),
+    "Dog should extend Animal even though Animal is an interface",
+  );
+});
+
 test("buildProjectIndex disambiguates colliding Python symbols across files", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-collide-"));
   await mkdir(path.join(workspaceRoot, "src"), { recursive: true });

@@ -22,13 +22,18 @@ function getEndLine(node: SyntaxNode): number {
 }
 
 /**
- * Slice the header text of a function/class from `def`/`class` to the start
- * of its body (the `:`), with trailing colon and whitespace trimmed.
+ * Slice the header text of a function/class. Starts at `outerNode.startIndex`
+ * so decorators are included; ends just before the body's `:`. Trailing colon
+ * and whitespace are trimmed.
  */
-function extractHeaderSignature(headerNode: SyntaxNode, content: string): string {
+function extractHeaderSignature(
+  headerNode: SyntaxNode,
+  outerNode: SyntaxNode,
+  content: string,
+): string {
   const body = headerNode.childForFieldName("body");
   const end = body ? body.startIndex : headerNode.endIndex;
-  const raw = content.slice(headerNode.startIndex, end).trim();
+  const raw = content.slice(outerNode.startIndex, end).trim();
   return raw.endsWith(":") ? raw.slice(0, -1).trim() : raw;
 }
 
@@ -75,6 +80,62 @@ function extractDocstring(bodyNode: SyntaxNode | null): string | undefined {
 function isExportedName(name: string): boolean {
   if (name.startsWith("__") && name.endsWith("__")) return true;
   return !name.startsWith("_");
+}
+
+/**
+ * Find a module-level `__all__ = [...]` (or tuple) declaration and return the
+ * set of declared names. If `__all__` is absent or has a non-literal value,
+ * returns null and callers fall back to the underscore convention.
+ */
+function extractAllList(rootNode: SyntaxNode): Set<string> | null {
+  for (const stmt of rootNode.namedChildren) {
+    if (stmt.type !== "expression_statement") continue;
+    const inner = stmt.namedChildren[0];
+    if (!inner || inner.type !== "assignment") continue;
+    const left = inner.childForFieldName("left");
+    if (!left || left.type !== "identifier" || left.text !== "__all__") continue;
+    const right = inner.childForFieldName("right");
+    if (!right) return null;
+    if (right.type !== "list" && right.type !== "tuple") return null;
+    const names = new Set<string>();
+    for (const element of right.namedChildren) {
+      if (element.type !== "string") return null;
+      const parts: string[] = [];
+      for (const c of element.namedChildren) {
+        if (c.type === "string_content") parts.push(c.text);
+      }
+      const value = parts.join("");
+      if (value.length > 0) names.add(value);
+    }
+    return names;
+  }
+  return null;
+}
+
+/**
+ * Return true if any of the class's superclasses is `Protocol` or
+ * `<module>.Protocol`. Used to mark `class X(Protocol)` as kind `interface`.
+ */
+function extendsProtocol(classNode: SyntaxNode): boolean {
+  const supers = classNode.childForFieldName("superclasses");
+  if (!supers) return false;
+  for (const arg of supers.namedChildren) {
+    if (arg.type === "identifier" && arg.text === "Protocol") return true;
+    if (arg.type === "attribute") {
+      const leaf = arg.childForFieldName("attribute");
+      if (leaf?.text === "Protocol") return true;
+    }
+    // `class X(Protocol[T]):` — generic parameterisation
+    if (arg.type === "subscript") {
+      const value = arg.childForFieldName("value");
+      if (value?.type === "identifier" && value.text === "Protocol") return true;
+      if (value?.type === "attribute") {
+        const leaf = value.childForFieldName("attribute");
+        if (leaf?.text === "Protocol") return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Unwrap a `decorated_definition` to the inner function/class node, if any. */
@@ -195,6 +256,14 @@ function createPlugin() {
     return tree;
   }
 
+  function topLevelExported(
+    name: string,
+    allList: Set<string> | null,
+  ): boolean {
+    if (allList !== null) return allList.has(name);
+    return isExportedName(name);
+  }
+
   function emitFunction(
     headerNode: SyntaxNode,
     outerNode: SyntaxNode,
@@ -203,6 +272,7 @@ function createPlugin() {
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
+    allList: Set<string> | null,
   ): void {
     const inClass = classStack.length > 0;
     const qualifiedName = inClass
@@ -216,8 +286,8 @@ function createPlugin() {
       filePath,
       startLine: getLine(outerNode),
       endLine: getEndLine(outerNode),
-      signature: extractHeaderSignature(headerNode, content),
-      exported: inClass ? false : isExportedName(name),
+      signature: extractHeaderSignature(headerNode, outerNode, content),
+      exported: inClass ? false : topLevelExported(name, allList),
       dependencies: [],
       ...(docComment !== undefined && { docComment }),
     });
@@ -231,19 +301,22 @@ function createPlugin() {
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
+    allList: Set<string> | null,
   ): void {
     const qualifiedName =
       classStack.length > 0 ? `${classStack.join(".")}.${name}` : name;
     const docComment = extractDocstring(headerNode.childForFieldName("body"));
+    const kind = extendsProtocol(headerNode) ? "interface" : "class";
     symbols.push({
       name,
       qualifiedName,
-      kind: "class",
+      kind,
       filePath,
       startLine: getLine(outerNode),
       endLine: getEndLine(outerNode),
-      signature: extractHeaderSignature(headerNode, content),
-      exported: classStack.length > 0 ? false : isExportedName(name),
+      signature: extractHeaderSignature(headerNode, outerNode, content),
+      exported:
+        classStack.length > 0 ? false : topLevelExported(name, allList),
       dependencies: [],
       ...(docComment !== undefined && { docComment }),
     });
@@ -255,6 +328,7 @@ function createPlugin() {
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
+    allList: Set<string> | null,
   ): void {
     const raw = content.slice(node.startIndex, node.endIndex).trim();
     const signature = raw.split("\n")[0] ?? `type ${name}`;
@@ -266,7 +340,7 @@ function createPlugin() {
       startLine: getLine(node),
       endLine: getEndLine(node),
       signature,
-      exported: isExportedName(name),
+      exported: topLevelExported(name, allList),
       dependencies: [],
     });
   }
@@ -277,27 +351,28 @@ function createPlugin() {
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
+    allList: Set<string> | null,
   ): void {
     if (node.type === "decorated_definition") {
       const { inner, outer } = unwrapDecorated(node);
-      handleDef(inner, outer, classStack, filePath, content, symbols);
+      handleDef(inner, outer, classStack, filePath, content, symbols, allList);
       return;
     }
     if (node.type === "function_definition" || node.type === "class_definition") {
-      handleDef(node, node, classStack, filePath, content, symbols);
+      handleDef(node, node, classStack, filePath, content, symbols, allList);
       return;
     }
     if (node.type === "type_alias_statement") {
       const left = node.childForFieldName("left");
       const nameNode = left?.namedChild(0) ?? left;
       if (nameNode && nameNode.type === "identifier") {
-        emitTypeAlias(node, nameNode.text, filePath, content, symbols);
+        emitTypeAlias(node, nameNode.text, filePath, content, symbols, allList);
       }
       return;
     }
 
     for (const child of node.namedChildren) {
-      visit(child, classStack, filePath, content, symbols);
+      visit(child, classStack, filePath, content, symbols, allList);
     }
   }
 
@@ -308,6 +383,7 @@ function createPlugin() {
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
+    allList: Set<string> | null,
   ): void {
     if (headerNode.type === "function_definition") {
       const nameNode = headerNode.childForFieldName("name");
@@ -320,6 +396,7 @@ function createPlugin() {
         filePath,
         content,
         symbols,
+        allList,
       );
       // Don't recurse into function bodies — nested functions/classes are
       // closure-scoped and rarely the right thing to surface in the code map.
@@ -336,12 +413,16 @@ function createPlugin() {
         filePath,
         content,
         symbols,
+        allList,
       );
       const body = headerNode.childForFieldName("body");
       if (body) {
         classStack.push(nameNode.text);
+        // Class bodies don't honor module-level `__all__`; pass null so
+        // method `exported` continues to fall through to the (false) inClass
+        // branch.
         for (const child of body.namedChildren) {
-          visit(child, classStack, filePath, content, symbols);
+          visit(child, classStack, filePath, content, symbols, null);
         }
         classStack.pop();
       }
@@ -361,8 +442,9 @@ function createPlugin() {
       const tree = parse(filePath, content);
       const symbols: IndexedSymbol[] = [];
       const classStack: string[] = [];
+      const allList = extractAllList(tree.rootNode);
       for (const child of tree.rootNode.namedChildren) {
-        visit(child, classStack, filePath, content, symbols);
+        visit(child, classStack, filePath, content, symbols, allList);
       }
       return symbols;
     },
