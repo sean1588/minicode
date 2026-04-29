@@ -42,6 +42,10 @@ test("injectMinicodeRegistry inserts a minicode agent exactly once", () => {
   assert.match(once, /'minicode',\s+'benchmark',\s+'run'/);
   assert.match(once, /MINICODE_BENCHMARK_CONFIG/);
   assert.match(once, /MINICODE_OPENROUTER_BASE_URL/);
+  assert.match(once, /optionalBenchmarkEnv/);
+  assert.match(once, /MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS/);
+  assert.doesNotMatch(once, /MAX_CONTEXT_TOKENS:\s*process\.env\.MINICODE_BENCHMARK_MAX_CONTEXT_TOKENS \|\| '32000'/);
+  assert.doesNotMatch(once, /MODEL_TIMEOUT_SECONDS:\s*process\.env\.MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS \|\| '60'/);
 });
 
 test("injectMinicodeAgentsJson adds the minicode package metadata exactly once", () => {

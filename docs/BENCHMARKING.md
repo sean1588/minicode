@@ -4,6 +4,13 @@
 
 Unlike the normal CLI and web UI flows, benchmark mode does **not** read `~/.minicode/.env` by default. This keeps runs reproducible and avoids leaking a developer's local interactive config into benchmark jobs.
 
+Benchmark mode also adds benchmark-specific execution guidance:
+
+- the task is already approved
+- the agent should not ask for confirmation before editing
+- the agent should finish the task instead of stopping after a plan
+- if a model still ends with an approval-seeking completion, minicode retries once with a stronger reminder
+
 ## Command
 
 ```bash
@@ -75,7 +82,7 @@ Benchmark mode emits structured JSON with:
 - elapsed time
 - resolved workspace root
 - resolved provider/model/base URL
-- changed files detected from git status
+- changed files detected from git status, scoped to the selected workspace subtree
 - whether the workspace is a git repo
 - optional diff artifact path
 
@@ -93,3 +100,4 @@ minicode benchmark run \
 This is the recommended surface for integrating minicode with `ts-bench`, Harbor-based benchmarks like CCBench, and future patch-based evaluators.
 
 For the concrete `ts-bench` workflow, see [`benchmarks/ts-bench/README.md`](../benchmarks/ts-bench/README.md).
+For the quick-start wrapper, see [`BENCHMARK.md`](../BENCHMARK.md).

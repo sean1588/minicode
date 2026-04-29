@@ -2,6 +2,14 @@
 
 This directory documents how to run `minicode` against [`ts-bench`](https://github.com/laiso/ts-bench) without changing the product runtime.
 
+If you just want the shortest path, use the repo wrapper:
+
+```bash
+TS_BENCH_MODEL=openai/gpt-5 npm run benchmark:ts-bench
+```
+
+That wrapper lives at [`scripts/run-ts-bench.sh`](../../scripts/run-ts-bench.sh), clones `ts-bench` into `/tmp/ts-bench` if needed, patches it locally, and runs the default v1 top-25 lane.
+
 The integration has two moving parts:
 
 - [`scripts/ts-bench-adapter.ts`](../../scripts/ts-bench-adapter.ts) patches a local `ts-bench` checkout to register `minicode` as an agent.
@@ -43,6 +51,8 @@ node --import tsx scripts/run-ts-bench-smoke.ts \
   --install-deps
 ```
 
+Even though the helper script is named `run-ts-bench-smoke.ts`, it can drive the full top-25 v1 lane by passing `--exercise 25`.
+
 What this does:
 
 - builds the current `minicode` branch unless `--skip-build` is passed
@@ -79,7 +89,7 @@ Provider mapping inside `ts-bench`:
 
 ## Benchmark env knobs
 
-The adapter passes through these optional env vars when you want to tune the run from the benchmark layer:
+The adapter passes through these optional env vars when you want to tune the run from the benchmark layer. If you do not set them, the values from [`benchmarks/benchmark.config.json`](../benchmark.config.json) are used directly.
 
 - `MINICODE_BENCHMARK_CONFIG`
 - `MINICODE_BENCHMARK_ENV_FILE`
@@ -90,6 +100,17 @@ The adapter passes through these optional env vars when you want to tune the run
 - `MINICODE_BENCHMARK_COMMAND_TIMEOUT_MS`
 - `MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS`
 - `MINICODE_BENCHMARK_MAX_TOOL_OUTPUT_CHARS`
+- `MINICODE_BENCHMARK_REASONING_EFFORT`
+- `MINICODE_BENCHMARK_ENABLE_DYNAMIC_PROMPT`
+- `MINICODE_BENCHMARK_KEEP_RECENT_MESSAGES`
+
+Current repository defaults for `ts-bench` runs:
+
+- `maxContextTokens`: `100000`
+- `modelTimeoutSeconds`: `120`
+- dynamic prompts: `false`
+
+Those defaults are benchmark-only; they do not change the normal interactive CLI or web UI behavior.
 
 ## Comparison lanes
 
@@ -114,3 +135,7 @@ Examples:
 - `OpenCode`: its strongest supported default pairing
 
 Keep these results separate from `common-model` so we do not blur harness quality with provider/model differences.
+
+## Recorded results
+
+The current in-repo summary lives at [`RESULTS.md`](./RESULTS.md).
