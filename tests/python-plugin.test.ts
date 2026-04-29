@@ -442,6 +442,129 @@ test("Python plugin Protocol→interface still receives extends edges as base cl
   );
 });
 
+test("buildProjectIndex handles a mixed TypeScript + Python workspace", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-mixed-"));
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+
+  // TypeScript side
+  await writeFile(
+    path.join(workspaceRoot, "src", "types.ts"),
+    "export interface Greeter {\n  greet(name: string): string;\n}\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "src", "service.ts"),
+    [
+      "import type { Greeter } from \"./types.js\";",
+      "",
+      "export class Service implements Greeter {",
+      "  greet(name: string): string {",
+      "    return `Hello ${name}`;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // Python side
+  await writeFile(
+    path.join(workspaceRoot, "src", "models.py"),
+    [
+      "from dataclasses import dataclass",
+      "",
+      "@dataclass",
+      "class User:",
+      "    name: str",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "src", "service.py"),
+    [
+      "from .models import User",
+      "",
+      "def make_user(name: str) -> User:",
+      "    return User(name=name)",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  // TypeScript symbols
+  const greeter = index.getSymbol("Greeter");
+  const tsService = index.getSymbol("Service");
+  assert.ok(greeter, "TypeScript interface Greeter should be indexed");
+  assert.equal(greeter!.kind, "interface");
+  assert.ok(tsService, "TypeScript class Service should be indexed");
+  assert.equal(tsService!.kind, "class");
+
+  // Python symbols
+  const user = index.getSymbol("User");
+  const makeUser = index.getSymbol("make_user");
+  assert.ok(user, "Python User dataclass should be indexed");
+  assert.equal(user!.filePath, "src/models.py");
+  assert.ok(makeUser, "Python make_user function should be indexed");
+  assert.equal(makeUser!.filePath, "src/service.py");
+
+  // Edges from BOTH plugins should land in the same graph
+  const tsImpl = index.dependencyEdges.find(
+    (e) => e.kind === "implements" && e.from === "Service" && e.to === "Greeter",
+  );
+  assert.ok(tsImpl, "TypeScript Service implements Greeter edge");
+
+  const pyCall = index.dependencyEdges.find(
+    (e) => e.kind === "calls" && e.from === "make_user" && e.to === "User",
+  );
+  assert.ok(pyCall, "Python make_user calls User edge");
+});
+
+test("Python plugin indexes .pyi stub files", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-pyi-"));
+  await writeFile(
+    path.join(workspaceRoot, "stubs.pyi"),
+    [
+      "from typing import Protocol",
+      "",
+      "def loaded(name: str) -> bool: ...",
+      "",
+      "class Service(Protocol):",
+      "    def run(self, task: str) -> int: ...",
+      "    async def shutdown(self) -> None: ...",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const loaded = index.getSymbol("loaded");
+  assert.ok(loaded, "stub-file function should be indexed");
+  assert.equal(loaded!.kind, "function");
+  assert.equal(loaded!.filePath, "stubs.pyi");
+  assert.ok(
+    loaded!.signature.startsWith("def loaded"),
+    `expected stub function signature, got ${loaded!.signature}`,
+  );
+
+  const service = index.getSymbol("Service");
+  assert.ok(service, "stub-file Protocol class should be indexed");
+  assert.equal(service!.kind, "interface");
+
+  const run = index.getSymbol("Service.run");
+  const shutdown = index.getSymbol("Service.shutdown");
+  assert.ok(run, "stub-file method run should be indexed");
+  assert.equal(run!.kind, "method");
+  assert.ok(shutdown, "stub-file async method shutdown should be indexed");
+  assert.ok(
+    shutdown!.signature.startsWith("async def shutdown"),
+    `expected async stub signature, got ${shutdown!.signature}`,
+  );
+});
+
 test("buildProjectIndex disambiguates colliding Python symbols across files", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-collide-"));
   await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
