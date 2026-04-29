@@ -226,6 +226,114 @@ test("verify-index-python fixture exercises the indexing pipeline", async () => 
   assert.ok(codeMap.text.includes("parse_and_process"));
 });
 
+test("verify-index-python fixture produces extends and calls edges", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const fixtureRoot = path.join(root, "test-programs", "verify-index-python");
+  const index = await buildProjectIndex(fixtureRoot);
+
+  const extendsEdges = index.dependencyEdges.filter(
+    (e) => e.kind === "extends" && e.from === "Processor",
+  );
+  assert.ok(
+    extendsEdges.some((e) => e.to === "TaskRunner"),
+    "Processor should extend TaskRunner",
+  );
+
+  const callEdges = index.dependencyEdges.filter((e) => e.kind === "calls");
+  assert.ok(
+    callEdges.some((e) => e.from === "parse_and_process" && e.to === "parse"),
+    "parse_and_process should call parse",
+  );
+  assert.ok(
+    callEdges.some((e) => e.from === "parse_and_process" && e.to === "process"),
+    "parse_and_process should call process",
+  );
+  assert.ok(
+    callEdges.some((e) => e.from === "Processor.run" && e.to === "parse_and_process"),
+    "Processor.run should call parse_and_process across files",
+  );
+});
+
+test("Python plugin extends edges resolve relative imports", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-extends-"));
+  await mkdir(path.join(workspaceRoot, "pkg"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "pkg", "base.py"),
+    "class Base:\n    pass\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "pkg", "sub.py"),
+    "from .base import Base\n\nclass Sub(Base):\n    pass\n",
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const extendsEdges = index.dependencyEdges.filter(
+    (e) => e.kind === "extends" && e.from === "Sub",
+  );
+  assert.ok(
+    extendsEdges.some((e) => e.to === "Base"),
+    "Sub should extend Base via relative import",
+  );
+});
+
+test("Python plugin calls edges resolve self.method invocations", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-self-"));
+  await writeFile(
+    path.join(workspaceRoot, "mod.py"),
+    [
+      "class Foo:",
+      "    def helper(self):",
+      "        return 1",
+      "",
+      "    def run(self):",
+      "        return self.helper()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const edges = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "Foo.run",
+  );
+  assert.ok(
+    edges.some((e) => e.to === "Foo.helper"),
+    "Foo.run should call Foo.helper via self",
+  );
+});
+
+test("Python plugin calls edges resolve absolute imports", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-abs-"));
+  await mkdir(path.join(workspaceRoot, "lib"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "lib", "util.py"),
+    "def helper():\n    return 1\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "from lib.util import helper",
+      "",
+      "def run():",
+      "    return helper()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const edges = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "run",
+  );
+  assert.ok(
+    edges.some((e) => e.to === "helper"),
+    "run should call helper imported from lib.util",
+  );
+});
+
 test("buildProjectIndex disambiguates colliding Python symbols across files", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-collide-"));
   await mkdir(path.join(workspaceRoot, "src"), { recursive: true });

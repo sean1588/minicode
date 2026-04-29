@@ -41,6 +41,17 @@ async function collectSourceFiles(
   }
 }
 
+function filterFilesForPlugin(
+  projectFiles: Map<string, string>,
+  plugin: LanguagePlugin,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [filePath, content] of projectFiles) {
+    if (plugin.canIndex(filePath)) out.set(filePath, content);
+  }
+  return out;
+}
+
 function buildAdjacencyFrom(edges: DependencyEdge[]): Map<string, DependencyEdge[]> {
   const map = new Map<string, DependencyEdge[]>();
   for (const edge of edges) {
@@ -117,15 +128,17 @@ export function createProjectIndex(
   }
 
   async function rebuildDependencyEdges(): Promise<void> {
+    const allSymbols = [...symbols.values()];
+    const collected: DependencyEdge[] = [];
     for (const p of plugins) {
-      if (p.resolveDependencies) {
-        const allSymbols = [...symbols.values()];
-        const edges = await p.resolveDependencies(allSymbols, projectFiles);
-        dependencyEdges.splice(0, dependencyEdges.length, ...edges);
-        adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
-        break;
-      }
+      if (!p.resolveDependencies) continue;
+      const pluginFiles = filterFilesForPlugin(projectFiles, p);
+      if (pluginFiles.size === 0) continue;
+      const edges = await p.resolveDependencies(allSymbols, pluginFiles);
+      collected.push(...edges);
     }
+    dependencyEdges.splice(0, dependencyEdges.length, ...collected);
+    adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
   }
 
   async function refreshFromWorkspace(): Promise<void> {
@@ -384,14 +397,14 @@ export async function buildProjectIndex(
     symbols.set(qualifiedName, symbol);
   }
 
-  let dependencyEdges: DependencyEdge[] = [];
+  const allSymbols = [...symbols.values()];
+  const dependencyEdges: DependencyEdge[] = [];
   for (const plugin of plugins) {
-    if (plugin.resolveDependencies) {
-      const allSymbols = [...symbols.values()];
-      const edges = await plugin.resolveDependencies(allSymbols, projectFiles);
-      dependencyEdges = edges;
-      break;
-    }
+    if (!plugin.resolveDependencies) continue;
+    const pluginFiles = filterFilesForPlugin(projectFiles, plugin);
+    if (pluginFiles.size === 0) continue;
+    const edges = await plugin.resolveDependencies(allSymbols, pluginFiles);
+    dependencyEdges.push(...edges);
   }
 
   return createProjectIndex(
