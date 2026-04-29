@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  buildBenchmarkToolTrace,
   getBenchmarkSystemPromptSuffix,
   isBenchmarkApprovalSeekingResponse,
   parseBenchmarkRunArgs,
+  summarizeBenchmarkToolUsage,
 } from "../src/cli/benchmark-run.js";
+import type { SessionMessage } from "@minicode/agent-sdk";
 
 test("benchmark system prompt suffix clearly disables approval-seeking behavior", () => {
   const suffix = getBenchmarkSystemPromptSuffix();
@@ -76,4 +79,141 @@ test("parseBenchmarkRunArgs preserves prompt text and benchmark flags", () => {
   assert.equal(args.baseUrl, "https://openrouter.ai/api/v1");
   assert.equal(args.workspaceRoot, ".");
   assert.equal(args.outFile, "artifacts/result.json");
+});
+
+test("buildBenchmarkToolTrace extracts assistant tool calls and matching results", () => {
+  const messages: SessionMessage[] = [
+    { role: "user", content: "solve it" },
+    {
+      role: "assistant",
+      content: "reading",
+      toolCalls: [
+        { id: "call-1", name: "read_symbol", input: { name: "parse" } },
+        { id: "call-2", name: "read_file", input: { path: "parse.ts" } },
+      ],
+    },
+    {
+      role: "tool",
+      toolCallId: "call-1",
+      toolName: "read_symbol",
+      content: "symbol body",
+    },
+    {
+      role: "tool",
+      toolCallId: "call-2",
+      toolName: "read_file",
+      content: "file body",
+    },
+    { role: "assistant", content: "done" },
+  ];
+
+  const trace = buildBenchmarkToolTrace(messages);
+
+  assert.deepEqual(trace, [
+    {
+      step: 1,
+      name: "read_symbol",
+      input: { name: "parse" },
+      result: "symbol body",
+      skipped: false,
+    },
+    {
+      step: 1,
+      name: "read_file",
+      input: { path: "parse.ts" },
+      result: "file body",
+      skipped: false,
+    },
+  ]);
+});
+
+test("benchmark tool usage summary separates structured tools from file reads", () => {
+  const summary = summarizeBenchmarkToolUsage(
+    [
+      {
+        step: 1,
+        name: "read_symbol",
+        input: { name: "parse" },
+        result: "symbol body",
+        skipped: false,
+      },
+      {
+        step: 1,
+        name: "get_dependencies",
+        input: { name: "parse" },
+        result: "deps",
+        skipped: false,
+      },
+      {
+        step: 2,
+        name: "read_file",
+        input: { path: "parse.ts" },
+        result: "file body",
+        skipped: false,
+      },
+      {
+        step: 3,
+        name: "edit_file",
+        input: { path: "parse.ts", old_string: "a", new_string: "b" },
+        result: "edited",
+        skipped: false,
+      },
+      {
+        step: 4,
+        name: "run_command",
+        input: { command: "npm test" },
+        result: "ok",
+        skipped: false,
+      },
+    ],
+    "Done",
+  );
+
+  assert.equal(summary.total, 5);
+  assert.equal(summary.specializedTotal, 2);
+  assert.equal(summary.specializedByName.read_symbol, 1);
+  assert.equal(summary.specializedByName.get_dependencies, 1);
+  assert.equal(summary.fileReadTotal, 1);
+  assert.equal(summary.mutationTotal, 1);
+  assert.equal(summary.commandTotal, 1);
+  assert.deepEqual(summary.repeatedToolCalls, []);
+});
+
+test("benchmark tool usage summary reports repeated-call stops", () => {
+  const summary = summarizeBenchmarkToolUsage(
+    [
+      {
+        step: 1,
+        name: "read_file",
+        input: { path: "accumulate.ts" },
+        result: "stub",
+        skipped: false,
+      },
+      {
+        step: 2,
+        name: "read_file",
+        input: { path: "accumulate.ts" },
+        result: "stub",
+        skipped: false,
+      },
+      {
+        step: 3,
+        name: "read_file",
+        input: { path: "accumulate.ts" },
+        result: "Tool skipped: Stopped due to repeated identical tool calls. Please refine the prompt or provide additional constraints.",
+        skipped: true,
+      },
+    ],
+    "Stopped due to repeated identical tool calls. Please refine the prompt or provide additional constraints.",
+  );
+
+  assert.equal(summary.repeatedStop, true);
+  assert.equal(summary.skippedTotal, 1);
+  assert.deepEqual(summary.repeatedToolCalls, [
+    {
+      name: "read_file",
+      input: { path: "accumulate.ts" },
+      count: 3,
+    },
+  ]);
 });
