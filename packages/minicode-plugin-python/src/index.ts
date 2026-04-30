@@ -511,6 +511,30 @@ function createPlugin() {
       }
 
       /**
+       * Resolve `objName.attrName` where `objName` is a local identifier (e.g.
+       * an `import x as y` alias or a `from pkg import mod` re-export). Only
+       * returns symbols from the file the alias resolves to — never falls
+       * back to a global match on `attrName`, since that would emit edges to
+       * unrelated same-named symbols in other modules.
+       *
+       * Returns an empty array when `objName` isn't a known alias, when the
+       * alias target doesn't map to a project file (external module), or
+       * when no symbol with that name exists in the resolved file.
+       */
+      function resolveAttributeOnModuleAlias(
+        objName: string,
+        attrName: string,
+        aliases: Map<string, string>,
+        kinds?: IndexedSymbol["kind"][],
+      ): IndexedSymbol[] {
+        const aliasTarget = aliases.get(objName);
+        if (aliasTarget === undefined) return [];
+        const targetFile = moduleToFile.get(aliasTarget);
+        if (targetFile === undefined) return [];
+        return resolveCandidates(attrName, targetFile, kinds);
+      }
+
+      /**
        * Resolve a name as it appears at a callsite into one or more candidate
        * symbols, biased toward (1) the importing file's local aliases, then
        * (2) same-file symbols, then (3) any project symbol with that name.
@@ -600,30 +624,24 @@ function createPlugin() {
                       const targets = resolveCandidates(fq, filePath, ["method"]);
                       addResolvedEdges(from, targets, "calls");
                     }
+                  } else if (aliases.has(objName)) {
+                    // Module-qualified call: `mod.foo()` where `mod` is a
+                    // known import alias. Resolve strictly within the
+                    // module's file — never fall back to global, which
+                    // would pollute the graph with same-named symbols
+                    // defined in other modules.
+                    const targets = resolveAttributeOnModuleAlias(
+                      objName,
+                      attrName,
+                      aliases,
+                      ["function", "class", "method"],
+                    );
+                    addResolvedEdges(from, targets, "calls");
                   } else {
-                    const aliasTarget = aliases.get(objName);
-                    if (aliasTarget !== undefined) {
-                      // Module-qualified call: `mod.foo()` → look up `<aliasTarget>.foo`.
-                      const fq = `${aliasTarget}.${attrName}`;
-                      const targets = resolveName(fq, filePath, aliases, [
-                        "function",
-                        "class",
-                        "method",
-                      ]);
-                      addResolvedEdges(from, targets, "calls");
-                      // Also try the leaf — `mod.foo` might be a same-named symbol.
-                      const leafMatches = resolveCandidates(attrName, undefined, [
-                        "function",
-                        "class",
-                        "method",
-                      ]);
-                      addResolvedEdges(from, leafMatches, "calls");
-                    } else {
-                      // `Foo.bar()` where Foo is a class symbol: try `Foo.bar`.
-                      const fq = `${objName}.${attrName}`;
-                      const targets = resolveName(fq, filePath, aliases, ["method"]);
-                      addResolvedEdges(from, targets, "calls");
-                    }
+                    // `Foo.bar()` where Foo is a class symbol: try `Foo.bar`.
+                    const fq = `${objName}.${attrName}`;
+                    const targets = resolveName(fq, filePath, aliases, ["method"]);
+                    addResolvedEdges(from, targets, "calls");
                   }
                 }
               }
@@ -652,18 +670,34 @@ function createPlugin() {
               const supers = node.childForFieldName("superclasses");
               if (supers) {
                 for (const arg of supers.namedChildren) {
-                  let baseName: string | null = null;
-                  if (arg.type === "identifier") baseName = arg.text;
-                  else if (arg.type === "attribute") {
-                    // `mod.Base` — use the attribute leaf as the candidate base name.
-                    baseName = arg.childForFieldName("attribute")?.text ?? null;
+                  if (arg.type === "identifier") {
+                    const targets = resolveName(arg.text, filePath, aliases, [
+                      "class",
+                      "interface",
+                    ]);
+                    addResolvedEdges(fqClass, targets, "extends");
+                  } else if (arg.type === "attribute") {
+                    // `mod.Base`: resolve the qualifier through the alias map
+                    // and look up the attribute strictly within the resolved
+                    // module's file. Never fall back to a global leaf match,
+                    // which would erroneously extend any same-named class in
+                    // an unrelated module.
+                    const objectNode = arg.childForFieldName("object");
+                    const attrNode = arg.childForFieldName("attribute");
+                    const attrName = attrNode?.text ?? "";
+                    if (
+                      objectNode?.type === "identifier" &&
+                      attrName.length > 0
+                    ) {
+                      const targets = resolveAttributeOnModuleAlias(
+                        objectNode.text,
+                        attrName,
+                        aliases,
+                        ["class", "interface"],
+                      );
+                      addResolvedEdges(fqClass, targets, "extends");
+                    }
                   }
-                  if (baseName === null || baseName.length === 0) continue;
-                  const targets = resolveName(baseName, filePath, aliases, [
-                    "class",
-                    "interface",
-                  ]);
-                  addResolvedEdges(fqClass, targets, "extends");
                 }
               }
             }

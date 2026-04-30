@@ -325,6 +325,100 @@ test("Python plugin indexes .pyi stub files", async () => {
   );
 });
 
+test("Python plugin module-qualified calls do not pollute edges with same-named symbols in other modules", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-modcall-"));
+  await writeFile(
+    path.join(workspaceRoot, "helpers.py"),
+    "def parse():\n    return 1\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "validator.py"),
+    "def parse():\n    return 2\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "import helpers",
+      "",
+      "def run():",
+      "    return helpers.parse()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const callEdgesFromRun = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "run",
+  );
+
+  // The run function should only call parse from helpers.py, not from validator.py.
+  const helpersParse = index.getSymbolsInFile("helpers.py").find((s) => s.name === "parse");
+  const validatorParse = index.getSymbolsInFile("validator.py").find((s) => s.name === "parse");
+  assert.ok(helpersParse && validatorParse);
+
+  assert.ok(
+    callEdgesFromRun.some((e) => e.to === helpersParse!.qualifiedName),
+    "run should call helpers.parse",
+  );
+  assert.ok(
+    !callEdgesFromRun.some((e) => e.to === validatorParse!.qualifiedName),
+    "run should NOT call validator.parse — module-qualified calls must not fall back to global leaf matches",
+  );
+});
+
+test("Python plugin attribute base classes resolve via alias, not bare leaf", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-attr-base-"));
+  await mkdir(path.join(workspaceRoot, "pkg"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "pkg", "__init__.py"),
+    "",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "pkg", "base.py"),
+    "class Base:\n    pass\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "pkg", "other.py"),
+    "class Base:\n    pass\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "pkg", "sub.py"),
+    [
+      "from . import base",
+      "",
+      "class Sub(base.Base):",
+      "    pass",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const baseInBaseFile = index.getSymbolsInFile("pkg/base.py").find((s) => s.name === "Base");
+  const baseInOtherFile = index.getSymbolsInFile("pkg/other.py").find((s) => s.name === "Base");
+  assert.ok(baseInBaseFile && baseInOtherFile);
+
+  const extendsFromSub = index.dependencyEdges.filter(
+    (e) => e.kind === "extends" && e.from === "Sub",
+  );
+  assert.ok(
+    extendsFromSub.some((e) => e.to === baseInBaseFile!.qualifiedName),
+    "Sub should extend Base from pkg/base.py via the `base` alias",
+  );
+  assert.ok(
+    !extendsFromSub.some((e) => e.to === baseInOtherFile!.qualifiedName),
+    "Sub should NOT extend Base from pkg/other.py — attribute bases must use the alias target's module file, not the bare leaf",
+  );
+});
+
 test("buildProjectIndex disambiguates colliding Python symbols across files", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-collide-"));
   await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
