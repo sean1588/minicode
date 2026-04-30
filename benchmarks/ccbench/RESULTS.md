@@ -26,6 +26,13 @@ approached 150 assistant steps, so the initial `50`-step cap does not appear to
 explain the `44.4%` baseline. The higher-budget run is useful evidence that
 turn budget alone is not the next optimization target.
 
+A focused two-task rerun on the tasks that regressed in the `maxSteps=150` lane
+showed both tasks can pass repeatedly, which reinforces that run-to-run variance
+is high on this small sample. A softened tool-guidance prompt also passed both
+tasks while using fewer total calls and far fewer input tokens. This is only a
+small ablation slice, but it suggests the next full-lane experiment should test
+the softer prompt before drawing conclusions about symbol-aware tools.
+
 To reproduce:
 
 ```bash
@@ -91,6 +98,31 @@ Aggregate tool usage:
 - searches: `19`
 - shell commands: `31`
 - mutations: `58`
+
+## 2026-04-30 Two-Task Prompt Ablation
+
+Scope:
+
+- `interpreter-statements-and-state-typescript-armadillo-657`
+- `redis-transactions-typescript-mallard-191`
+
+Both tasks had passed in the default full-lane run and failed in the
+`maxSteps=150` full-lane run. The reruns below use `openai/gpt-5.4` through
+OpenRouter.
+
+| Prompt | Score | Runtime | Input tokens | Output tokens | Tool calls | Specialized | File reads | Searches | Commands | Mutations | Job |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Current prompt | `100%` (`2/2`) | `9m55s` | `1,454,623` | `17,059` | `89` | `5` | `23` | `3` | `24` | `29` | `/tmp/minicode-ccbench-ablation-jobs/current-prompt-two-task/result.json` |
+| Softened tool guidance | `100%` (`2/2`) | `9m17s` | `570,749` | `17,727` | `60` | `0` | `34` | `3` | `6` | `13` | `/tmp/minicode-ccbench-ablation-jobs/soft-prompt-two-task/result.json` |
+
+Per-task detail:
+
+| Prompt | Task | Reward | Assistant steps | Tool calls | Specialized | File reads | Commands | Mutations |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Current | `interpreter-statements-and-state-typescript-armadillo-657` | `1.0` | `39` | `57` | `2` | `19` | `23` | `10` |
+| Current | `redis-transactions-typescript-mallard-191` | `1.0` | `25` | `32` | `3` | `4` | `1` | `19` |
+| Softened | `interpreter-statements-and-state-typescript-armadillo-657` | `1.0` | `13` | `32` | `0` | `18` | `3` | `7` |
+| Softened | `redis-transactions-typescript-mallard-191` | `1.0` | `15` | `28` | `0` | `16` | `3` | `6` |
 
 ## Published Full-Suite Baselines
 
