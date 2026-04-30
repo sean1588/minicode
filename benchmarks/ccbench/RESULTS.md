@@ -7,6 +7,7 @@ subset of [`codecrafters-io/ccbench`](https://github.com/codecrafters-io/ccbench
 
 | Date | Agent | Provider | Model | Scope | Score | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-30 | minicode | OpenRouter | `moonshotai/kimi-k2.6` | 9 public JS/TS tasks | `11.1%` (`1/9`) | Full JS/TS subset through Harbor using the current PR tarball and softened tool guidance. Runtime: `51m27s`. Exceptions: `0`. Job: `/tmp/minicode-ccbench-jobs/kimi-k2-6-js-ts/result.json`. |
 | 2026-04-30 | minicode | OpenRouter | `qwen/qwen3-14b` | 2-task prompt ablation, `maxContextTokens=30000` | `0%` (`0/2`) | Local-sized model probe against the two flip-prone TypeScript tasks. Both current and softened prompts failed; softened prompt hit repeated-tool-call stops on both tasks. Jobs: `/tmp/minicode-ccbench-ablation-jobs/qwen3-14b-current-prompt-two-task/result.json`, `/tmp/minicode-ccbench-ablation-jobs/qwen3-14b-soft-prompt-two-task/result.json`. |
 | 2026-04-29 | minicode | OpenRouter | `openai/gpt-5.4` | 9 public JS/TS tasks, `maxSteps=150` | `22.2%` (`2/9`) | Follow-up turn-budget lane. Runtime: `33m14s`. Exceptions: `0`. No task came close to the 150-step ceiling; two previously passing tasks regressed. Job: `/tmp/minicode-ccbench-jobs/2026-04-29__23-01-24/result.json`. |
 | 2026-04-29 | minicode | OpenRouter | `openai/gpt-5.4` | 9 public JS/TS tasks | `44.4%` (`4/9`) | Full JS/TS subset through Harbor. Runtime: `40m21s`. Exceptions: `0`. Job: `/tmp/minicode-ccbench-jobs/2026-04-29__22-07-41/result.json`. |
@@ -99,6 +100,47 @@ Aggregate tool usage:
 - searches: `19`
 - shell commands: `31`
 - mutations: `58`
+
+## 2026-04-30 Kimi K2.6 JS/TS Breakdown
+
+This run used `moonshotai/kimi-k2.6` through OpenRouter with
+`maxContextTokens=100000`, the current PR tarball, and the softened tool
+guidance prompt. OpenRouter also exposes a moving `~moonshotai/kimi-latest`
+alias, but this run used the explicit model ID so the result remains
+reproducible.
+
+| Task | Reward | Duration | Tool calls | Specialized | File reads | Searches | Commands | Mutations | Specialized tools |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `grep-backreferences-typescript-gnu-309` | `0.0` | `94s` | `7` | `0` | `4` | `0` | `0` | `0` | none |
+| `interpreter-control-flow-typescript-wolf-690` | `1.0` | `405s` | `71` | `15` | `23` | `0` | `20` | `11` | `read_symbol` `12`, `search_code_map` `3` |
+| `interpreter-resolving-binding-typescript-walrus-974` | `0.0` | `349s` | `40` | `11` | `22` | `1` | `3` | `0` | `read_symbol` `11` |
+| `interpreter-statements-and-state-typescript-armadillo-657` | `0.0` | `102s` | `16` | `0` | `14` | `0` | `0` | `0` | none |
+| `kafka-consuming-messages-javascript-platypus-901` | `0.0` | `103s` | `15` | `0` | `12` | `0` | `0` | `0` | none |
+| `kafka-listing-partitions-javascript-beetle-650` | `0.0` | `326s` | `17` | `0` | `13` | `0` | `1` | `0` | none |
+| `kafka-listing-partitions-javascript-fox-266` | `0.0` | `231s` | `16` | `0` | `13` | `0` | `0` | `0` | none |
+| `redis-transactions-javascript-antelope-677` | `0.0` | `127s` | `21` | `0` | `18` | `0` | `0` | `0` | none |
+| `redis-transactions-typescript-mallard-191` | `0.0` | `214s` | `16` | `0` | `14` | `0` | `0` | `0` | none |
+
+Aggregate tool usage:
+
+- total tool calls: `219`
+- specialized structural tool calls: `26` (`11.9%`)
+- file reads: `133` (`60.7%`)
+- searches: `1`
+- shell commands: `24`
+- mutations: `11`
+
+Notes:
+
+- Kimi K2.6 completed the full JS/TS lane without infra exceptions but scored
+  `11.1%` (`1/9`), below the GPT-5.4 baseline.
+- The successful task was the only one where the model entered a full
+  implementation loop with mutations and repeated command execution.
+- Most failed tasks ended after inspection with zero mutations, so the dominant
+  failure mode appears to be under-action rather than tool failure.
+- The result suggests Kimi may need stronger benchmark-mode instruction to
+  implement and test changes, but the same prompt should not be changed
+  mid-comparison without rerunning the other baselines.
 
 ## 2026-04-30 Two-Task Prompt Ablation
 
