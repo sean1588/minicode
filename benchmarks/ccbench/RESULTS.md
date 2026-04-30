@@ -7,13 +7,20 @@ subset of [`codecrafters-io/ccbench`](https://github.com/codecrafters-io/ccbench
 
 | Date | Agent | Provider | Model | Scope | Score | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-29 | minicode | OpenRouter | `openai/gpt-5.4` | 9 public JS/TS tasks | `44.4%` (`4/9`) | Full JS/TS subset through Harbor. Runtime: `40m21s`. Exceptions: `0`. Job: `/tmp/minicode-ccbench-jobs/2026-04-29__22-07-41/result.json`. |
 | 2026-04-29 | minicode | OpenRouter | `anthropic/claude-sonnet-4.6` | 1 TypeScript smoke task | `0/1` | Harbor plumbing reached the task, but the model request failed with OpenRouter `402 Insufficient credits`; this is not a valid capability result. |
 
 ## Current Status
 
-The Harbor adapter and CCBench JS/TS wrapper are ready, and the smoke run now
-fails honestly when the model provider rejects the request. A valid scored run
-still needs model credits or a direct provider key. Use:
+The Harbor adapter and CCBench JS/TS wrapper are ready. The first valid JS/TS
+subset run completed with `minicode + openai/gpt-5.4` through OpenRouter:
+
+- score: `44.4%` (`4/9`)
+- runtime: `40m21s`
+- exceptions: `0`
+- tokens: `3,567,729` input and `75,391` output, as reported by Harbor
+
+To reproduce:
 
 ```bash
 CCBENCH_PACKAGE_SPEC=@sean.holung/minicode ./scripts/run-ccbench-js-ts.sh
@@ -32,6 +39,29 @@ the tarball URL as documented in [`README.md`](./README.md).
   package version so future comparisons are honest.
 - A JS/TS-only score should not be presented as directly equivalent to the
   official full-suite CCBench percentage.
+
+## 2026-04-29 GPT-5.4 JS/TS Breakdown
+
+| Task | Reward | Duration | Tool calls | Specialized | File reads | Searches | Commands | Mutations | Specialized tools |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `grep-backreferences-typescript-gnu-309` | `1.0` | `113.3s` | `20` | `1` | `6` | `0` | `8` | `2` | `read_symbol` `1` |
+| `interpreter-control-flow-typescript-wolf-690` | `1.0` | `104.2s` | `67` | `26` | `25` | `1` | `3` | `10` | `read_symbol` `23`, `search_code_map` `3` |
+| `interpreter-resolving-binding-typescript-walrus-974` | `0.0` | `142.7s` | `79` | `20` | `28` | `2` | `3` | `23` | `read_symbol` `12`, `search_code_map` `8` |
+| `interpreter-statements-and-state-typescript-armadillo-657` | `1.0` | `244.4s` | `65` | `5` | `17` | `1` | `30` | `10` | `read_symbol` `5` |
+| `kafka-consuming-messages-javascript-platypus-901` | `0.0` | `55.4s` | `43` | `9` | `17` | `7` | `1` | `5` | `read_symbol` `5`, `search_code_map` `4` |
+| `kafka-listing-partitions-javascript-fox-266` | `0.0` | `97.7s` | `20` | `0` | `8` | `2` | `4` | `2` | none |
+| `kafka-listing-partitions-javascript-beetle-650` | `0.0` | `95.8s` | `28` | `3` | `14` | `1` | `5` | `2` | `read_symbol` `3` |
+| `redis-transactions-javascript-antelope-677` | `0.0` | `100.0s` | `44` | `2` | `27` | `4` | `1` | `6` | `search_code_map` `2` |
+| `redis-transactions-typescript-mallard-191` | `1.0` | `86.3s` | `22` | `0` | `14` | `0` | `3` | `4` | none |
+
+Aggregate tool usage:
+
+- total tool calls: `388`
+- specialized structural tool calls: `66` (`17.0%`)
+- file reads: `156` (`40.2%`)
+- searches: `18`
+- shell commands: `58`
+- mutations: `64`
 
 ## Published Full-Suite Baselines
 

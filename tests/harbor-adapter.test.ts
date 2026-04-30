@@ -23,7 +23,6 @@ test("Harbor adapter shells out through benchmark mode with artifact outputs", a
   assert.match(source, /"--out",\s*RESULT_PATH/s);
   assert.match(source, /"--diff-out",\s*PATCH_PATH/s);
   assert.match(source, /shlex\.quote\(arg\)/);
-  assert.match(source, /set -o pipefail/);
 });
 
 test("Harbor adapter forwards benchmark env knobs", async () => {

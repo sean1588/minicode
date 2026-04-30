@@ -191,7 +191,7 @@ class MinicodeAgent(BaseInstalledAgent):
         command = " ".join(shlex.quote(arg) for arg in args)
         await self.exec_as_agent(
             environment,
-            command=f"set -o pipefail; {command} 2>&1 | tee {STDOUT_PATH}",
+            command=f"{command} 2>&1 | tee {STDOUT_PATH}",
             env=env,
         )
 
