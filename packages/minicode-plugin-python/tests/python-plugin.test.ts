@@ -33,21 +33,33 @@ const SAMPLE_PY = [
   "",
 ].join("\n");
 
-test("Python plugin extracts classes, methods, functions, type aliases", () => {
+test("Python plugin extracts classes, methods, functions, type aliases with module-prefixed qualifiedNames", () => {
   const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
   const names = symbols.map((s) => s.qualifiedName);
-  assert.ok(names.includes("Animal"));
-  assert.ok(names.includes("Animal.__init__"));
-  assert.ok(names.includes("Animal.fetch"));
-  assert.ok(names.includes("Dog"));
-  assert.ok(names.includes("Dog.speak"));
-  assert.ok(names.includes("helper"));
-  assert.ok(names.includes("Vec"));
+  assert.ok(names.includes("sample.Animal"));
+  assert.ok(names.includes("sample.Animal.__init__"));
+  assert.ok(names.includes("sample.Animal.fetch"));
+  assert.ok(names.includes("sample.Dog"));
+  assert.ok(names.includes("sample.Dog.speak"));
+  assert.ok(names.includes("sample.helper"));
+  assert.ok(names.includes("sample.Vec"));
+});
+
+test("Python plugin exposes un-prefixed Class.method form as an alias", () => {
+  const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
+  const fetch = symbols.find((s) => s.qualifiedName === "sample.Animal.fetch");
+  assert.ok(fetch);
+  // The agent-friendly `Class.method` form must remain a valid lookup key
+  // so users (and the LLM) don't have to know the module path.
+  assert.ok(
+    (fetch!.aliases ?? []).includes("Animal.fetch"),
+    "Animal.fetch should be in aliases",
+  );
 });
 
 test("Python plugin marks async def in signature", () => {
   const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
-  const fetch = symbols.find((s) => s.qualifiedName === "Animal.fetch");
+  const fetch = symbols.find((s) => s.qualifiedName === "sample.Animal.fetch");
   assert.ok(fetch);
   assert.ok(
     fetch!.signature.startsWith("async def fetch"),
@@ -57,15 +69,15 @@ test("Python plugin marks async def in signature", () => {
 
 test("Python plugin extracts class-superclass header in signature", () => {
   const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
-  const dog = symbols.find((s) => s.qualifiedName === "Dog");
+  const dog = symbols.find((s) => s.qualifiedName === "sample.Dog");
   assert.ok(dog);
   assert.equal(dog!.signature, "class Dog(Animal)");
 });
 
 test("Python plugin extracts docstrings as docComment", () => {
   const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
-  const animal = symbols.find((s) => s.qualifiedName === "Animal");
-  const speak = symbols.find((s) => s.qualifiedName === "Dog.speak");
+  const animal = symbols.find((s) => s.qualifiedName === "sample.Animal");
+  const speak = symbols.find((s) => s.qualifiedName === "sample.Dog.speak");
   assert.ok(animal);
   assert.ok(speak);
   assert.equal(animal!.docComment, "An animal.");
@@ -116,7 +128,17 @@ test("Python plugin handles nested classes with correct qualified names", () => 
   ].join("\n");
   const symbols = pythonPlugin.indexFile("nested.py", code);
   const names = symbols.map((s) => s.qualifiedName).sort();
-  assert.deepEqual(names, ["Outer", "Outer.Inner", "Outer.Inner.m", "Outer.o"]);
+  assert.deepEqual(names, [
+    "nested.Outer",
+    "nested.Outer.Inner",
+    "nested.Outer.Inner.m",
+    "nested.Outer.o",
+  ]);
+  // The bare `Class.method` form is preserved as an alias so existing
+  // user-facing lookups continue to work.
+  const innerM = symbols.find((s) => s.qualifiedName === "nested.Outer.Inner.m");
+  assert.ok(innerM);
+  assert.ok((innerM!.aliases ?? []).includes("Outer.Inner.m"));
 });
 
 test("Python plugin extracts PEP 695 type alias signature", () => {
@@ -194,6 +216,73 @@ test("Python plugin honors __all__ for top-level exported flag", () => {
   assert.equal(get("not_listed").exported, false);
   assert.equal(get("_private_but_listed").exported, true);
   assert.equal(get("_private").exported, false);
+});
+
+test("Python plugin strips src/ source-root prefix in qualifiedNames", () => {
+  const symbols = pythonPlugin.indexFile(
+    "src/parser.py",
+    "def parse():\n    return 1\n",
+  );
+  const parse = symbols.find((s) => s.name === "parse");
+  assert.ok(parse);
+  assert.equal(
+    parse!.qualifiedName,
+    "parser.parse",
+    "src/ should be stripped, leaving the file's basename as the module",
+  );
+});
+
+test("Python plugin strips lib/ source-root prefix in qualifiedNames", () => {
+  const symbols = pythonPlugin.indexFile(
+    "lib/util.py",
+    "def helper():\n    return 1\n",
+  );
+  const helper = symbols.find((s) => s.name === "helper");
+  assert.ok(helper);
+  assert.equal(helper!.qualifiedName, "util.helper");
+});
+
+test("Python plugin preserves nested package path under stripped source root", () => {
+  const symbols = pythonPlugin.indexFile(
+    "src/services/parser.py",
+    "def parse():\n    return 1\n",
+  );
+  const parse = symbols.find((s) => s.name === "parse");
+  assert.ok(parse);
+  assert.equal(
+    parse!.qualifiedName,
+    "services.parser.parse",
+    "src/ stripped, but nested directories remain as part of the module path",
+  );
+});
+
+test("Python plugin handles __init__.py: top-level becomes the package name", () => {
+  const symbols = pythonPlugin.indexFile(
+    "src/foo/__init__.py",
+    "def init_helper():\n    return 1\n",
+  );
+  const helper = symbols.find((s) => s.name === "init_helper");
+  assert.ok(helper);
+  assert.equal(
+    helper!.qualifiedName,
+    "foo.init_helper",
+    "__init__.py is stripped from the path, leaving the package name",
+  );
+});
+
+test("Python plugin handles __init__.py at the stripped root: no prefix", () => {
+  const symbols = pythonPlugin.indexFile(
+    "src/__init__.py",
+    "def root_helper():\n    return 1\n",
+  );
+  const helper = symbols.find((s) => s.name === "root_helper");
+  assert.ok(helper);
+  // After stripping `src/` and `__init__`, nothing is left → no prefix.
+  assert.equal(
+    helper!.qualifiedName,
+    "root_helper",
+    "symbols at the stripped source root get no module prefix",
+  );
 });
 
 test("Python plugin marks Protocol classes as interfaces", () => {

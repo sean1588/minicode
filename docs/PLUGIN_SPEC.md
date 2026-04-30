@@ -321,12 +321,20 @@ It extracts:
 
 It implements `resolveDependencies` with:
 
-- A project-wide module resolver: `src/parser.py` and `src/parser/__init__.py` both map to module `src.parser`
+- A project-wide module resolver: `src/parser.py` and `src/parser/__init__.py` both map to module `parser` (a leading `src/` or `lib/` segment is stripped as a conventional source root)
 - Per-file alias maps from `import` and `from ... import`, including relative imports (`from .x import y`)
 - `extends` edges from `class Foo(Bar):` headers, resolved through the alias map
 - `calls` edges for bare calls, `self.method()` / `cls.method()`, `module.attr()` (via the alias map), and `Class.method()`
 
 Both `.py` and `.pyi` (stub) files are indexed.
+
+### Module-prefixed `qualifiedName`
+
+Top-level Python symbols use module-prefixed qualified names: `parse()` in `helpers.py` becomes `helpers.parse`, and method `bar` of class `Foo` in `helpers.py` becomes `helpers.Foo.bar`. This matches how Python users actually reference symbols in their code (`from helpers import parse`, `helpers.Foo.bar`).
+
+Source-root segments (`src/`, `lib/`) are stripped: `src/parser.py` → module `parser`, not `src.parser`. The TypeScript plugin keeps its existing bare-name scheme since TS modules are file-scoped, not name-scoped.
+
+User-natural lookups still work: `getSymbol("Foo")` and `getSymbol("Foo.bar")` resolve through the existing alias system. The plugin emits the un-prefixed `Class.method` form as an explicit `aliases` entry so neither the agent nor a human has to know the module path to reference a symbol.
 
 ---
 
