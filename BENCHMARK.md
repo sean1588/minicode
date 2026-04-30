@@ -1,9 +1,10 @@
 # Benchmarking
 
-`minicode` has two benchmark surfaces:
+`minicode` has three benchmark surfaces:
 
 - `minicode benchmark run` for non-interactive harness integrations
 - `ts-bench` for external TypeScript agent comparisons
+- `CCBench` through Harbor for realistic CodeCrafters JS/TS tasks
 
 ## Quick Start
 
@@ -29,6 +30,16 @@ By default the wrapper will:
 
 Results are written by `ts-bench` under `/tmp/ts-bench/results/`.
 
+Run the public CCBench JavaScript/TypeScript subset through Harbor:
+
+```bash
+npm run benchmark:ccbench:js-ts
+```
+
+By default the wrapper clones CCBench into `/tmp/ccbench`, filters to task names
+containing `javascript` or `typescript`, and writes Harbor jobs under
+`/tmp/minicode-ccbench-jobs`.
+
 ## Important env vars
 
 - `TS_BENCH_MODEL`: model id to evaluate, for example `openai/gpt-5`
@@ -37,6 +48,10 @@ Results are written by `ts-bench` under `/tmp/ts-bench/results/`.
 - `TS_BENCH_ENV_FILE`: dotenv file with provider credentials. Defaults to `~/.minicode/.env`
 - `TS_BENCH_INSTALL_DEPS`: set to `0` to skip `bun install`
 - `TS_BENCH_SKIP_BUILD`: set to `1` to skip rebuilding `minicode`
+- `CCBENCH_MODEL`: model id for CCBench, defaults to `anthropic/claude-sonnet-4.6`
+- `CCBENCH_PROVIDER`: `openrouter`, `openai`, `openai-compatible`, or `anthropic`
+- `CCBENCH_PACKAGE_SPEC`: npm package spec installed inside Harbor containers
+- `CCBENCH_ENV_FILE`: dotenv file with provider credentials. Defaults to `~/.minicode/.env`
 
 Advanced benchmark-layer tuning still works through the `MINICODE_BENCHMARK_*` env vars described in [benchmarks/ts-bench/README.md](./benchmarks/ts-bench/README.md).
 
@@ -54,4 +69,6 @@ Benchmark mode also adds a non-interactive system-prompt suffix so the agent act
 
 - Runtime/reference docs: [docs/BENCHMARKING.md](./docs/BENCHMARKING.md)
 - `ts-bench` workflow details: [benchmarks/ts-bench/README.md](./benchmarks/ts-bench/README.md)
-- Current recorded results: [benchmarks/ts-bench/RESULTS.md](./benchmarks/ts-bench/RESULTS.md)
+- CCBench workflow details: [benchmarks/ccbench/README.md](./benchmarks/ccbench/README.md)
+- Current `ts-bench` results: [benchmarks/ts-bench/RESULTS.md](./benchmarks/ts-bench/RESULTS.md)
+- Current CCBench results: [benchmarks/ccbench/RESULTS.md](./benchmarks/ccbench/RESULTS.md)

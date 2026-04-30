@@ -95,7 +95,8 @@ class MinicodeAgent(BaseInstalledAgent):
             environment,
             command=(
                 "if ! command -v node >/dev/null 2>&1 || "
-                "! node -e \"process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)\"; "
+                "! node -e \"process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)\" || "
+                "! command -v npm >/dev/null 2>&1; "
                 "then "
                 "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && "
                 "apt-get install -y nodejs; "
@@ -190,7 +191,7 @@ class MinicodeAgent(BaseInstalledAgent):
         command = " ".join(shlex.quote(arg) for arg in args)
         await self.exec_as_agent(
             environment,
-            command=f"{command} 2>&1 | tee {STDOUT_PATH}",
+            command=f"set -o pipefail; {command} 2>&1 | tee {STDOUT_PATH}",
             env=env,
         )
 

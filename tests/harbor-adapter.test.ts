@@ -23,6 +23,7 @@ test("Harbor adapter shells out through benchmark mode with artifact outputs", a
   assert.match(source, /"--out",\s*RESULT_PATH/s);
   assert.match(source, /"--diff-out",\s*PATCH_PATH/s);
   assert.match(source, /shlex\.quote\(arg\)/);
+  assert.match(source, /set -o pipefail/);
 });
 
 test("Harbor adapter forwards benchmark env knobs", async () => {
@@ -60,6 +61,12 @@ test("Harbor adapter installs native build prerequisites for fresh containers", 
   const source = await readAdapter();
 
   assert.match(source, /build-essential python3/);
+});
+
+test("Harbor adapter installs Node when npm is missing from benchmark containers", async () => {
+  const source = await readAdapter();
+
+  assert.match(source, /command -v npm/);
 });
 
 test("Harbor adapter documents local tarball smoke testing", async () => {
