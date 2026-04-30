@@ -47,7 +47,8 @@
     "test": "node --test --import tsx \"tests/**/*.test.ts\" \"packages/*/tests/**/*.test.ts\"",
     "verify-index": "node --import tsx test-programs/verify-index/verify.ts",
     "benchmark": "node --import tsx scripts/run-benchmarks.ts",
-    "benchmark:ts-bench": "bash ./scripts/run-ts-bench.sh"
+    "benchmark:ts-bench": "bash ./scripts/run-ts-bench.sh",
+    "benchmark:ccbench:js-ts": "bash ./scripts/run-ccbench-js-ts.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",

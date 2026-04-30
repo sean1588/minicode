@@ -62,6 +62,12 @@ test("Harbor adapter installs native build prerequisites for fresh containers", 
   assert.match(source, /build-essential python3/);
 });
 
+test("Harbor adapter installs Node when npm is missing from benchmark containers", async () => {
+  const source = await readAdapter();
+
+  assert.match(source, /command -v npm/);
+});
+
 test("Harbor adapter documents local tarball smoke testing", async () => {
   const readme = await readFile(
     path.join(repoRoot, "benchmarks", "harbor", "README.md"),
