@@ -457,13 +457,23 @@ function focusFileInGraph(filePath: string): void {
   runLayout();
 }
 
-function getFilePreviewLanguage(filePath: string): string {
+/**
+ * Map a file path to a highlight.js language name. Falls back to `plaintext`
+ * for unknown extensions — never to a guessed language, since a wrong guess
+ * (e.g. rendering Python as TypeScript) is worse than no highlighting.
+ *
+ * Adding a new language: add the extension here AND load the matching
+ * `languages/<lang>.min.js` script in `index.html`.
+ */
+function getHljsLanguage(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() || '';
   const langMap: Record<string, string> = {
     ts: 'typescript',
     tsx: 'typescript',
     js: 'javascript',
     jsx: 'javascript',
+    py: 'python',
+    pyi: 'python',
     json: 'json',
     md: 'markdown',
     css: 'css',
@@ -527,7 +537,7 @@ async function openFilePreview(filePath: string): Promise<void> {
     }
 
     pathEl.textContent = data.filePath;
-    codeEl.className = `file-preview-code language-${getFilePreviewLanguage(data.filePath)}`;
+    codeEl.className = `file-preview-code language-${getHljsLanguage(data.filePath)}`;
     codeEl.textContent = data.source;
     if (typeof hljs !== 'undefined') {
       hljs.highlightElement(codeEl);
@@ -1285,9 +1295,7 @@ async function loadSource(name: string, detailEl: HTMLElement): Promise<void> {
     const res = await fetch(`/api/symbols/${encodeURIComponent(name)}/source`);
     if (res.ok) {
       const data = await res.json();
-      const ext = (data.filePath || '').split('.').pop() || '';
-      const langMap: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript' };
-      const lang = langMap[ext] || 'typescript';
+      const lang = getHljsLanguage(data.filePath || '');
       codeEl.className = 'detail-code language-' + lang;
       codeEl.textContent = data.source;
       if (typeof hljs !== 'undefined') {
