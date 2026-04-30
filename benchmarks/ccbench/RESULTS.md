@@ -7,6 +7,7 @@ subset of [`codecrafters-io/ccbench`](https://github.com/codecrafters-io/ccbench
 
 | Date | Agent | Provider | Model | Scope | Score | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-30 | minicode | OpenRouter | `qwen/qwen3-14b` | 2-task prompt ablation, `maxContextTokens=30000` | `0%` (`0/2`) | Local-sized model probe against the two flip-prone TypeScript tasks. Both current and softened prompts failed; softened prompt hit repeated-tool-call stops on both tasks. Jobs: `/tmp/minicode-ccbench-ablation-jobs/qwen3-14b-current-prompt-two-task/result.json`, `/tmp/minicode-ccbench-ablation-jobs/qwen3-14b-soft-prompt-two-task/result.json`. |
 | 2026-04-29 | minicode | OpenRouter | `openai/gpt-5.4` | 9 public JS/TS tasks, `maxSteps=150` | `22.2%` (`2/9`) | Follow-up turn-budget lane. Runtime: `33m14s`. Exceptions: `0`. No task came close to the 150-step ceiling; two previously passing tasks regressed. Job: `/tmp/minicode-ccbench-jobs/2026-04-29__23-01-24/result.json`. |
 | 2026-04-29 | minicode | OpenRouter | `openai/gpt-5.4` | 9 public JS/TS tasks | `44.4%` (`4/9`) | Full JS/TS subset through Harbor. Runtime: `40m21s`. Exceptions: `0`. Job: `/tmp/minicode-ccbench-jobs/2026-04-29__22-07-41/result.json`. |
 | 2026-04-29 | minicode | OpenRouter | `anthropic/claude-sonnet-4.6` | 1 TypeScript smoke task | `0/1` | Harbor plumbing reached the task, but the model request failed with OpenRouter `402 Insufficient credits`; this is not a valid capability result. |
@@ -123,6 +124,40 @@ Per-task detail:
 | Current | `redis-transactions-typescript-mallard-191` | `1.0` | `25` | `32` | `3` | `4` | `1` | `19` |
 | Softened | `interpreter-statements-and-state-typescript-armadillo-657` | `1.0` | `13` | `32` | `0` | `18` | `3` | `7` |
 | Softened | `redis-transactions-typescript-mallard-191` | `1.0` | `15` | `28` | `0` | `16` | `3` | `6` |
+
+## 2026-04-30 Qwen3-14B Two-Task Prompt Ablation
+
+This run repeats the two-task prompt ablation with `qwen/qwen3-14b` through
+OpenRouter and `maxContextTokens=30000` to approximate a more local-sized model
+profile. It is a capability probe, not a leaderboard result.
+
+| Prompt | Score | Runtime | Input tokens | Output tokens | Tool calls | Specialized | File reads | Searches | Commands | Mutations | Repeated stops | Job |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Current prompt | `0%` (`0/2`) | `10m31s` | `73,323` | `16,378` | `19` | `14` | `3` | `0` | `0` | `2` | `0` | `/tmp/minicode-ccbench-ablation-jobs/qwen3-14b-current-prompt-two-task/result.json` |
+| Softened tool guidance | `0%` (`0/2`) | `16m56s` | `141,428` | `41,391` | `25` | `20` | `4` | `1` | `0` | `0` | `2` | `/tmp/minicode-ccbench-ablation-jobs/qwen3-14b-soft-prompt-two-task/result.json` |
+
+Per-task detail:
+
+| Prompt | Task | Reward | Duration | Tool calls | Specialized | File reads | Searches | Commands | Mutations | Repeated stop |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Current | `interpreter-statements-and-state-typescript-armadillo-657` | `0.0` | `200s` | `10` | `6` | `2` | `0` | `0` | `2` | `false` |
+| Current | `redis-transactions-typescript-mallard-191` | `0.0` | `111s` | `9` | `8` | `1` | `0` | `0` | `0` | `false` |
+| Softened | `interpreter-statements-and-state-typescript-armadillo-657` | `0.0` | `153s` | `8` | `8` | `0` | `0` | `0` | `0` | `true` |
+| Softened | `redis-transactions-typescript-mallard-191` | `0.0` | `535s` | `17` | `12` | `4` | `1` | `0` | `0` | `true` |
+
+Notes:
+
+- `qwen/qwen3-14b` failed both tasks under both prompt variants, so this run
+  does not support choosing a prompt from pass rate alone.
+- The current prompt produced a small number of edits but under-read broader
+  file context and never ran commands.
+- The softened prompt consumed more tokens and triggered the repeated-tool-call
+  guard on both tasks, including repeated `read_symbol` calls on the
+  interpreter task and repeated `read_file` calls on the Redis task.
+- For this model class, the next useful experiment is likely not more turn
+  budget. Better candidates are stronger loop recovery, explicit test-running
+  nudges, or a model profile that is less eager to keep inspecting after it has
+  enough context.
 
 ## Published Full-Suite Baselines
 
