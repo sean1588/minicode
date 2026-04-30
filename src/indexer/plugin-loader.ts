@@ -3,7 +3,7 @@ import { typescriptPlugin } from "./plugins/typescript.js";
 
 /**
  * Load all available language plugins.
- * Built-in: TypeScript.
+ * Built-in: TypeScript, Python.
  * Also loads: npm packages (minicode-plugin-*), local plugins (.minicode/plugins/).
  */
 export async function loadPlugins(
@@ -12,11 +12,30 @@ export async function loadPlugins(
   const plugins: LanguagePlugin[] = [];
 
   plugins.push(typescriptPlugin);
+  await loadPythonPlugin(plugins);
 
   await loadNpmPlugins(workspaceRoot, plugins);
   await loadLocalPlugins(workspaceRoot, plugins);
 
   return plugins;
+}
+
+/**
+ * Load the built-in Python plugin via dynamic import so a missing native
+ * dependency (e.g. failed `node-gyp` build for `tree-sitter`) degrades
+ * gracefully: Python files simply won't be indexed, but the rest of
+ * minicode keeps working.
+ */
+async function loadPythonPlugin(plugins: LanguagePlugin[]): Promise<void> {
+  try {
+    const mod = await import("minicode-plugin-python");
+    if (mod.pythonPlugin) plugins.push(mod.pythonPlugin);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[warn] Python plugin failed to load (Python files will not be indexed): ${message}`,
+    );
+  }
 }
 
 async function loadNpmPlugins(
