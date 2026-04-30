@@ -18,6 +18,16 @@ test("benchmark system prompt suffix clearly disables approval-seeking behavior"
   assert.match(suffix, /do not ask for confirmation/i);
 });
 
+test("benchmark system prompt suffix omits runtime budget knobs", () => {
+  const suffix = getBenchmarkSystemPromptSuffix();
+
+  assert.doesNotMatch(suffix, /maxSteps/i);
+  assert.doesNotMatch(suffix, /maxTokens/i);
+  assert.doesNotMatch(suffix, /modelTimeoutSeconds/i);
+  assert.doesNotMatch(suffix, /maxContextTokens/i);
+  assert.doesNotMatch(suffix, /commandTimeoutMs/i);
+});
+
 test("approval-seeking benchmark responses are detected", () => {
   assert.equal(
     isBenchmarkApprovalSeekingResponse(
