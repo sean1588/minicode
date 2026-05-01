@@ -93,6 +93,7 @@ Benchmark mode also adds a non-interactive system-prompt suffix so the agent act
 ## More detail
 
 - Runtime/reference docs: [docs/BENCHMARKING.md](./docs/BENCHMARKING.md)
+- Benchmark strategy and experiment matrix: [benchmarks/STRATEGY.md](./benchmarks/STRATEGY.md)
 - `ts-bench` workflow details: [benchmarks/ts-bench/README.md](./benchmarks/ts-bench/README.md)
 - CCBench workflow details: [benchmarks/ccbench/README.md](./benchmarks/ccbench/README.md)
 - SWE-bench workflow details: [benchmarks/swebench/README.md](./benchmarks/swebench/README.md)
