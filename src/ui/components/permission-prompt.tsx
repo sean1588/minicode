@@ -36,7 +36,8 @@ function formatInput(input: Record<string, unknown>): string {
  *
  * Keys:
  *   y / Return  → allow once
- *   a           → allow always (rest of session)
+ *   a           → allow ALL writes for the rest of the session (flips the
+ *                 same flag as `/permissions auto on`)
  *   n / Esc     → deny
  */
 export function PermissionPrompt({ prompt }: PermissionPromptProps): React.ReactElement {
@@ -74,7 +75,7 @@ export function PermissionPrompt({ prompt }: PermissionPromptProps): React.React
           <Text bold color="green">[y]</Text>
           <Text> allow once  </Text>
           <Text bold color="green">[a]</Text>
-          <Text> allow for session  </Text>
+          <Text> allow all writes (session)  </Text>
           <Text bold color="red">[n]</Text>
           <Text> deny</Text>
         </Text>
