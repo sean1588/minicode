@@ -148,19 +148,46 @@ function unwrapDecorated(node: SyntaxNode): { inner: SyntaxNode; outer: SyntaxNo
 }
 
 /**
+ * Source-root segments stripped from the front of a file path before computing
+ * a module name. These are conventional "source roots" in Python projects
+ * (poetry, hatch, src layout, etc.) and treating them as part of the module
+ * path produces awkward qualified names like `src.helpers.parse` that don't
+ * match anything users actually write in their imports.
+ */
+const STRIPPED_ROOTS = new Set(["src", "lib"]);
+
+/**
  * Compute a dotted Python module name from a workspace-relative file path.
+ * A single leading `src/` or `lib/` segment is dropped — those are
+ * conventional source roots, not real Python package boundaries.
  *
  * - `parser.py` → `parser`
- * - `src/parser.py` → `src.parser`
- * - `src/parser/__init__.py` → `src.parser`
- * - `src/parser/utils.pyi` → `src.parser.utils`
+ * - `src/parser.py` → `parser`
+ * - `lib/parser.py` → `parser`
+ * - `src/parser/__init__.py` → `parser`
+ * - `src/parser/utils.pyi` → `parser.utils`
+ * - `src/__init__.py` → `` (root)
  *
  * Path separators are normalised to `/` first.
  */
 function fileToModuleName(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/").replace(/\.(py|pyi)$/, "");
   const parts = normalized.split("/");
+  if (parts.length > 1 && STRIPPED_ROOTS.has(parts[0]!)) parts.shift();
   if (parts[parts.length - 1] === "__init__") parts.pop();
+  return parts.join(".");
+}
+
+/**
+ * Strip a leading source-root segment (`src.` or `lib.`) from a dotted
+ * module name. Mirrors `fileToModuleName`'s stripping so absolute imports
+ * (e.g. `from src.helpers import parse`) line up with the file-derived
+ * qualifiedNames they target.
+ */
+function stripSourceRoot(moduleName: string): string {
+  if (moduleName.length === 0) return moduleName;
+  const parts = moduleName.split(".");
+  if (parts.length > 1 && STRIPPED_ROOTS.has(parts[0]!)) parts.shift();
   return parts.join(".");
 }
 
@@ -206,7 +233,10 @@ function collectImports(
         if (nameField.type === "aliased_import") {
           const target = nameField.childForFieldName("name")?.text ?? "";
           const alias = nameField.childForFieldName("alias")?.text ?? "";
-          setAlias(alias, target);
+          // Strip `src.`/`lib.` so the alias target lines up with file-derived
+          // qualifiedNames (e.g. `import src.helpers as h` → `h` resolves to
+          // module `helpers`, which is the actual indexed namespace).
+          setAlias(alias, stripSourceRoot(target));
         } else if (nameField.type === "dotted_name") {
           const target = nameField.text;
           const localName = target.split(".")[0] ?? target;
@@ -219,7 +249,10 @@ function collectImports(
       const moduleField = stmt.childForFieldName("module_name");
       let resolvedModule: string | null = null;
       if (moduleField?.type === "dotted_name") {
-        resolvedModule = moduleField.text;
+        // `from src.helpers import X` → module `helpers` after src strip.
+        // Relative imports resolve through `fileToModuleName`, which already
+        // strips, so we only need to do this for the absolute case.
+        resolvedModule = stripSourceRoot(moduleField.text);
       } else if (moduleField?.type === "relative_import") {
         const prefix = moduleField.namedChildren.find((n) => n.type === "import_prefix");
         const dotted = moduleField.namedChildren.find((n) => n.type === "dotted_name");
@@ -264,10 +297,46 @@ function createPlugin() {
     return isExportedName(name);
   }
 
+  /**
+   * Compose a Python symbol's qualifiedName from the file's module prefix,
+   * any enclosing classes, and the symbol name. Module-prefixed names mean
+   * `helpers.parse` for top-level `parse()` in `helpers.py`, and
+   * `helpers.Foo.bar` for method `bar` of class `Foo` in `helpers.py`.
+   * Files at the workspace root (or directly under a stripped source root
+   * like `src/`) get no prefix — symbols there look like plain `Foo`.
+   */
+  function qualify(
+    modulePrefix: string,
+    classStack: string[],
+    name: string,
+  ): string {
+    const segments: string[] = [];
+    if (modulePrefix.length > 0) segments.push(modulePrefix);
+    segments.push(...classStack, name);
+    return segments.join(".");
+  }
+
+  /**
+   * Build the alias list for a symbol with a module prefix. Includes the
+   * un-prefixed `Class.method` (or `Outer.Inner`) form so user-natural
+   * lookups like `getSymbol("Foo.bar")` keep working alongside the
+   * canonical `module.Foo.bar` qualifiedName. The bare leaf name is
+   * already in `symbol.name` and doesn't need to be added here.
+   */
+  function aliasesForPrefixed(
+    modulePrefix: string,
+    classStack: string[],
+    name: string,
+  ): string[] {
+    if (modulePrefix.length === 0 || classStack.length === 0) return [];
+    return [`${classStack.join(".")}.${name}`];
+  }
+
   function emitFunction(
     headerNode: SyntaxNode,
     outerNode: SyntaxNode,
     name: string,
+    modulePrefix: string,
     classStack: string[],
     filePath: string,
     content: string,
@@ -275,9 +344,8 @@ function createPlugin() {
     allList: Set<string> | null,
   ): void {
     const inClass = classStack.length > 0;
-    const qualifiedName = inClass
-      ? `${classStack.join(".")}.${name}`
-      : name;
+    const qualifiedName = qualify(modulePrefix, classStack, name);
+    const aliases = aliasesForPrefixed(modulePrefix, classStack, name);
     const docComment = extractDocstring(headerNode.childForFieldName("body"));
     symbols.push({
       name,
@@ -289,6 +357,7 @@ function createPlugin() {
       signature: extractHeaderSignature(headerNode, outerNode, content),
       exported: inClass ? false : topLevelExported(name, allList),
       dependencies: [],
+      ...(aliases.length > 0 && { aliases }),
       ...(docComment !== undefined && { docComment }),
     });
   }
@@ -297,14 +366,15 @@ function createPlugin() {
     headerNode: SyntaxNode,
     outerNode: SyntaxNode,
     name: string,
+    modulePrefix: string,
     classStack: string[],
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
     allList: Set<string> | null,
   ): void {
-    const qualifiedName =
-      classStack.length > 0 ? `${classStack.join(".")}.${name}` : name;
+    const qualifiedName = qualify(modulePrefix, classStack, name);
+    const aliases = aliasesForPrefixed(modulePrefix, classStack, name);
     const docComment = extractDocstring(headerNode.childForFieldName("body"));
     const kind = extendsProtocol(headerNode) ? "interface" : "class";
     symbols.push({
@@ -318,6 +388,7 @@ function createPlugin() {
       exported:
         classStack.length > 0 ? false : topLevelExported(name, allList),
       dependencies: [],
+      ...(aliases.length > 0 && { aliases }),
       ...(docComment !== undefined && { docComment }),
     });
   }
@@ -325,6 +396,7 @@ function createPlugin() {
   function emitTypeAlias(
     node: SyntaxNode,
     name: string,
+    modulePrefix: string,
     filePath: string,
     content: string,
     symbols: IndexedSymbol[],
@@ -334,7 +406,7 @@ function createPlugin() {
     const signature = raw.split("\n")[0] ?? `type ${name}`;
     symbols.push({
       name,
-      qualifiedName: name,
+      qualifiedName: qualify(modulePrefix, [], name),
       kind: "type",
       filePath,
       startLine: getLine(node),
@@ -347,6 +419,7 @@ function createPlugin() {
 
   function visit(
     node: SyntaxNode,
+    modulePrefix: string,
     classStack: string[],
     filePath: string,
     content: string,
@@ -355,30 +428,31 @@ function createPlugin() {
   ): void {
     if (node.type === "decorated_definition") {
       const { inner, outer } = unwrapDecorated(node);
-      handleDef(inner, outer, classStack, filePath, content, symbols, allList);
+      handleDef(inner, outer, modulePrefix, classStack, filePath, content, symbols, allList);
       return;
     }
     if (node.type === "function_definition" || node.type === "class_definition") {
-      handleDef(node, node, classStack, filePath, content, symbols, allList);
+      handleDef(node, node, modulePrefix, classStack, filePath, content, symbols, allList);
       return;
     }
     if (node.type === "type_alias_statement") {
       const left = node.childForFieldName("left");
       const nameNode = left?.namedChild(0) ?? left;
       if (nameNode && nameNode.type === "identifier") {
-        emitTypeAlias(node, nameNode.text, filePath, content, symbols, allList);
+        emitTypeAlias(node, nameNode.text, modulePrefix, filePath, content, symbols, allList);
       }
       return;
     }
 
     for (const child of node.namedChildren) {
-      visit(child, classStack, filePath, content, symbols, allList);
+      visit(child, modulePrefix, classStack, filePath, content, symbols, allList);
     }
   }
 
   function handleDef(
     headerNode: SyntaxNode,
     outerNode: SyntaxNode,
+    modulePrefix: string,
     classStack: string[],
     filePath: string,
     content: string,
@@ -392,6 +466,7 @@ function createPlugin() {
         headerNode,
         outerNode,
         nameNode.text,
+        modulePrefix,
         classStack,
         filePath,
         content,
@@ -409,6 +484,7 @@ function createPlugin() {
         headerNode,
         outerNode,
         nameNode.text,
+        modulePrefix,
         classStack,
         filePath,
         content,
@@ -422,7 +498,7 @@ function createPlugin() {
         // method `exported` continues to fall through to the (false) inClass
         // branch.
         for (const child of body.namedChildren) {
-          visit(child, classStack, filePath, content, symbols, null);
+          visit(child, modulePrefix, classStack, filePath, content, symbols, null);
         }
         classStack.pop();
       }
@@ -443,8 +519,9 @@ function createPlugin() {
       const symbols: IndexedSymbol[] = [];
       const classStack: string[] = [];
       const allList = extractAllList(tree.rootNode);
+      const modulePrefix = fileToModuleName(filePath);
       for (const child of tree.rootNode.namedChildren) {
-        visit(child, classStack, filePath, content, symbols, allList);
+        visit(child, modulePrefix, classStack, filePath, content, symbols, allList);
       }
       return symbols;
     },
@@ -536,8 +613,11 @@ function createPlugin() {
 
       /**
        * Resolve a name as it appears at a callsite into one or more candidate
-       * symbols, biased toward (1) the importing file's local aliases, then
-       * (2) same-file symbols, then (3) any project symbol with that name.
+       * symbols. When a local alias exists for the name, resolution is
+       * strict: we only return symbols that actually live in the alias's
+       * target — never fall back to a global leaf match, since that would
+       * emit edges to unrelated same-named symbols in other modules. With
+       * no alias, we fall back to (1) same-file then (2) any project symbol.
        */
       function resolveName(
         rawName: string,
@@ -547,22 +627,26 @@ function createPlugin() {
       ): IndexedSymbol[] {
         const aliasTarget = aliases.get(rawName);
         if (aliasTarget !== undefined) {
-          // Try the fully-qualified alias first (e.g. `src.types.Task`).
+          // Try the fully-qualified alias first (e.g. `helpers.parse`).
           const aliasMatches = resolveCandidates(aliasTarget, undefined, kinds);
           if (aliasMatches.length > 0) return aliasMatches;
-          // The alias may point at a module path whose leaf is the symbol name.
+          // The alias may point at `<module>.<leaf>` where the module is a
+          // project file we know about. Look up the leaf strictly within
+          // that file.
           const lastDot = aliasTarget.lastIndexOf(".");
           if (lastDot >= 0) {
-            const leaf = aliasTarget.slice(lastDot + 1);
             const moduleStub = aliasTarget.slice(0, lastDot);
             const targetFile = moduleToFile.get(moduleStub);
             if (targetFile !== undefined) {
+              const leaf = aliasTarget.slice(lastDot + 1);
               const inModule = resolveCandidates(leaf, targetFile, kinds);
               if (inModule.length > 0) return inModule;
             }
-            const leafMatches = resolveCandidates(leaf, undefined, kinds);
-            if (leafMatches.length > 0) return leafMatches;
           }
+          // Alias known but unresolvable (external module, typo, etc.).
+          // Returning empty is safer than guessing — a global leaf match
+          // would point at any same-named symbol anywhere in the project.
+          return [];
         }
         const sameFile = resolveCandidates(rawName, filePath, kinds);
         if (sameFile.length > 0) return sameFile;
@@ -585,13 +669,12 @@ function createPlugin() {
 
         const tree = astCache.get(filePath) ?? parser.parse(content);
         const aliases = collectImports(tree.rootNode, filePath);
+        const modulePrefix = fileToModuleName(filePath);
 
         const classStack: string[] = [];
 
         function fromFor(name: string): string {
-          return classStack.length > 0
-            ? `${classStack.join(".")}.${name}`
-            : name;
+          return qualify(modulePrefix, classStack, name);
         }
 
         function collectCalls(

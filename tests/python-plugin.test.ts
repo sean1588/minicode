@@ -75,26 +75,36 @@ test("verify-index-python fixture produces extends and calls edges", async () =>
   const fixtureRoot = path.join(root, "test-programs", "verify-index-python");
   const index = await buildProjectIndex(fixtureRoot);
 
+  // Module-prefixed qualifiedNames (src/ stripped). Processor lives in
+  // `src/processor.py` → module `processor`; TaskRunner in `src/types.py`.
   const extendsEdges = index.dependencyEdges.filter(
-    (e) => e.kind === "extends" && e.from === "Processor",
+    (e) => e.kind === "extends" && e.from === "processor.Processor",
   );
   assert.ok(
-    extendsEdges.some((e) => e.to === "TaskRunner"),
-    "Processor should extend TaskRunner",
+    extendsEdges.some((e) => e.to === "types.TaskRunner"),
+    "processor.Processor should extend types.TaskRunner",
   );
 
   const callEdges = index.dependencyEdges.filter((e) => e.kind === "calls");
   assert.ok(
-    callEdges.some((e) => e.from === "parse_and_process" && e.to === "parse"),
-    "parse_and_process should call parse",
+    callEdges.some(
+      (e) => e.from === "parser.parse_and_process" && e.to === "parser.parse",
+    ),
+    "parser.parse_and_process should call parser.parse",
   );
   assert.ok(
-    callEdges.some((e) => e.from === "parse_and_process" && e.to === "process"),
-    "parse_and_process should call process",
+    callEdges.some(
+      (e) => e.from === "parser.parse_and_process" && e.to === "parser.process",
+    ),
+    "parser.parse_and_process should call parser.process",
   );
   assert.ok(
-    callEdges.some((e) => e.from === "Processor.run" && e.to === "parse_and_process"),
-    "Processor.run should call parse_and_process across files",
+    callEdges.some(
+      (e) =>
+        e.from === "processor.Processor.run" &&
+        e.to === "parser.parse_and_process",
+    ),
+    "processor.Processor.run should call parser.parse_and_process across files",
   );
 });
 
@@ -114,11 +124,11 @@ test("Python plugin extends edges resolve relative imports", async () => {
 
   const index = await buildProjectIndex(workspaceRoot);
   const extendsEdges = index.dependencyEdges.filter(
-    (e) => e.kind === "extends" && e.from === "Sub",
+    (e) => e.kind === "extends" && e.from === "pkg.sub.Sub",
   );
   assert.ok(
-    extendsEdges.some((e) => e.to === "Base"),
-    "Sub should extend Base via relative import",
+    extendsEdges.some((e) => e.to === "pkg.base.Base"),
+    "pkg.sub.Sub should extend pkg.base.Base via relative import",
   );
 });
 
@@ -140,11 +150,11 @@ test("Python plugin calls edges resolve self.method invocations", async () => {
 
   const index = await buildProjectIndex(workspaceRoot);
   const edges = index.dependencyEdges.filter(
-    (e) => e.kind === "calls" && e.from === "Foo.run",
+    (e) => e.kind === "calls" && e.from === "mod.Foo.run",
   );
   assert.ok(
-    edges.some((e) => e.to === "Foo.helper"),
-    "Foo.run should call Foo.helper via self",
+    edges.some((e) => e.to === "mod.Foo.helper"),
+    "mod.Foo.run should call mod.Foo.helper via self",
   );
 });
 
@@ -169,12 +179,14 @@ test("Python plugin calls edges resolve absolute imports", async () => {
   );
 
   const index = await buildProjectIndex(workspaceRoot);
+  // `lib/` is a stripped source root, so `lib/util.py` → module `util`.
+  // `main.py` is at the workspace root → module `main`.
   const edges = index.dependencyEdges.filter(
-    (e) => e.kind === "calls" && e.from === "run",
+    (e) => e.kind === "calls" && e.from === "main.run",
   );
   assert.ok(
-    edges.some((e) => e.to === "helper"),
-    "run should call helper imported from lib.util",
+    edges.some((e) => e.to === "util.helper"),
+    "main.run should call util.helper imported from the lib/ source root",
   );
 });
 
@@ -197,11 +209,11 @@ test("Python plugin Protocol→interface still receives extends edges as base cl
   );
   const index = await buildProjectIndex(workspaceRoot);
   const extendsEdges = index.dependencyEdges.filter(
-    (e) => e.kind === "extends" && e.from === "Dog",
+    (e) => e.kind === "extends" && e.from === "iface.Dog",
   );
   assert.ok(
-    extendsEdges.some((e) => e.to === "Animal"),
-    "Dog should extend Animal even though Animal is an interface",
+    extendsEdges.some((e) => e.to === "iface.Animal"),
+    "iface.Dog should extend iface.Animal even though Animal is an interface",
   );
 });
 
@@ -271,15 +283,21 @@ test("buildProjectIndex handles a mixed TypeScript + Python workspace", async ()
   assert.ok(makeUser, "Python make_user function should be indexed");
   assert.equal(makeUser!.filePath, "src/service.py");
 
+  // TS plugin still uses bare qualifiedNames; Python plugin now uses
+  // module-prefixed qualifiedNames. Both kinds of edges coexist in the
+  // same graph.
   const tsImpl = index.dependencyEdges.find(
     (e) => e.kind === "implements" && e.from === "Service" && e.to === "Greeter",
   );
   assert.ok(tsImpl, "TypeScript Service implements Greeter edge");
 
   const pyCall = index.dependencyEdges.find(
-    (e) => e.kind === "calls" && e.from === "make_user" && e.to === "User",
+    (e) =>
+      e.kind === "calls" &&
+      e.from === "service.make_user" &&
+      e.to === "models.User",
   );
-  assert.ok(pyCall, "Python make_user calls User edge");
+  assert.ok(pyCall, "Python service.make_user calls models.User edge");
 });
 
 test("Python plugin indexes .pyi stub files", async () => {
@@ -352,7 +370,7 @@ test("Python plugin module-qualified calls do not pollute edges with same-named 
   const index = await buildProjectIndex(workspaceRoot);
 
   const callEdgesFromRun = index.dependencyEdges.filter(
-    (e) => e.kind === "calls" && e.from === "run",
+    (e) => e.kind === "calls" && e.from === "main.run",
   );
 
   // The run function should only call parse from helpers.py, not from validator.py.
@@ -362,11 +380,11 @@ test("Python plugin module-qualified calls do not pollute edges with same-named 
 
   assert.ok(
     callEdgesFromRun.some((e) => e.to === helpersParse!.qualifiedName),
-    "run should call helpers.parse",
+    "main.run should call helpers.parse",
   );
   assert.ok(
     !callEdgesFromRun.some((e) => e.to === validatorParse!.qualifiedName),
-    "run should NOT call validator.parse — module-qualified calls must not fall back to global leaf matches",
+    "main.run should NOT call validator.parse — module-qualified calls must not fall back to global leaf matches",
   );
 });
 
@@ -407,15 +425,190 @@ test("Python plugin attribute base classes resolve via alias, not bare leaf", as
   assert.ok(baseInBaseFile && baseInOtherFile);
 
   const extendsFromSub = index.dependencyEdges.filter(
-    (e) => e.kind === "extends" && e.from === "Sub",
+    (e) => e.kind === "extends" && e.from === "pkg.sub.Sub",
   );
   assert.ok(
     extendsFromSub.some((e) => e.to === baseInBaseFile!.qualifiedName),
-    "Sub should extend Base from pkg/base.py via the `base` alias",
+    "pkg.sub.Sub should extend pkg.base.Base via the `base` alias",
   );
   assert.ok(
     !extendsFromSub.some((e) => e.to === baseInOtherFile!.qualifiedName),
-    "Sub should NOT extend Base from pkg/other.py — attribute bases must use the alias target's module file, not the bare leaf",
+    "pkg.sub.Sub should NOT extend pkg.other.Base — attribute bases must use the alias target's module file, not the bare leaf",
+  );
+});
+
+test("Python plugin: bare-name lookups still resolve module-prefixed symbols", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-bare-lookup-"));
+  await writeFile(
+    path.join(workspaceRoot, "module.py"),
+    [
+      "class Foo:",
+      "    def bar(self):",
+      "        pass",
+      "",
+      "def baz():",
+      "    pass",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  // Canonical module-prefixed lookup
+  assert.ok(index.getSymbol("module.Foo"));
+  assert.ok(index.getSymbol("module.Foo.bar"));
+  assert.ok(index.getSymbol("module.baz"));
+
+  // User-natural lookups must still work via aliases — the agent and humans
+  // refer to symbols this way and shouldn't have to know the module path.
+  const foo = index.getSymbol("Foo");
+  const fooBar = index.getSymbol("Foo.bar");
+  const baz = index.getSymbol("baz");
+  assert.ok(foo, "bare class lookup should resolve");
+  assert.ok(fooBar, "Class.method lookup should resolve via alias");
+  assert.ok(baz, "bare function lookup should resolve");
+  assert.equal(foo!.qualifiedName, "module.Foo");
+  assert.equal(fooBar!.qualifiedName, "module.Foo.bar");
+  assert.equal(baz!.qualifiedName, "module.baz");
+});
+
+test("Python plugin: `from src.helpers import parse` resolves only to the imported module's parse", async () => {
+  // Reviewer scenario: the alias target was `src.helpers.parse` but indexed
+  // symbols use the stripped module name `helpers.parse`. Without source-root
+  // stripping in `collectImports`, the bare `parse()` call would fall through
+  // to a global leaf match and emit edges to every project `parse`.
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-abs-strip-"));
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "src", "helpers.py"),
+    "def parse():\n    return 1\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "src", "validator.py"),
+    "def parse():\n    return 2\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "from src.helpers import parse",
+      "",
+      "def run():",
+      "    return parse()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const helpersParse = index.getSymbolsInFile("src/helpers.py").find(
+    (s) => s.name === "parse",
+  );
+  const validatorParse = index.getSymbolsInFile("src/validator.py").find(
+    (s) => s.name === "parse",
+  );
+  assert.ok(helpersParse && validatorParse);
+
+  const callsFromRun = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "main.run",
+  );
+  assert.ok(
+    callsFromRun.some((e) => e.to === helpersParse!.qualifiedName),
+    "main.run should call helpers.parse via the absolute import",
+  );
+  assert.ok(
+    !callsFromRun.some((e) => e.to === validatorParse!.qualifiedName),
+    "main.run should NOT call validator.parse — absolute imports must strip src/ to align with file-derived qualifiedNames",
+  );
+});
+
+test("Python plugin: `import src.helpers as h; h.parse()` resolves only to the aliased module's parse", async () => {
+  // Companion to the `from src.x import y` case: the alias target is
+  // `src.helpers`, which must be stripped to `helpers` to match
+  // `moduleToFile` (built from `fileToModuleName`).
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-abs-as-"));
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "src", "helpers.py"),
+    "def parse():\n    return 1\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "src", "validator.py"),
+    "def parse():\n    return 2\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "import src.helpers as helpers",
+      "",
+      "def run():",
+      "    return helpers.parse()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const helpersParse = index.getSymbolsInFile("src/helpers.py").find(
+    (s) => s.name === "parse",
+  );
+  const validatorParse = index.getSymbolsInFile("src/validator.py").find(
+    (s) => s.name === "parse",
+  );
+  assert.ok(helpersParse && validatorParse);
+
+  const callsFromRun = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "main.run",
+  );
+  assert.ok(
+    callsFromRun.some((e) => e.to === helpersParse!.qualifiedName),
+    "main.run should call helpers.parse via the aliased absolute import",
+  );
+  assert.ok(
+    !callsFromRun.some((e) => e.to === validatorParse!.qualifiedName),
+    "main.run should NOT call validator.parse — module-qualified calls through stripped roots must resolve strictly",
+  );
+});
+
+test("Python plugin: known alias to an external module emits no edge (no global leaf fallback)", async () => {
+  // `from typing import Protocol; foo(Protocol)` should not emit an edge
+  // to any user-defined `Protocol` symbol elsewhere in the project — the
+  // alias resolves to an external module, so resolution should fail closed.
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-ext-alias-"));
+  await writeFile(
+    path.join(workspaceRoot, "decoy.py"),
+    "class Protocol:\n    pass\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "from typing import Protocol",
+      "",
+      "def consume(p):",
+      "    return Protocol()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const decoyProtocol = index.getSymbolsInFile("decoy.py").find(
+    (s) => s.name === "Protocol",
+  );
+  assert.ok(decoyProtocol);
+  const calls = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "main.consume",
+  );
+  assert.ok(
+    !calls.some((e) => e.to === decoyProtocol!.qualifiedName),
+    "main.consume should NOT call decoy.Protocol — known alias to an external module should fail closed",
   );
 });
 
