@@ -41,6 +41,12 @@ SWEBENCH_JOB_NAME=gpt-5-4-swebench-smoke-5 \
 npm run benchmark:swebench
 ```
 
+Run the full registered SWE-bench Verified set by clearing the task limit:
+
+```bash
+SWEBENCH_N_TASKS= npm run benchmark:swebench
+```
+
 Filter to a specific task name if needed:
 
 ```bash

@@ -52,6 +52,13 @@ By default the wrapper runs one registered `swebench-verified` task with
 Use `SWEBENCH_N_TASKS` and `SWEBENCH_INCLUDE_TASK_NAME` to run a curated subset
 before attempting the full 500-task lane.
 
+Run the full registered SWE-bench Verified set by clearing the default task
+limit:
+
+```bash
+SWEBENCH_N_TASKS= npm run benchmark:swebench
+```
+
 ## Important env vars
 
 - `TS_BENCH_MODEL`: model id to evaluate, for example `openai/gpt-5`
@@ -67,7 +74,7 @@ before attempting the full 500-task lane.
 - `SWEBENCH_MODEL`: model id for SWE-bench, defaults to `openai/gpt-5.4`
 - `SWEBENCH_PROVIDER`: `openrouter`, `openai`, `openai-compatible`, or `anthropic`
 - `SWEBENCH_PACKAGE_SPEC`: npm package spec installed inside Harbor containers
-- `SWEBENCH_N_TASKS`: task limit for smoke/subset runs. Defaults to `1`
+- `SWEBENCH_N_TASKS`: task limit for smoke/subset runs. Defaults to `1`; set empty to run the full registered dataset
 - `SWEBENCH_INCLUDE_TASK_NAME`: optional Harbor task-name glob filter
 - `SWEBENCH_ENV_FILE`: dotenv file with provider credentials. Defaults to `~/.minicode/.env`
 
