@@ -4,6 +4,26 @@ export interface ToolCall {
   input: Record<string, unknown>;
 }
 
+/**
+ * Decision returned from a `beforeToolCall` hook. `allow` proceeds with
+ * normal execution; `deny` short-circuits the tool call and feeds the
+ * `reason` back to the model as the tool's result so it can react
+ * (e.g. explain instead of edit).
+ */
+export type ToolPermissionDecision =
+  | { outcome: "allow" }
+  | { outcome: "deny"; reason: string };
+
+/**
+ * Hook invoked before each tool call. Implementations can prompt the user,
+ * consult a config flag, or apply any other policy. Returning `allow`
+ * proceeds with normal execution; `deny` skips the tool entirely and
+ * feeds `reason` back to the model.
+ */
+export type BeforeToolCallHook = (
+  toolCall: { name: string; input: Record<string, unknown> },
+) => Promise<ToolPermissionDecision>;
+
 export interface UserMessage {
   role: "user";
   content: string;

@@ -130,6 +130,10 @@ MODEL=your-model-name</pre>
             <button type="submit" id="send-btn">Send</button>
             <button type="button" id="cancel-btn" class="hidden">Cancel</button>
           </form>
+          <label id="auto-allow-row" class="auto-allow-row" title="When enabled, the agent runs write_file, edit_file, and run_command without asking each time. Off by default for safety.">
+            <input type="checkbox" id="auto-allow-toggle" />
+            <span>Auto allow writes</span>
+          </label>
         </footer>
       </div>
       <div id="pane-divider"></div>
@@ -356,6 +360,35 @@ MODEL=your-model-name</pre>
       </div>
       <div class="file-preview-body">
         <pre id="file-preview-code" class="file-preview-code">Loading...</pre>
+      </div>
+    </section>
+  </div>
+
+  <div id="permission-modal" class="modal hidden" aria-hidden="true">
+    <div id="permission-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel modal-panel-compact" role="dialog" aria-modal="true" aria-labelledby="permission-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="permission-title">Allow this action?</h2>
+          <p id="permission-subtitle" class="modal-subtitle">The agent wants to run a tool that modifies your workspace.</p>
+        </div>
+      </div>
+      <div class="permission-body">
+        <div class="permission-tool">
+          <span class="permission-label">Tool</span>
+          <code id="permission-tool-name"></code>
+        </div>
+        <div class="permission-tool">
+          <span class="permission-label">Input</span>
+          <pre id="permission-tool-input" class="permission-tool-input"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="settings-actions">
+          <button id="permission-deny" class="header-btn" type="button">Deny</button>
+          <button id="permission-allow-always" class="header-btn" type="button" title="Allow this and skip prompts for the rest of this session">Allow always</button>
+          <button id="permission-allow" class="dropdown-action" type="button">Allow</button>
+        </div>
       </div>
     </section>
   </div>

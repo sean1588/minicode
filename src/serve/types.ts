@@ -16,7 +16,31 @@ export interface ClientSwitchModelMessage {
   model: string;
 }
 
-export type ClientMessage = ClientChatMessage | ClientCancelMessage | ClientSwitchModelMessage;
+/** User responds to a permission prompt for a gated tool call. */
+export interface ClientPermissionResponseMessage {
+  type: "permission_response";
+  /** Matches the `requestId` of the corresponding `permission_required` event. */
+  requestId: string;
+  decision: "allow" | "deny";
+  /**
+   * When true, the user wants to skip future prompts for the rest of this
+   * session. Server flips its `autoAllowWrites` flag on. Implies `allow`.
+   */
+  rememberForSession?: boolean;
+}
+
+/** Toggle the per-session auto-allow flag without responding to a prompt. */
+export interface ClientSetAutoAllowMessage {
+  type: "set_auto_allow";
+  autoAllow: boolean;
+}
+
+export type ClientMessage =
+  | ClientChatMessage
+  | ClientCancelMessage
+  | ClientSwitchModelMessage
+  | ClientPermissionResponseMessage
+  | ClientSetAutoAllowMessage;
 
 // ── Server → Client ──
 
@@ -79,6 +103,26 @@ export interface ServerModelChangedMessage {
   model: string;
 }
 
+/**
+ * Sent when a gated tool call is awaiting the user's decision. The agent
+ * loop is paused until a matching `permission_response` arrives. The
+ * client should render a modal with the tool name and input, plus
+ * Allow/Deny buttons (and ideally an "Allow always" shortcut that
+ * sets `rememberForSession`).
+ */
+export interface ServerPermissionRequiredMessage {
+  type: "permission_required";
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+}
+
+/** Pushed when the per-session auto-allow flag changes (so the UI checkbox can stay in sync across clients). */
+export interface ServerAutoAllowChangedMessage {
+  type: "auto_allow_changed";
+  autoAllow: boolean;
+}
+
 export type ServerMessage =
   | ServerTurnStartMessage
   | ServerThinkingMessage
@@ -90,4 +134,6 @@ export type ServerMessage =
   | ServerErrorMessage
   | ServerBusyMessage
   | ServerContextStatusMessage
-  | ServerModelChangedMessage;
+  | ServerModelChangedMessage
+  | ServerPermissionRequiredMessage
+  | ServerAutoAllowChangedMessage;

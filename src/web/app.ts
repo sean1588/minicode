@@ -160,6 +160,14 @@ const chatForm = document.getElementById("chat-form") as HTMLFormElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
 const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const cancelBtn = document.getElementById("cancel-btn") as HTMLButtonElement;
+const autoAllowToggle = document.getElementById("auto-allow-toggle") as HTMLInputElement;
+const permissionModal = document.getElementById("permission-modal")!;
+const permissionToolName = document.getElementById("permission-tool-name")!;
+const permissionToolInput = document.getElementById("permission-tool-input")!;
+const permissionAllowBtn = document.getElementById("permission-allow") as HTMLButtonElement;
+const permissionAllowAlwaysBtn = document.getElementById("permission-allow-always") as HTMLButtonElement;
+const permissionDenyBtn = document.getElementById("permission-deny") as HTMLButtonElement;
+let pendingPermissionRequestId: string | null = null;
 const statusBadge = document.getElementById("status-badge")!;
 const modelInfo = document.getElementById("model-info")!;
 const modelBtn = document.getElementById("model-btn")!;
@@ -771,6 +779,14 @@ function handleServerMessage(msg: ServerMessage): void {
       void fetchStatus();
       break;
     }
+
+    case "permission_required":
+      showPermissionModal(msg.requestId, msg.toolName, msg.input);
+      break;
+
+    case "auto_allow_changed":
+      autoAllowToggle.checked = msg.autoAllow;
+      break;
   }
 }
 
@@ -1292,6 +1308,76 @@ chatForm.addEventListener("submit", (e: Event) => {
 
 cancelBtn.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "cancel" }));
+});
+
+// ── Permission gate ──
+
+function showPermissionModal(
+  requestId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+): void {
+  pendingPermissionRequestId = requestId;
+  permissionToolName.textContent = toolName;
+  permissionToolInput.textContent = formatPermissionInput(input);
+  permissionModal.classList.remove("hidden");
+  permissionModal.setAttribute("aria-hidden", "false");
+  permissionAllowBtn.focus();
+}
+
+function hidePermissionModal(): void {
+  pendingPermissionRequestId = null;
+  permissionModal.classList.add("hidden");
+  permissionModal.setAttribute("aria-hidden", "true");
+}
+
+/**
+ * Render the tool input for the agent's eyes. Long fields (file content,
+ * full diffs) are truncated; the user can still see the structure and
+ * decide whether to allow.
+ */
+function formatPermissionInput(input: Record<string, unknown>): string {
+  const truncated: Record<string, unknown> = {};
+  const MAX_FIELD_CHARS = 800;
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string" && value.length > MAX_FIELD_CHARS) {
+      truncated[key] = value.slice(0, MAX_FIELD_CHARS) + `… [${value.length - MAX_FIELD_CHARS} more chars]`;
+    } else {
+      truncated[key] = value;
+    }
+  }
+  return JSON.stringify(truncated, null, 2);
+}
+
+function respondToPermission(
+  decision: "allow" | "deny",
+  rememberForSession = false,
+): void {
+  if (pendingPermissionRequestId === null) return;
+  ws.send(
+    JSON.stringify({
+      type: "permission_response",
+      requestId: pendingPermissionRequestId,
+      decision,
+      rememberForSession,
+    }),
+  );
+  hidePermissionModal();
+}
+
+permissionAllowBtn.addEventListener("click", () => respondToPermission("allow"));
+permissionAllowAlwaysBtn.addEventListener("click", () =>
+  respondToPermission("allow", true),
+);
+permissionDenyBtn.addEventListener("click", () => respondToPermission("deny"));
+
+autoAllowToggle.addEventListener("change", () => {
+  ws.send(
+    JSON.stringify({
+      type: "set_auto_allow",
+      autoAllow: autoAllowToggle.checked,
+    }),
+  );
 });
 
 chatInput.addEventListener("input", () => {
