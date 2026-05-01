@@ -79,34 +79,34 @@ export function buildSystemPrompt(
     "- Always read a file before editing it.",
     "- Prefer edit_file over write_file for existing files.",
     "- Run tests or lint after code changes when applicable.",
-    "- Choose the smallest set of tools that gives enough confidence to make the change."
+    "- Default to using preferred tools when doing planning, code exploration, or investigation."
   ];
 
   if (hasSpecializedTools) {
     toolGuidelines.push(
       "",
-      "[Code Exploration Strategy]",
+      "[Code exploration PREFERRED TOOLS — prefer these over read_file and search]",
       ...(hasReadSymbol
         ? [
-            "- Use read_symbol when you already know the relevant function, class, or type and want a targeted read.",
-            "- Use read_file when you need broader local context, file-level flow, config/test files, or when the relevant symbol is unclear.",
+            "- PREFER read_symbol over read_file for .ts/.tsx/.js/.jsx when you need a function or class. The code map lists all symbols; use read_symbol(name) for targeted reads — it returns only the relevant code and avoids bloating context.",
+            "- Use read_file only for config files, small files, non-code files, or when the symbol name is unknown.",
           ]
         : []),
       ...(hasFindRefs
         ? [
-            "- Use find_references when call sites or usage impact matter before changing a symbol.",
+            "- Use find_references to see what calls or uses a symbol — essential for understanding impact before changes.",
           ]
         : []),
       ...(hasGetDeps
         ? [
-            "- Use get_dependencies when implementation/data-flow dependencies matter for the change.",
+            "- Use get_dependencies to see what a symbol depends on — essential for understanding implementation and data flow.",
           ]
         : []),
-      "- Use search for broad text discovery, unknown names, tests, config, protocol strings, and error messages.",
-      "- When tracing code, combine broad reads/search with symbol tools as needed: get_dependencies goes inward, find_references goes outward.",
+      "- Use search only when you don't know the symbol name; once you find a symbol in the code map or search results, use read_symbol (not read_file) to read it.",
+      "- When tracing code: use get_dependencies to go inward (what does X call?), find_references to go outward (what calls X?).",
       ...(hasSearchCodeMap
         ? [
-            "- Use search_code_map when looking for symbols by name or substring, especially when the code map is truncated.",
+            "- PREFER search_code_map over search. When the code map is truncated, use search_code_map to find symbols by name or substring — then use read_symbol with the result.",
           ]
         : []),
     );

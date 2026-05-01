@@ -83,7 +83,6 @@ test("system prompt includes specialized tool guidance when present", () => {
   ];
 
   const prompt = buildSystemPrompt(config, tools);
-  assert.ok(prompt.includes("Use read_symbol when you already know"));
-  assert.ok(prompt.includes("Use read_file when you need broader local context"));
+  assert.ok(prompt.includes("PREFER read_symbol"));
   assert.ok(prompt.includes("find_references"));
 });
