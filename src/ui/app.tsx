@@ -3,6 +3,7 @@ import { render, Box, Text } from "ink";
 import { HeaderBar } from "./components/header-bar.js";
 import { ActivityPane } from "./components/activity-pane.js";
 import { InputComposer } from "./components/input-composer.js";
+import { PermissionPrompt } from "./components/permission-prompt.js";
 import { UiStore } from "./state/ui-store.js";
 
 interface AppProps {
@@ -28,7 +29,13 @@ function AppInner({ store, onRunTurn, onCtrlC }: AppProps): React.ReactElement {
     [onRunTurn],
   );
 
-  const disabled = state.phase !== "idle" && state.phase !== "loading";
+  // Disable the chat input while the agent is working OR while a permission
+  // prompt is active. The prompt's `useInput` hook would otherwise compete
+  // with InputComposer's for keystrokes, and any non-{y,n,a,Esc} key would
+  // get echoed into the chat buffer.
+  const disabled =
+    (state.phase !== "idle" && state.phase !== "loading") ||
+    state.pendingPermission !== null;
 
   return (
     <Box flexDirection="column">
@@ -44,6 +51,9 @@ function AppInner({ store, onRunTurn, onCtrlC }: AppProps): React.ReactElement {
         workspaceRoot={state.workspaceRoot}
         indexStatus={state.indexStatus}
       />
+      {state.pendingPermission && (
+        <PermissionPrompt prompt={state.pendingPermission} />
+      )}
       <InputComposer
         onSubmit={handleSubmit}
         disabled={disabled}

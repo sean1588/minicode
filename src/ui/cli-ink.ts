@@ -21,6 +21,8 @@ import {
 import { createToolRegistry } from "../tools/registry.js";
 import { UiStore } from "./state/ui-store.js";
 import { runInkApp } from "./app.js";
+import { createPermissionGate } from "./permission-gate.js";
+import { handlePermissionsSlashCommand } from "../cli/permissions-slash-command.js";
 
 export async function runInkCli(
   verbose: boolean,
@@ -127,6 +129,7 @@ export async function runInkCli(
           }
         : {}),
       onUiUpdate: createUiUpdateHandler(),
+      beforeToolCall: createPermissionGate(store),
     });
   }
 
@@ -161,7 +164,16 @@ export async function runInkCli(
       store.addItem({
         type: "system",
         content:
-          'Commands: "/help", "/config [keys|get|set|unset]", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit".',
+          'Commands: "/help", "/config [keys|get|set|unset]", "/permissions [auto on|off|status]", "/compact", "/reasoning [level]", "/models", "/model [name]", "/save [label]", "/load [label]", "/sessions", "/exit".',
+      });
+      return;
+    }
+
+    const permissionsCommand = handlePermissionsSlashCommand(trimmed, store);
+    if (permissionsCommand.handled) {
+      store.addItem({
+        type: "system",
+        content: permissionsCommand.message ?? "",
       });
       return;
     }

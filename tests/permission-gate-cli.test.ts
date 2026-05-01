@@ -1,0 +1,142 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { handlePermissionsSlashCommand } from "../src/cli/permissions-slash-command.js";
+import { createPermissionGate } from "../src/ui/permission-gate.js";
+import { UiStore } from "../src/ui/state/ui-store.js";
+
+test("/permissions status reports the current auto-allow setting", () => {
+  const store = new UiStore();
+
+  const off = handlePermissionsSlashCommand("/permissions status", store);
+  assert.equal(off.handled, true);
+  assert.match(off.message ?? "", /OFF/);
+
+  store.setAutoAllowWrites(true);
+  const on = handlePermissionsSlashCommand("/permissions status", store);
+  assert.match(on.message ?? "", /ON/);
+});
+
+test("/permissions with no args defaults to status", () => {
+  const store = new UiStore();
+  const result = handlePermissionsSlashCommand("/permissions", store);
+  assert.equal(result.handled, true);
+  assert.match(result.message ?? "", /OFF/);
+});
+
+test("/permissions auto on flips the toggle and confirms", () => {
+  const store = new UiStore();
+  const result = handlePermissionsSlashCommand("/permissions auto on", store);
+  assert.equal(result.handled, true);
+  assert.equal(store.getAutoAllowWrites(), true);
+  assert.match(result.message ?? "", /ON/);
+});
+
+test("/permissions auto off flips the toggle back", () => {
+  const store = new UiStore();
+  store.setAutoAllowWrites(true);
+  const result = handlePermissionsSlashCommand("/permissions auto off", store);
+  assert.equal(result.handled, true);
+  assert.equal(store.getAutoAllowWrites(), false);
+  assert.match(result.message ?? "", /OFF/);
+});
+
+test("/permissions auto with bad value shows usage", () => {
+  const store = new UiStore();
+  const result = handlePermissionsSlashCommand("/permissions auto maybe", store);
+  assert.equal(result.handled, true);
+  assert.match(result.message ?? "", /Usage/i);
+  assert.equal(store.getAutoAllowWrites(), false, "bad value should not change state");
+});
+
+test("non-permissions input is not handled", () => {
+  const store = new UiStore();
+  assert.equal(handlePermissionsSlashCommand("hello", store).handled, false);
+  assert.equal(handlePermissionsSlashCommand("/help", store).handled, false);
+  assert.equal(
+    handlePermissionsSlashCommand("/permissionsXYZ", store).handled,
+    false,
+    "prefix-only matches must include space or be exact",
+  );
+});
+
+test("createPermissionGate: read-only tools allow without parking a prompt", async () => {
+  const store = new UiStore();
+  const gate = createPermissionGate(store);
+
+  const decision = await gate({ name: "read_file", input: { path: "x" } });
+
+  assert.deepEqual(decision, { outcome: "allow" });
+  assert.equal(store.getState().pendingPermission, null);
+});
+
+test("createPermissionGate: auto-allow short-circuits mutating tools", async () => {
+  const store = new UiStore();
+  store.setAutoAllowWrites(true);
+  const gate = createPermissionGate(store);
+
+  const decision = await gate({
+    name: "write_file",
+    input: { path: "x", content: "y" },
+  });
+
+  assert.deepEqual(decision, { outcome: "allow" });
+  assert.equal(store.getState().pendingPermission, null);
+});
+
+test("createPermissionGate: parks a pending prompt and resolves on user allow", async () => {
+  const store = new UiStore();
+  const gate = createPermissionGate(store);
+
+  const pending = gate({ name: "edit_file", input: { path: "src/x.ts" } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const prompt = store.getState().pendingPermission;
+  assert.ok(prompt, "prompt should be parked on the store");
+  assert.equal(prompt!.toolName, "edit_file");
+
+  prompt!.resolve({ decision: "allow", rememberForSession: false });
+
+  const decision = await pending;
+  assert.deepEqual(decision, { outcome: "allow" });
+  assert.equal(store.getState().pendingPermission, null, "prompt cleared after resolve");
+  assert.equal(
+    store.getAutoAllowWrites(),
+    false,
+    "rememberForSession=false leaves auto-allow unchanged",
+  );
+});
+
+test("createPermissionGate: deny resolves with a reason", async () => {
+  const store = new UiStore();
+  const gate = createPermissionGate(store);
+
+  const pending = gate({ name: "run_command", input: { command: "ls" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const prompt = store.getState().pendingPermission;
+  assert.ok(prompt);
+
+  prompt!.resolve({ decision: "deny" });
+
+  const decision = await pending;
+  assert.equal(decision.outcome, "deny");
+  if (decision.outcome === "deny") {
+    assert.match(decision.reason, /declined/i);
+  }
+  assert.equal(store.getState().pendingPermission, null);
+});
+
+test("createPermissionGate: rememberForSession=true on allow flips the store toggle", async () => {
+  const store = new UiStore();
+  const gate = createPermissionGate(store);
+
+  const pending = gate({ name: "write_file", input: { path: "x" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const prompt = store.getState().pendingPermission;
+  assert.ok(prompt);
+
+  prompt!.resolve({ decision: "allow", rememberForSession: true });
+  await pending;
+
+  assert.equal(store.getAutoAllowWrites(), true);
+});

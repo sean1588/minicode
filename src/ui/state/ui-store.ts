@@ -6,6 +6,19 @@ import type {
 
 type Listener = () => void;
 
+export interface PendingPermissionPrompt {
+  toolName: string;
+  input: Record<string, unknown>;
+  /**
+   * Resolves the agent's `beforeToolCall` promise. Set by the permission
+   * gate when it parks a prompt; called by the UI when the user picks an
+   * option. Cleared from the store as soon as it fires.
+   */
+  resolve: (
+    response: { decision: "allow"; rememberForSession: boolean } | { decision: "deny" },
+  ) => void;
+}
+
 export interface UiStoreState {
   phase: UiPhase;
   step: number;
@@ -19,6 +32,10 @@ export interface UiStoreState {
   indexStatus: string;
   items: ActivityItem[];
   errorMessage: string | null;
+  /** Set while a mutating tool call is awaiting the user's approval. */
+  pendingPermission: PendingPermissionPrompt | null;
+  /** When true, the permission gate auto-allows mutating tool calls. */
+  autoAllowWrites: boolean;
 }
 
 const DEFAULT_STATE: UiStoreState = {
@@ -34,6 +51,8 @@ const DEFAULT_STATE: UiStoreState = {
   indexStatus: "",
   items: [],
   errorMessage: null,
+  pendingPermission: null,
+  autoAllowWrites: false,
 };
 
 export class UiStore {
@@ -133,5 +152,18 @@ export class UiStore {
   reset(): void {
     this.state = { ...DEFAULT_STATE };
     this.notify();
+  }
+
+  setPendingPermission(prompt: PendingPermissionPrompt | null): void {
+    this.update({ pendingPermission: prompt });
+  }
+
+  setAutoAllowWrites(value: boolean): void {
+    if (this.state.autoAllowWrites === value) return;
+    this.update({ autoAllowWrites: value });
+  }
+
+  getAutoAllowWrites(): boolean {
+    return this.state.autoAllowWrites;
   }
 }
