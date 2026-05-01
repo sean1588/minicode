@@ -473,6 +473,145 @@ test("Python plugin: bare-name lookups still resolve module-prefixed symbols", a
   assert.equal(baz!.qualifiedName, "module.baz");
 });
 
+test("Python plugin: `from src.helpers import parse` resolves only to the imported module's parse", async () => {
+  // Reviewer scenario: the alias target was `src.helpers.parse` but indexed
+  // symbols use the stripped module name `helpers.parse`. Without source-root
+  // stripping in `collectImports`, the bare `parse()` call would fall through
+  // to a global leaf match and emit edges to every project `parse`.
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-abs-strip-"));
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "src", "helpers.py"),
+    "def parse():\n    return 1\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "src", "validator.py"),
+    "def parse():\n    return 2\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "from src.helpers import parse",
+      "",
+      "def run():",
+      "    return parse()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const helpersParse = index.getSymbolsInFile("src/helpers.py").find(
+    (s) => s.name === "parse",
+  );
+  const validatorParse = index.getSymbolsInFile("src/validator.py").find(
+    (s) => s.name === "parse",
+  );
+  assert.ok(helpersParse && validatorParse);
+
+  const callsFromRun = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "main.run",
+  );
+  assert.ok(
+    callsFromRun.some((e) => e.to === helpersParse!.qualifiedName),
+    "main.run should call helpers.parse via the absolute import",
+  );
+  assert.ok(
+    !callsFromRun.some((e) => e.to === validatorParse!.qualifiedName),
+    "main.run should NOT call validator.parse — absolute imports must strip src/ to align with file-derived qualifiedNames",
+  );
+});
+
+test("Python plugin: `import src.helpers as h; h.parse()` resolves only to the aliased module's parse", async () => {
+  // Companion to the `from src.x import y` case: the alias target is
+  // `src.helpers`, which must be stripped to `helpers` to match
+  // `moduleToFile` (built from `fileToModuleName`).
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-abs-as-"));
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "src", "helpers.py"),
+    "def parse():\n    return 1\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "src", "validator.py"),
+    "def parse():\n    return 2\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "import src.helpers as helpers",
+      "",
+      "def run():",
+      "    return helpers.parse()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+
+  const helpersParse = index.getSymbolsInFile("src/helpers.py").find(
+    (s) => s.name === "parse",
+  );
+  const validatorParse = index.getSymbolsInFile("src/validator.py").find(
+    (s) => s.name === "parse",
+  );
+  assert.ok(helpersParse && validatorParse);
+
+  const callsFromRun = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "main.run",
+  );
+  assert.ok(
+    callsFromRun.some((e) => e.to === helpersParse!.qualifiedName),
+    "main.run should call helpers.parse via the aliased absolute import",
+  );
+  assert.ok(
+    !callsFromRun.some((e) => e.to === validatorParse!.qualifiedName),
+    "main.run should NOT call validator.parse — module-qualified calls through stripped roots must resolve strictly",
+  );
+});
+
+test("Python plugin: known alias to an external module emits no edge (no global leaf fallback)", async () => {
+  // `from typing import Protocol; foo(Protocol)` should not emit an edge
+  // to any user-defined `Protocol` symbol elsewhere in the project — the
+  // alias resolves to an external module, so resolution should fail closed.
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-ext-alias-"));
+  await writeFile(
+    path.join(workspaceRoot, "decoy.py"),
+    "class Protocol:\n    pass\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "main.py"),
+    [
+      "from typing import Protocol",
+      "",
+      "def consume(p):",
+      "    return Protocol()",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const index = await buildProjectIndex(workspaceRoot);
+  const decoyProtocol = index.getSymbolsInFile("decoy.py").find(
+    (s) => s.name === "Protocol",
+  );
+  assert.ok(decoyProtocol);
+  const calls = index.dependencyEdges.filter(
+    (e) => e.kind === "calls" && e.from === "main.consume",
+  );
+  assert.ok(
+    !calls.some((e) => e.to === decoyProtocol!.qualifiedName),
+    "main.consume should NOT call decoy.Protocol — known alias to an external module should fail closed",
+  );
+});
+
 test("buildProjectIndex disambiguates colliding Python symbols across files", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-collide-"));
   await mkdir(path.join(workspaceRoot, "src"), { recursive: true });

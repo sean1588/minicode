@@ -178,6 +178,19 @@ function fileToModuleName(filePath: string): string {
   return parts.join(".");
 }
 
+/**
+ * Strip a leading source-root segment (`src.` or `lib.`) from a dotted
+ * module name. Mirrors `fileToModuleName`'s stripping so absolute imports
+ * (e.g. `from src.helpers import parse`) line up with the file-derived
+ * qualifiedNames they target.
+ */
+function stripSourceRoot(moduleName: string): string {
+  if (moduleName.length === 0) return moduleName;
+  const parts = moduleName.split(".");
+  if (parts.length > 1 && STRIPPED_ROOTS.has(parts[0]!)) parts.shift();
+  return parts.join(".");
+}
+
 /** Resolve a relative-import target to an absolute module name. */
 function resolveRelativeModule(
   level: number,
@@ -220,7 +233,10 @@ function collectImports(
         if (nameField.type === "aliased_import") {
           const target = nameField.childForFieldName("name")?.text ?? "";
           const alias = nameField.childForFieldName("alias")?.text ?? "";
-          setAlias(alias, target);
+          // Strip `src.`/`lib.` so the alias target lines up with file-derived
+          // qualifiedNames (e.g. `import src.helpers as h` → `h` resolves to
+          // module `helpers`, which is the actual indexed namespace).
+          setAlias(alias, stripSourceRoot(target));
         } else if (nameField.type === "dotted_name") {
           const target = nameField.text;
           const localName = target.split(".")[0] ?? target;
@@ -233,7 +249,10 @@ function collectImports(
       const moduleField = stmt.childForFieldName("module_name");
       let resolvedModule: string | null = null;
       if (moduleField?.type === "dotted_name") {
-        resolvedModule = moduleField.text;
+        // `from src.helpers import X` → module `helpers` after src strip.
+        // Relative imports resolve through `fileToModuleName`, which already
+        // strips, so we only need to do this for the absolute case.
+        resolvedModule = stripSourceRoot(moduleField.text);
       } else if (moduleField?.type === "relative_import") {
         const prefix = moduleField.namedChildren.find((n) => n.type === "import_prefix");
         const dotted = moduleField.namedChildren.find((n) => n.type === "dotted_name");
@@ -594,8 +613,11 @@ function createPlugin() {
 
       /**
        * Resolve a name as it appears at a callsite into one or more candidate
-       * symbols, biased toward (1) the importing file's local aliases, then
-       * (2) same-file symbols, then (3) any project symbol with that name.
+       * symbols. When a local alias exists for the name, resolution is
+       * strict: we only return symbols that actually live in the alias's
+       * target — never fall back to a global leaf match, since that would
+       * emit edges to unrelated same-named symbols in other modules. With
+       * no alias, we fall back to (1) same-file then (2) any project symbol.
        */
       function resolveName(
         rawName: string,
@@ -605,22 +627,26 @@ function createPlugin() {
       ): IndexedSymbol[] {
         const aliasTarget = aliases.get(rawName);
         if (aliasTarget !== undefined) {
-          // Try the fully-qualified alias first (e.g. `src.types.Task`).
+          // Try the fully-qualified alias first (e.g. `helpers.parse`).
           const aliasMatches = resolveCandidates(aliasTarget, undefined, kinds);
           if (aliasMatches.length > 0) return aliasMatches;
-          // The alias may point at a module path whose leaf is the symbol name.
+          // The alias may point at `<module>.<leaf>` where the module is a
+          // project file we know about. Look up the leaf strictly within
+          // that file.
           const lastDot = aliasTarget.lastIndexOf(".");
           if (lastDot >= 0) {
-            const leaf = aliasTarget.slice(lastDot + 1);
             const moduleStub = aliasTarget.slice(0, lastDot);
             const targetFile = moduleToFile.get(moduleStub);
             if (targetFile !== undefined) {
+              const leaf = aliasTarget.slice(lastDot + 1);
               const inModule = resolveCandidates(leaf, targetFile, kinds);
               if (inModule.length > 0) return inModule;
             }
-            const leafMatches = resolveCandidates(leaf, undefined, kinds);
-            if (leafMatches.length > 0) return leafMatches;
           }
+          // Alias known but unresolvable (external module, typo, etc.).
+          // Returning empty is safer than guessing — a global leaf match
+          // would point at any same-named symbol anywhere in the project.
+          return [];
         }
         const sameFile = resolveCandidates(rawName, filePath, kinds);
         if (sameFile.length > 0) return sameFile;
