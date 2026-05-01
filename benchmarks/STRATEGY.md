@@ -26,8 +26,8 @@ when the model is already highly capable.
 Candidate models:
 
 - `openai/gpt-5.4`
-- latest Claude Sonnet or Opus available through Anthropic or OpenRouter
-- latest Gemini Pro or Flash model with stable tool support
+- `anthropic/claude-sonnet-4.6`
+- `anthropic/claude-opus-4.7`
 
 Primary question:
 
@@ -49,9 +49,9 @@ have different tool-use behavior than frontier closed models.
 
 Candidate models:
 
-- Moonshot Kimi, for example `moonshotai/kimi-k2.6`
-- GLM, for example the latest GLM 4.6-class coding/chat model available
-- MiniMax, for example the latest MiniMax reasoning/coding model available
+- `moonshotai/kimi-k2.6`
+- `minimax/minimax-m2.7`
+- `z-ai/glm-5.1`
 - DeepSeek coding/reasoning models when tool support is stable
 
 Primary question:
@@ -74,9 +74,10 @@ Studio.
 
 Candidate models:
 
-- Qwen, for example Qwen3 14B or 32B variants
-- GLM local-sized variants when available
-- Gemma 4 local-sized variants when available
+- `google/gemma-4-31b-it`
+- `google/gemma-4-26b-a4b-it`
+- `z-ai/glm-4.7-flash`
+- `qwen/qwen3.6-35b-a3b`
 - Other 7B-34B coding/chat models with tool support
 
 Primary question:
@@ -262,9 +263,9 @@ Run enough to establish reliable baselines without large spend.
 
 | Lane | Models | Benchmarks | Variants |
 | --- | --- | --- | --- |
-| Frontier | `openai/gpt-5.4`, latest Claude | CCBench JS/TS full, SWE-bench Django 3-10 | current/all-tools/current-code-map |
-| Leading open-source | Kimi, GLM, MiniMax | CCBench JS/TS full | current/all-tools/current-code-map |
-| Local-sized | Qwen3 14B/32B, Gemma, GLM local-sized | ts-bench, CCBench 2-5 curated | current/all-tools/current-code-map |
+| Frontier | `openai/gpt-5.4`, `anthropic/claude-sonnet-4.6`, `anthropic/claude-opus-4.7` | CCBench JS/TS full, SWE-bench Django 3-10 | current/all-tools/current-code-map |
+| Leading open-source | `moonshotai/kimi-k2.6`, `minimax/minimax-m2.7`, `z-ai/glm-5.1` | CCBench JS/TS full | current/all-tools/current-code-map |
+| Local-sized | `google/gemma-4-31b-it`, `google/gemma-4-26b-a4b-it`, `z-ai/glm-4.7-flash`, `qwen/qwen3.6-35b-a3b` | ts-bench, CCBench 2-5 curated | current/all-tools/current-code-map |
 
 Exit criteria:
 
