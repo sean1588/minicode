@@ -85,6 +85,19 @@ test("buildSystemPrompt includes workspace context", () => {
   assert.ok(prompt.includes("/home/user/project"));
 });
 
+test("buildSystemPrompt omits runtime budget knobs", () => {
+  const prompt = buildSystemPrompt(
+    createMinimalConfig("/tmp"),
+    MINIMAL_TOOLS,
+  );
+
+  assert.doesNotMatch(prompt, /maxSteps/i);
+  assert.doesNotMatch(prompt, /maxTokens/i);
+  assert.doesNotMatch(prompt, /modelTimeoutSeconds/i);
+  assert.doesNotMatch(prompt, /maxContextTokens/i);
+  assert.doesNotMatch(prompt, /commandTimeoutMs/i);
+});
+
 test("buildSystemPrompt includes tool list", () => {
   const prompt = buildSystemPrompt(
     createMinimalConfig("/tmp"),
