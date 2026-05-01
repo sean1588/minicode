@@ -130,9 +130,14 @@ MODEL=your-model-name</pre>
             <button type="submit" id="send-btn">Send</button>
             <button type="button" id="cancel-btn" class="hidden">Cancel</button>
           </form>
-          <label id="auto-allow-row" class="auto-allow-row" title="When enabled, the agent runs write_file, edit_file, and run_command without asking each time. Off by default for safety.">
-            <input type="checkbox" id="auto-allow-toggle" />
-            <span>Auto allow writes</span>
+          <label id="auto-allow-row" class="auto-allow-row" title="Skip the approval prompt for some or all of write_file, edit_file, and run_command. The mode persists for this session only.">
+            <span>Auto-allow:</span>
+            <select id="auto-allow-mode">
+              <option value="none">none — always prompt</option>
+              <option value="writes">writes only (write_file, edit_file)</option>
+              <option value="commands">commands only (run_command)</option>
+              <option value="all">all — write_file, edit_file, run_command</option>
+            </select>
           </label>
         </footer>
       </div>
@@ -384,9 +389,9 @@ MODEL=your-model-name</pre>
         </div>
       </div>
       <div class="modal-footer">
+        <p class="settings-footnote">To skip future prompts for this session, change the <strong>Auto-allow</strong> dropdown below the chat input.</p>
         <div class="settings-actions">
           <button id="permission-deny" class="header-btn" type="button">Deny</button>
-          <button id="permission-allow-always" class="header-btn" type="button" title="Allow this and stop prompting for write_file, edit_file, and run_command for the rest of this session. Equivalent to checking the &quot;Auto allow writes&quot; box.">Allow all writes (session)</button>
           <button id="permission-allow" class="dropdown-action" type="button">Allow</button>
         </div>
       </div>

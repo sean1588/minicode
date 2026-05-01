@@ -38,10 +38,12 @@ export function createWebSocketServer(
       } else if (msg.type === "permission_response") {
         bridge.resolvePermissionRequest(msg.requestId, {
           decision: msg.decision,
-          rememberForSession: msg.rememberForSession ?? false,
+          ...(msg.setAutoAllowMode !== undefined
+            ? { setAutoAllowMode: msg.setAutoAllowMode }
+            : {}),
         });
-      } else if (msg.type === "set_auto_allow") {
-        bridge.setAutoAllowWrites(msg.autoAllow);
+      } else if (msg.type === "set_auto_allow_mode") {
+        bridge.setAutoAllowMode(msg.mode);
       }
     });
   });

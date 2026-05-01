@@ -3,6 +3,7 @@ import type {
   ActivityItemToolCall,
   UiPhase,
 } from "../events.js";
+import type { AutoAllowMode } from "../../auto-allow.js";
 
 type Listener = () => void;
 
@@ -12,10 +13,14 @@ export interface PendingPermissionPrompt {
   /**
    * Resolves the agent's `beforeToolCall` promise. Set by the permission
    * gate when it parks a prompt; called by the UI when the user picks an
-   * option. Cleared from the store as soon as it fires.
+   * option. Cleared from the store as soon as it fires. `setMode` lets
+   * the prompt update the per-session auto-allow mode before resolving
+   * (used by the `[a] allow all (session)` shortcut).
    */
   resolve: (
-    response: { decision: "allow"; rememberForSession: boolean } | { decision: "deny" },
+    response:
+      | { decision: "allow"; setMode?: AutoAllowMode }
+      | { decision: "deny" },
   ) => void;
 }
 
@@ -34,8 +39,8 @@ export interface UiStoreState {
   errorMessage: string | null;
   /** Set while a mutating tool call is awaiting the user's approval. */
   pendingPermission: PendingPermissionPrompt | null;
-  /** When true, the permission gate auto-allows mutating tool calls. */
-  autoAllowWrites: boolean;
+  /** Per-session auto-allow mode for the permission gate. */
+  autoAllowMode: AutoAllowMode;
 }
 
 const DEFAULT_STATE: UiStoreState = {
@@ -52,7 +57,7 @@ const DEFAULT_STATE: UiStoreState = {
   items: [],
   errorMessage: null,
   pendingPermission: null,
-  autoAllowWrites: false,
+  autoAllowMode: "none",
 };
 
 export class UiStore {
@@ -158,12 +163,12 @@ export class UiStore {
     this.update({ pendingPermission: prompt });
   }
 
-  setAutoAllowWrites(value: boolean): void {
-    if (this.state.autoAllowWrites === value) return;
-    this.update({ autoAllowWrites: value });
+  setAutoAllowMode(mode: AutoAllowMode): void {
+    if (this.state.autoAllowMode === mode) return;
+    this.update({ autoAllowMode: mode });
   }
 
-  getAutoAllowWrites(): boolean {
-    return this.state.autoAllowWrites;
+  getAutoAllowMode(): AutoAllowMode {
+    return this.state.autoAllowMode;
   }
 }

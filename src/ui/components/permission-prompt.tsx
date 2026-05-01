@@ -36,16 +36,21 @@ function formatInput(input: Record<string, unknown>): string {
  *
  * Keys:
  *   y / Return  → allow once
- *   a           → allow ALL writes for the rest of the session (flips the
- *                 same flag as `/permissions auto on`)
+ *   a           → allow every gated tool for the rest of the session
+ *                 (equivalent to `/permissions auto all`). For narrower
+ *                 modes (writes-only or commands-only), use the slash
+ *                 command directly.
  *   n / Esc     → deny
  */
 export function PermissionPrompt({ prompt }: PermissionPromptProps): React.ReactElement {
   useInput((input, key) => {
     if (input === "y" || key.return) {
-      prompt.resolve({ decision: "allow", rememberForSession: false });
+      prompt.resolve({ decision: "allow" });
     } else if (input === "a") {
-      prompt.resolve({ decision: "allow", rememberForSession: true });
+      // Flip the auto-allow mode to "all" so the rest of the session
+      // skips the prompt for every gated tool. Equivalent to running
+      // `/permissions auto all`.
+      prompt.resolve({ decision: "allow", setMode: "all" });
     } else if (input === "n" || key.escape) {
       prompt.resolve({ decision: "deny" });
     }
@@ -75,10 +80,13 @@ export function PermissionPrompt({ prompt }: PermissionPromptProps): React.React
           <Text bold color="green">[y]</Text>
           <Text> allow once  </Text>
           <Text bold color="green">[a]</Text>
-          <Text> allow all writes (session)  </Text>
+          <Text> allow all (session)  </Text>
           <Text bold color="red">[n]</Text>
           <Text> deny</Text>
         </Text>
+      </Box>
+      <Box>
+        <Text dimColor>For finer control: /permissions auto writes|commands|all</Text>
       </Box>
     </Box>
   );

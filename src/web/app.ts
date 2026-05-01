@@ -160,12 +160,11 @@ const chatForm = document.getElementById("chat-form") as HTMLFormElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
 const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const cancelBtn = document.getElementById("cancel-btn") as HTMLButtonElement;
-const autoAllowToggle = document.getElementById("auto-allow-toggle") as HTMLInputElement;
+const autoAllowMode = document.getElementById("auto-allow-mode") as HTMLSelectElement;
 const permissionModal = document.getElementById("permission-modal")!;
 const permissionToolName = document.getElementById("permission-tool-name")!;
 const permissionToolInput = document.getElementById("permission-tool-input")!;
 const permissionAllowBtn = document.getElementById("permission-allow") as HTMLButtonElement;
-const permissionAllowAlwaysBtn = document.getElementById("permission-allow-always") as HTMLButtonElement;
 const permissionDenyBtn = document.getElementById("permission-deny") as HTMLButtonElement;
 let pendingPermissionRequestId: string | null = null;
 const statusBadge = document.getElementById("status-badge")!;
@@ -784,8 +783,8 @@ function handleServerMessage(msg: ServerMessage): void {
       showPermissionModal(msg.requestId, msg.toolName, msg.input);
       break;
 
-    case "auto_allow_changed":
-      autoAllowToggle.checked = msg.autoAllow;
+    case "auto_allow_mode_changed":
+      autoAllowMode.value = msg.mode;
       break;
   }
 }
@@ -1349,33 +1348,26 @@ function formatPermissionInput(input: Record<string, unknown>): string {
   return JSON.stringify(truncated, null, 2);
 }
 
-function respondToPermission(
-  decision: "allow" | "deny",
-  rememberForSession = false,
-): void {
+function respondToPermission(decision: "allow" | "deny"): void {
   if (pendingPermissionRequestId === null) return;
   ws.send(
     JSON.stringify({
       type: "permission_response",
       requestId: pendingPermissionRequestId,
       decision,
-      rememberForSession,
     }),
   );
   hidePermissionModal();
 }
 
 permissionAllowBtn.addEventListener("click", () => respondToPermission("allow"));
-permissionAllowAlwaysBtn.addEventListener("click", () =>
-  respondToPermission("allow", true),
-);
 permissionDenyBtn.addEventListener("click", () => respondToPermission("deny"));
 
-autoAllowToggle.addEventListener("change", () => {
+autoAllowMode.addEventListener("change", () => {
   ws.send(
     JSON.stringify({
-      type: "set_auto_allow",
-      autoAllow: autoAllowToggle.checked,
+      type: "set_auto_allow_mode",
+      mode: autoAllowMode.value,
     }),
   );
 });

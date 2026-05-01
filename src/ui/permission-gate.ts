@@ -3,24 +3,23 @@ import type {
   ToolPermissionDecision,
 } from "@minicode/agent-sdk";
 
+import { isGatedTool, shouldAutoAllow } from "../auto-allow.js";
 import type { UiStore } from "./state/ui-store.js";
-
-/** Tools whose execution is gated by the permission prompt. */
-const GATED_TOOLS = new Set(["write_file", "edit_file", "run_command"]);
 
 /**
  * Build a `beforeToolCall` hook for the Ink CLI. Read-only tools bypass
- * the gate; mutating tools either auto-allow (when the user has flipped
- * the toggle via `/permissions auto on` or chose "Allow always") or
- * park a `pendingPermission` prompt on the store and wait for the
- * `<PermissionPrompt>` component to resolve it.
+ * the gate; mutating tools either auto-allow (when the current
+ * `autoAllowMode` covers that tool — set via `/permissions auto MODE`
+ * or via the `[a]` shortcut on a prompt) or park a `pendingPermission`
+ * on the store and wait for the `<PermissionPrompt>` component to
+ * resolve it.
  */
 export function createPermissionGate(store: UiStore): BeforeToolCallHook {
   return (toolCall) => {
-    if (!GATED_TOOLS.has(toolCall.name)) {
+    if (!isGatedTool(toolCall.name)) {
       return Promise.resolve<ToolPermissionDecision>({ outcome: "allow" });
     }
-    if (store.getAutoAllowWrites()) {
+    if (shouldAutoAllow(store.getAutoAllowMode(), toolCall.name)) {
       return Promise.resolve<ToolPermissionDecision>({ outcome: "allow" });
     }
     return new Promise<ToolPermissionDecision>((resolve) => {
@@ -32,8 +31,8 @@ export function createPermissionGate(store: UiStore): BeforeToolCallHook {
           // the modal in the same React tick the agent resumes.
           store.setPendingPermission(null);
           if (response.decision === "allow") {
-            if (response.rememberForSession) {
-              store.setAutoAllowWrites(true);
+            if (response.setMode) {
+              store.setAutoAllowMode(response.setMode);
             }
             resolve({ outcome: "allow" });
           } else {

@@ -1046,16 +1046,21 @@ footer {
 .auto-allow-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
   font-size: 12px;
   color: var(--text-muted, var(--text));
   user-select: none;
-  cursor: pointer;
 }
 
-.auto-allow-row input[type="checkbox"] {
-  margin: 0;
+.auto-allow-row select {
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
 }
 

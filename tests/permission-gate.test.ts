@@ -38,10 +38,9 @@ test("permission gate: search and other read-only tools bypass too", async () =>
   assert.equal(events.length, 0);
 });
 
-test("permission gate: auto-allow on short-circuits mutating tools", async () => {
+test("permission gate: mode 'all' short-circuits every gated tool", async () => {
   const { bridge, events } = captureBridge();
-  bridge.setAutoAllowWrites(true);
-  // Drain the auto_allow_changed broadcast.
+  bridge.setAutoAllowMode("all");
   events.length = 0;
 
   for (const tool of ["write_file", "edit_file", "run_command"]) {
@@ -52,10 +51,54 @@ test("permission gate: auto-allow on short-circuits mutating tools", async () =>
     assert.deepEqual(
       decision,
       { outcome: "allow" },
-      `${tool} should allow without prompting when auto-allow is on`,
+      `${tool} should allow without prompting when mode is 'all'`,
     );
   }
   assert.equal(events.length, 0, "no permission_required events should be emitted");
+});
+
+test("permission gate: mode 'writes' auto-allows write_file/edit_file but still prompts run_command", async () => {
+  const { bridge, events } = captureBridge();
+  bridge.setAutoAllowMode("writes");
+  events.length = 0;
+
+  for (const tool of ["write_file", "edit_file"]) {
+    const decision = await bridge.invokeToolPermissionGateForTesting({
+      name: tool,
+      input: {},
+    });
+    assert.deepEqual(decision, { outcome: "allow" }, `${tool} should auto-allow under 'writes'`);
+  }
+  assert.equal(events.length, 0, "no events for auto-allowed tools");
+
+  // run_command should still prompt.
+  void bridge.invokeToolPermissionGateForTesting({
+    name: "run_command",
+    input: { command: "ls" },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const required = events.find((e) => e.type === "permission_required");
+  assert.ok(required, "run_command should still prompt under 'writes'");
+});
+
+test("permission gate: mode 'commands' auto-allows run_command but still prompts write_file/edit_file", async () => {
+  const { bridge, events } = captureBridge();
+  bridge.setAutoAllowMode("commands");
+  events.length = 0;
+
+  const cmd = await bridge.invokeToolPermissionGateForTesting({
+    name: "run_command",
+    input: { command: "ls" },
+  });
+  assert.deepEqual(cmd, { outcome: "allow" });
+
+  void bridge.invokeToolPermissionGateForTesting({
+    name: "write_file",
+    input: { path: "x" },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const required = events.find((e) => e.type === "permission_required");
+  assert.ok(required, "write_file should still prompt under 'commands'");
 });
 
 test("permission gate: emits permission_required and resolves on allow", async () => {
@@ -65,8 +108,6 @@ test("permission gate: emits permission_required and resolves on allow", async (
     name: "write_file",
     input: { path: "src/new.ts", content: "hello" },
   });
-
-  // Tick the microtask queue so the promise body runs and the event lands.
   await new Promise((resolve) => setImmediate(resolve));
 
   const required = events.find((e) => e.type === "permission_required");
@@ -74,17 +115,14 @@ test("permission gate: emits permission_required and resolves on allow", async (
   assert.equal(required!.toolName, "write_file");
   assert.deepEqual(required!.input, { path: "src/new.ts", content: "hello" });
 
-  bridge.resolvePermissionRequest(required!.requestId, {
-    decision: "allow",
-    rememberForSession: false,
-  });
+  bridge.resolvePermissionRequest(required!.requestId, { decision: "allow" });
 
   const decision = await pending;
   assert.deepEqual(decision, { outcome: "allow" });
   assert.equal(
-    bridge.getAutoAllowWrites(),
-    false,
-    "auto-allow should still be off when rememberForSession is false",
+    bridge.getAutoAllowMode(),
+    "none",
+    "mode should still be 'none' when no setAutoAllowMode was sent",
   );
 });
 
@@ -99,10 +137,7 @@ test("permission gate: deny resolves with reason fed back to the model", async (
   const required = events.find((e) => e.type === "permission_required");
   assert.ok(required);
 
-  bridge.resolvePermissionRequest(required!.requestId, {
-    decision: "deny",
-    rememberForSession: false,
-  });
+  bridge.resolvePermissionRequest(required!.requestId, { decision: "deny" });
 
   const decision = await pending;
   assert.equal(decision.outcome, "deny");
@@ -111,7 +146,7 @@ test("permission gate: deny resolves with reason fed back to the model", async (
   }
 });
 
-test("permission gate: rememberForSession=true on allow flips auto-allow on", async () => {
+test("permission gate: setAutoAllowMode on allow flips the mode and broadcasts", async () => {
   const { bridge, events } = captureBridge();
 
   const pending = bridge.invokeToolPermissionGateForTesting({
@@ -124,40 +159,36 @@ test("permission gate: rememberForSession=true on allow flips auto-allow on", as
 
   bridge.resolvePermissionRequest(required!.requestId, {
     decision: "allow",
-    rememberForSession: true,
+    setAutoAllowMode: "all",
   });
   await pending;
 
-  assert.equal(bridge.getAutoAllowWrites(), true);
-  const broadcast = events.find((e) => e.type === "auto_allow_changed");
-  assert.ok(broadcast, "auto_allow_changed should be broadcast");
-  assert.equal(broadcast!.autoAllow, true);
+  assert.equal(bridge.getAutoAllowMode(), "all");
+  const broadcast = events.find((e) => e.type === "auto_allow_mode_changed");
+  assert.ok(broadcast, "auto_allow_mode_changed should be broadcast");
+  assert.equal(broadcast!.mode, "all");
 });
 
-test("permission gate: setAutoAllowWrites is idempotent and broadcasts only on change", () => {
+test("permission gate: setAutoAllowMode is idempotent and broadcasts only on change", () => {
   const { bridge, events } = captureBridge();
 
-  bridge.setAutoAllowWrites(true);
-  bridge.setAutoAllowWrites(true);
-  bridge.setAutoAllowWrites(true);
+  bridge.setAutoAllowMode("all");
+  bridge.setAutoAllowMode("all");
+  bridge.setAutoAllowMode("all");
 
-  const broadcasts = events.filter((e) => e.type === "auto_allow_changed");
+  const broadcasts = events.filter((e) => e.type === "auto_allow_mode_changed");
   assert.equal(broadcasts.length, 1, "duplicate sets should not re-broadcast");
-  assert.equal(bridge.getAutoAllowWrites(), true);
+  assert.equal(bridge.getAutoAllowMode(), "all");
 
-  bridge.setAutoAllowWrites(false);
-  const allBroadcasts = events.filter((e) => e.type === "auto_allow_changed");
+  bridge.setAutoAllowMode("writes");
+  const allBroadcasts = events.filter((e) => e.type === "auto_allow_mode_changed");
   assert.equal(allBroadcasts.length, 2);
-  assert.equal(bridge.getAutoAllowWrites(), false);
+  assert.equal(bridge.getAutoAllowMode(), "writes");
 });
 
 test("permission gate: resolving an unknown requestId is silently ignored (no throw)", () => {
   const { bridge } = captureBridge();
-  // Should not throw — duplicate or stale responses are harmless.
-  bridge.resolvePermissionRequest("nonexistent-id", {
-    decision: "allow",
-    rememberForSession: false,
-  });
+  bridge.resolvePermissionRequest("nonexistent-id", { decision: "allow" });
 });
 
 test("permission gate: duplicate response for same requestId is ignored", async () => {
@@ -171,15 +202,9 @@ test("permission gate: duplicate response for same requestId is ignored", async 
   const required = events.find((e) => e.type === "permission_required");
   assert.ok(required);
 
-  bridge.resolvePermissionRequest(required!.requestId, {
-    decision: "allow",
-    rememberForSession: false,
-  });
+  bridge.resolvePermissionRequest(required!.requestId, { decision: "allow" });
   // Second call should be ignored — promise already resolved.
-  bridge.resolvePermissionRequest(required!.requestId, {
-    decision: "deny",
-    rememberForSession: false,
-  });
+  bridge.resolvePermissionRequest(required!.requestId, { decision: "deny" });
 
   const decision = await pending;
   assert.deepEqual(decision, { outcome: "allow" });

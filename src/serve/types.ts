@@ -1,5 +1,7 @@
 /** WebSocket message protocol types for minicode serve mode. */
 
+import type { AutoAllowMode } from "../auto-allow.js";
+
 // ── Client → Server ──
 
 export interface ClientChatMessage {
@@ -23,16 +25,18 @@ export interface ClientPermissionResponseMessage {
   requestId: string;
   decision: "allow" | "deny";
   /**
-   * When true, the user wants to skip future prompts for the rest of this
-   * session. Server flips its `autoAllowWrites` flag on. Implies `allow`.
+   * Optional: when present and `decision === "allow"`, the server flips the
+   * per-session auto-allow mode to this value. Lets a CLI shortcut like
+   * `[a] allow all (session)` set the mode without sending a separate
+   * `set_auto_allow_mode` message.
    */
-  rememberForSession?: boolean;
+  setAutoAllowMode?: AutoAllowMode;
 }
 
-/** Toggle the per-session auto-allow flag without responding to a prompt. */
-export interface ClientSetAutoAllowMessage {
-  type: "set_auto_allow";
-  autoAllow: boolean;
+/** Set the per-session auto-allow mode (drives the dropdown in the web UI). */
+export interface ClientSetAutoAllowModeMessage {
+  type: "set_auto_allow_mode";
+  mode: AutoAllowMode;
 }
 
 export type ClientMessage =
@@ -40,7 +44,7 @@ export type ClientMessage =
   | ClientCancelMessage
   | ClientSwitchModelMessage
   | ClientPermissionResponseMessage
-  | ClientSetAutoAllowMessage;
+  | ClientSetAutoAllowModeMessage;
 
 // ── Server → Client ──
 
@@ -117,10 +121,10 @@ export interface ServerPermissionRequiredMessage {
   input: Record<string, unknown>;
 }
 
-/** Pushed when the per-session auto-allow flag changes (so the UI checkbox can stay in sync across clients). */
-export interface ServerAutoAllowChangedMessage {
-  type: "auto_allow_changed";
-  autoAllow: boolean;
+/** Pushed when the per-session auto-allow mode changes (so any open client can keep the dropdown in sync). */
+export interface ServerAutoAllowModeChangedMessage {
+  type: "auto_allow_mode_changed";
+  mode: AutoAllowMode;
 }
 
 export type ServerMessage =
@@ -136,4 +140,4 @@ export type ServerMessage =
   | ServerContextStatusMessage
   | ServerModelChangedMessage
   | ServerPermissionRequiredMessage
-  | ServerAutoAllowChangedMessage;
+  | ServerAutoAllowModeChangedMessage;

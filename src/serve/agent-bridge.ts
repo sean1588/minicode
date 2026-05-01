@@ -6,6 +6,11 @@ import type {
   UiUpdate,
 } from "@minicode/agent-sdk";
 import { randomUUID } from "node:crypto";
+import {
+  type AutoAllowMode,
+  isGatedTool,
+  shouldAutoAllow,
+} from "../auto-allow.js";
 import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
@@ -52,12 +57,11 @@ export class AgentBridge {
   private reindexTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
-   * When true, mutating tool calls (write_file, edit_file, run_command) skip
-   * the user-approval prompt and run immediately. Default: false — the user
-   * must approve each call. Toggleable from the web UI checkbox or by
-   * answering "Allow always" on a permission prompt.
+   * Per-session auto-allow mode. Default `none` — every gated tool call
+   * prompts the user. Set via the web UI dropdown or via a CLI shortcut
+   * (which is encoded in `permission_response.setAutoAllowMode`).
    */
-  private autoAllowWrites = false;
+  private autoAllowMode: AutoAllowMode = "none";
 
   /**
    * In-flight permission requests keyed by `requestId`. The agent loop is
@@ -68,13 +72,6 @@ export class AgentBridge {
     string,
     (decision: ToolPermissionDecision) => void
   >();
-
-  /** Tools that go through the gate. Read-only tools (read_file, search, …) bypass it. */
-  private static readonly GATED_TOOLS = new Set([
-    "write_file",
-    "edit_file",
-    "run_command",
-  ]);
 
   constructor(broadcast: (msg: ServerMessage) => void, verbose: boolean) {
     this.broadcast = broadcast;
@@ -192,18 +189,19 @@ export class AgentBridge {
   }
 
   /**
-   * Permission gate for tool calls. Read-only tools bypass; mutating tools
-   * either auto-allow (when the user has flipped the toggle) or open a
+   * Permission gate for tool calls. Read-only tools bypass; mutating
+   * tools (`write_file`, `edit_file`, `run_command`) either auto-allow
+   * (when the current `autoAllowMode` covers that tool) or open a
    * round-trip prompt against the connected web client.
    *
    * Defined as an arrow-property so `this` binding survives passing it
    * straight into `CodingAgent` as `beforeToolCall`.
    */
   private gateToolCall: BeforeToolCallHook = async (toolCall) => {
-    if (!AgentBridge.GATED_TOOLS.has(toolCall.name)) {
+    if (!isGatedTool(toolCall.name)) {
       return { outcome: "allow" };
     }
-    if (this.autoAllowWrites) {
+    if (shouldAutoAllow(this.autoAllowMode, toolCall.name)) {
       return { outcome: "allow" };
     }
     return new Promise<ToolPermissionDecision>((resolve) => {
@@ -221,18 +219,23 @@ export class AgentBridge {
   /**
    * Resolve a pending permission request. Called by the WebSocket handler
    * when a `permission_response` arrives. Idempotent: a duplicate response
-   * for the same requestId is silently ignored.
+   * for the same requestId is silently ignored. When the response carries
+   * `setAutoAllowMode` (used by CLI shortcuts), the mode is updated and
+   * broadcast before the promise resolves.
    */
   resolvePermissionRequest(
     requestId: string,
-    response: { decision: "allow" | "deny"; rememberForSession: boolean },
+    response: {
+      decision: "allow" | "deny";
+      setAutoAllowMode?: AutoAllowMode;
+    },
   ): void {
     const resolve = this.pendingPermissions.get(requestId);
     if (!resolve) return;
     this.pendingPermissions.delete(requestId);
 
-    if (response.decision === "allow" && response.rememberForSession) {
-      this.setAutoAllowWrites(true);
+    if (response.decision === "allow" && response.setAutoAllowMode) {
+      this.setAutoAllowMode(response.setAutoAllowMode);
     }
 
     if (response.decision === "allow") {
@@ -246,17 +249,17 @@ export class AgentBridge {
   }
 
   /**
-   * Toggle the per-session auto-allow flag and broadcast the new state so
+   * Set the per-session auto-allow mode and broadcast the new value so
    * any connected client UI stays in sync.
    */
-  setAutoAllowWrites(value: boolean): void {
-    if (this.autoAllowWrites === value) return;
-    this.autoAllowWrites = value;
-    this.emit({ type: "auto_allow_changed", autoAllow: value });
+  setAutoAllowMode(mode: AutoAllowMode): void {
+    if (this.autoAllowMode === mode) return;
+    this.autoAllowMode = mode;
+    this.emit({ type: "auto_allow_mode_changed", mode });
   }
 
-  getAutoAllowWrites(): boolean {
-    return this.autoAllowWrites;
+  getAutoAllowMode(): AutoAllowMode {
+    return this.autoAllowMode;
   }
 
   /**

@@ -5,16 +5,20 @@ import { handlePermissionsSlashCommand } from "../src/cli/permissions-slash-comm
 import { createPermissionGate } from "../src/ui/permission-gate.js";
 import { UiStore } from "../src/ui/state/ui-store.js";
 
-test("/permissions status reports the current auto-allow setting", () => {
+test("/permissions status reports the current mode", () => {
   const store = new UiStore();
 
   const off = handlePermissionsSlashCommand("/permissions status", store);
   assert.equal(off.handled, true);
   assert.match(off.message ?? "", /OFF/);
 
-  store.setAutoAllowWrites(true);
-  const on = handlePermissionsSlashCommand("/permissions status", store);
-  assert.match(on.message ?? "", /ON/);
+  store.setAutoAllowMode("writes");
+  const writes = handlePermissionsSlashCommand("/permissions status", store);
+  assert.match(writes.message ?? "", /WRITES/);
+
+  store.setAutoAllowMode("all");
+  const all = handlePermissionsSlashCommand("/permissions status", store);
+  assert.match(all.message ?? "", /ALL/);
 });
 
 test("/permissions with no args defaults to status", () => {
@@ -24,29 +28,27 @@ test("/permissions with no args defaults to status", () => {
   assert.match(result.message ?? "", /OFF/);
 });
 
-test("/permissions auto on flips the toggle and confirms", () => {
+test("/permissions auto MODE sets each mode", () => {
   const store = new UiStore();
-  const result = handlePermissionsSlashCommand("/permissions auto on", store);
-  assert.equal(result.handled, true);
-  assert.equal(store.getAutoAllowWrites(), true);
-  assert.match(result.message ?? "", /ON/);
-});
 
-test("/permissions auto off flips the toggle back", () => {
-  const store = new UiStore();
-  store.setAutoAllowWrites(true);
-  const result = handlePermissionsSlashCommand("/permissions auto off", store);
-  assert.equal(result.handled, true);
-  assert.equal(store.getAutoAllowWrites(), false);
-  assert.match(result.message ?? "", /OFF/);
+  for (const mode of ["none", "writes", "commands", "all"] as const) {
+    const result = handlePermissionsSlashCommand(`/permissions auto ${mode}`, store);
+    assert.equal(result.handled, true);
+    assert.equal(store.getAutoAllowMode(), mode);
+  }
 });
 
 test("/permissions auto with bad value shows usage", () => {
   const store = new UiStore();
+  store.setAutoAllowMode("writes");
   const result = handlePermissionsSlashCommand("/permissions auto maybe", store);
   assert.equal(result.handled, true);
   assert.match(result.message ?? "", /Usage/i);
-  assert.equal(store.getAutoAllowWrites(), false, "bad value should not change state");
+  assert.equal(
+    store.getAutoAllowMode(),
+    "writes",
+    "bad value should not change state",
+  );
 });
 
 test("non-permissions input is not handled", () => {
@@ -70,18 +72,46 @@ test("createPermissionGate: read-only tools allow without parking a prompt", asy
   assert.equal(store.getState().pendingPermission, null);
 });
 
-test("createPermissionGate: auto-allow short-circuits mutating tools", async () => {
+test("createPermissionGate: mode 'all' short-circuits every mutating tool", async () => {
   const store = new UiStore();
-  store.setAutoAllowWrites(true);
+  store.setAutoAllowMode("all");
   const gate = createPermissionGate(store);
 
-  const decision = await gate({
-    name: "write_file",
-    input: { path: "x", content: "y" },
-  });
-
-  assert.deepEqual(decision, { outcome: "allow" });
+  for (const name of ["write_file", "edit_file", "run_command"]) {
+    const decision = await gate({ name, input: {} });
+    assert.deepEqual(decision, { outcome: "allow" }, `${name} should auto-allow under 'all'`);
+  }
   assert.equal(store.getState().pendingPermission, null);
+});
+
+test("createPermissionGate: mode 'writes' auto-allows write_file/edit_file but prompts run_command", async () => {
+  const store = new UiStore();
+  store.setAutoAllowMode("writes");
+  const gate = createPermissionGate(store);
+
+  for (const name of ["write_file", "edit_file"]) {
+    const d = await gate({ name, input: {} });
+    assert.deepEqual(d, { outcome: "allow" });
+  }
+  assert.equal(store.getState().pendingPermission, null);
+
+  void gate({ name: "run_command", input: { command: "ls" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(store.getState().pendingPermission, "run_command should still prompt");
+});
+
+test("createPermissionGate: mode 'commands' auto-allows run_command but prompts writes", async () => {
+  const store = new UiStore();
+  store.setAutoAllowMode("commands");
+  const gate = createPermissionGate(store);
+
+  const cmd = await gate({ name: "run_command", input: { command: "ls" } });
+  assert.deepEqual(cmd, { outcome: "allow" });
+  assert.equal(store.getState().pendingPermission, null);
+
+  void gate({ name: "write_file", input: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(store.getState().pendingPermission);
 });
 
 test("createPermissionGate: parks a pending prompt and resolves on user allow", async () => {
@@ -95,15 +125,15 @@ test("createPermissionGate: parks a pending prompt and resolves on user allow", 
   assert.ok(prompt, "prompt should be parked on the store");
   assert.equal(prompt!.toolName, "edit_file");
 
-  prompt!.resolve({ decision: "allow", rememberForSession: false });
+  prompt!.resolve({ decision: "allow" });
 
   const decision = await pending;
   assert.deepEqual(decision, { outcome: "allow" });
   assert.equal(store.getState().pendingPermission, null, "prompt cleared after resolve");
   assert.equal(
-    store.getAutoAllowWrites(),
-    false,
-    "rememberForSession=false leaves auto-allow unchanged",
+    store.getAutoAllowMode(),
+    "none",
+    "mode unchanged when no setMode is sent",
   );
 });
 
@@ -126,7 +156,7 @@ test("createPermissionGate: deny resolves with a reason", async () => {
   assert.equal(store.getState().pendingPermission, null);
 });
 
-test("createPermissionGate: rememberForSession=true on allow flips the store toggle", async () => {
+test("createPermissionGate: setMode='all' on allow flips the mode (used by [a] shortcut)", async () => {
   const store = new UiStore();
   const gate = createPermissionGate(store);
 
@@ -135,8 +165,8 @@ test("createPermissionGate: rememberForSession=true on allow flips the store tog
   const prompt = store.getState().pendingPermission;
   assert.ok(prompt);
 
-  prompt!.resolve({ decision: "allow", rememberForSession: true });
+  prompt!.resolve({ decision: "allow", setMode: "all" });
   await pending;
 
-  assert.equal(store.getAutoAllowWrites(), true);
+  assert.equal(store.getAutoAllowMode(), "all");
 });
