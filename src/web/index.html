@@ -125,11 +125,6 @@ MODEL=your-model-name</pre>
         </div>
         <main id="messages"></main>
         <footer>
-          <form id="chat-form">
-            <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
-            <button type="submit" id="send-btn">Send</button>
-            <button type="button" id="cancel-btn" class="hidden">Cancel</button>
-          </form>
           <label id="auto-allow-row" class="auto-allow-row" title="Skip the approval prompt for some or all of write_file, edit_file, and run_command. The mode persists for this session only.">
             <span>Auto-allow:</span>
             <select id="auto-allow-mode">
@@ -139,6 +134,11 @@ MODEL=your-model-name</pre>
               <option value="all">all — write_file, edit_file, run_command</option>
             </select>
           </label>
+          <form id="chat-form">
+            <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
+            <button type="submit" id="send-btn">Send</button>
+            <button type="button" id="cancel-btn" class="hidden">Cancel</button>
+          </form>
         </footer>
       </div>
       <div id="pane-divider"></div>

@@ -191,6 +191,55 @@ test("permission gate: resolving an unknown requestId is silently ignored (no th
   bridge.resolvePermissionRequest("nonexistent-id", { decision: "allow" });
 });
 
+test("permission gate: API bypass allows mutating tools without prompting (used by /v1/chat/completions)", async () => {
+  const { bridge, events } = captureBridge();
+  // Mode is 'none' — every gated tool would normally prompt. The API
+  // bypass overrides this for programmatic API turns since there's no UI
+  // to answer the prompt.
+  bridge.setApiBypassForTesting(true);
+
+  for (const tool of ["write_file", "edit_file", "run_command"]) {
+    const decision = await bridge.invokeToolPermissionGateForTesting({
+      name: tool,
+      input: { path: "x" },
+    });
+    assert.deepEqual(
+      decision,
+      { outcome: "allow" },
+      `${tool} should auto-allow under API bypass even with mode='none'`,
+    );
+  }
+  assert.equal(
+    events.length,
+    0,
+    "no permission_required events should be emitted during API bypass",
+  );
+});
+
+test("permission gate: clearing the API bypass restores normal gating", async () => {
+  const { bridge, events } = captureBridge();
+  bridge.setApiBypassForTesting(true);
+  // First call: bypass on → allow without event.
+  await bridge.invokeToolPermissionGateForTesting({
+    name: "write_file",
+    input: { path: "x" },
+  });
+  assert.equal(events.length, 0);
+
+  bridge.setApiBypassForTesting(false);
+  // Second call: bypass off, mode='none' → must prompt.
+  void bridge.invokeToolPermissionGateForTesting({
+    name: "write_file",
+    input: { path: "y" },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const required = events.find((e) => e.type === "permission_required");
+  assert.ok(
+    required,
+    "after the bypass clears, mutating tools should prompt again",
+  );
+});
+
 test("permission gate: duplicate response for same requestId is ignored", async () => {
   const { bridge, events } = captureBridge();
 

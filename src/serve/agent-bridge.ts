@@ -64,6 +64,18 @@ export class AgentBridge {
   private autoAllowMode: AutoAllowMode = "none";
 
   /**
+   * Set for the duration of a programmatic API turn (OpenAI-compatible
+   * `/v1/chat/completions`). When true, the permission gate is bypassed
+   * entirely — API clients can't answer prompts, so prompting them
+   * would just hang the agent (and a human in another browser tab
+   * shouldn't be approving someone else's script either). Counter so
+   * concurrent or nested API calls don't clear the flag prematurely;
+   * `runTurn`'s busy check still serializes turns, but defending in
+   * depth costs nothing.
+   */
+  private apiBypassDepth = 0;
+
+  /**
    * In-flight permission requests keyed by `requestId`. The agent loop is
    * paused on the promise; the WebSocket handler calls
    * `resolvePermissionRequest(requestId, ...)` when the user responds.
@@ -201,6 +213,10 @@ export class AgentBridge {
     if (!isGatedTool(toolCall.name)) {
       return { outcome: "allow" };
     }
+    if (this.apiBypassDepth > 0) {
+      // Programmatic API turn: no UI to prompt, treat as fully auto-allowed.
+      return { outcome: "allow" };
+    }
     if (shouldAutoAllow(this.autoAllowMode, toolCall.name)) {
       return { outcome: "allow" };
     }
@@ -272,6 +288,15 @@ export class AgentBridge {
     input: Record<string, unknown>;
   }): Promise<ToolPermissionDecision> {
     return this.gateToolCall(toolCall);
+  }
+
+  /**
+   * @internal
+   * Exposed for tests so the API-bypass branch can be exercised without
+   * spinning up a real OpenAI-compatible HTTP request.
+   */
+  setApiBypassForTesting(active: boolean): void {
+    this.apiBypassDepth = active ? 1 : 0;
   }
 
   // ── File watcher for automatic reindexing ──
@@ -507,6 +532,24 @@ export class AgentBridge {
     } finally {
       this.busy = false;
       this.abortController = null;
+    }
+  }
+
+  /**
+   * Run a turn for a programmatic caller (the OpenAI-compatible
+   * `/v1/chat/completions` endpoint). Identical to `runTurn` but bypasses
+   * the permission gate for the duration of the turn — API clients can't
+   * answer interactive prompts, so gating would just hang the agent.
+   * Read-only tools and the `confirmDestructive` guardrail are unaffected.
+   */
+  async runApiTurn(
+    message: string,
+  ): Promise<{ text: string; usage?: { inputTokens: number; outputTokens: number } }> {
+    this.apiBypassDepth += 1;
+    try {
+      return await this.runTurn(message);
+    } finally {
+      this.apiBypassDepth -= 1;
     }
   }
 
