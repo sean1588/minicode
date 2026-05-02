@@ -1,8 +1,16 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "../agent/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectNonEmptyString } from "./helpers.js";
+
+/**
+ * Minimal options needed by the edit_file tool. `AgentConfig` satisfies
+ * this structurally, so passing the full config keeps working.
+ */
+export interface EditFileToolOptions {
+  workspaceRoot: string;
+}
 
 function expectString(input: Record<string, unknown>, key: string): string {
   const value = input[key];
@@ -37,7 +45,7 @@ export interface EditFileHooks {
 }
 
 export function createEditFileTool(
-  config: AgentConfig,
+  options: EditFileToolOptions,
   hooks?: EditFileHooks,
 ): ToolDefinition {
   return {
@@ -68,7 +76,7 @@ export function createEditFileTool(
       const oldString = expectNonEmptyString(input, "old_string");
       const newString = expectString(input, "new_string");
 
-      const filePath = resolveWorkspacePath(requestedPath, config.workspaceRoot);
+      const filePath = resolveWorkspacePath(requestedPath, options.workspaceRoot);
       const current = await readFile(filePath, "utf8");
       const occurrences = countOccurrences(current, oldString);
 

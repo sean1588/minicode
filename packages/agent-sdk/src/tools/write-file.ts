@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "../agent/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectNonEmptyString } from "./helpers.js";
 
@@ -19,8 +19,16 @@ export interface WriteFileHooks {
     | undefined;
 }
 
+/**
+ * Minimal options needed by the write_file tool. `AgentConfig` satisfies
+ * this structurally, so passing the full config keeps working.
+ */
+export interface WriteFileToolOptions {
+  workspaceRoot: string;
+}
+
 export function createWriteFileTool(
-  config: AgentConfig,
+  options: WriteFileToolOptions,
   hooks?: WriteFileHooks,
 ): ToolDefinition {
   return {
@@ -46,7 +54,7 @@ export function createWriteFileTool(
       const requestedPath = expectNonEmptyString(input, "path");
       const content = expectString(input, "content");
 
-      const filePath = resolveWorkspacePath(requestedPath, config.workspaceRoot);
+      const filePath = resolveWorkspacePath(requestedPath, options.workspaceRoot);
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeFile(filePath, content, "utf8");
 

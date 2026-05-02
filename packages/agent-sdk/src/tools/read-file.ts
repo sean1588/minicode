@@ -1,10 +1,21 @@
 import { readFile, stat } from "node:fs/promises";
 
-import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "../agent/types.js";
 import {
   resolveWorkspacePath,
   validateFileReadSize,
 } from "../safety/guardrails.js";
+
+/**
+ * Minimal options needed by the read_file tool. `AgentConfig` satisfies
+ * this structurally, so existing callers passing the full config keep
+ * working — but consumers building embedded agents can now pass just
+ * the two fields the tool actually uses.
+ */
+export interface ReadFileToolOptions {
+  workspaceRoot: string;
+  maxFileSizeBytes: number;
+}
 import {
   expectNonEmptyString,
   expectOptionalNumber,
@@ -44,7 +55,7 @@ function parseLimit(
   return totalLines;
 }
 
-export function createReadFileTool(config: AgentConfig): ToolDefinition {
+export function createReadFileTool(options: ReadFileToolOptions): ToolDefinition {
   return {
     name: "read_file",
     description:
@@ -74,13 +85,13 @@ export function createReadFileTool(config: AgentConfig): ToolDefinition {
       const offset = expectOptionalNumber(input, "offset");
       const limit = expectOptionalNumber(input, "limit");
 
-      const filePath = resolveWorkspacePath(requestedPath, config.workspaceRoot);
+      const filePath = resolveWorkspacePath(requestedPath, options.workspaceRoot);
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) {
         throw new Error(`"${requestedPath}" is not a file.`);
       }
 
-      validateFileReadSize(fileStat.size, config.maxFileSizeBytes);
+      validateFileReadSize(fileStat.size, options.maxFileSizeBytes);
       const content = await readFile(filePath, "utf8");
       if (content.length === 0) {
         return "File is empty.";

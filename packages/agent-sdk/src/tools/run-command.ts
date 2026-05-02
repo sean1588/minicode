@@ -1,11 +1,22 @@
 import { spawn } from "node:child_process";
 
-import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "../agent/types.js";
 import {
   isDestructiveCommand,
   validateCommand,
 } from "../safety/guardrails.js";
 import { expectNonEmptyString, expectOptionalNumber } from "./helpers.js";
+
+/**
+ * Minimal options needed by the run_command tool. `AgentConfig` satisfies
+ * this structurally, so passing the full config keeps working.
+ */
+export interface RunCommandToolOptions {
+  workspaceRoot: string;
+  commandTimeoutMs: number;
+  commandDenylist: RegExp[];
+  confirmDestructive: boolean;
+}
 
 interface CommandExecutionResult {
   stdout: string;
@@ -124,7 +135,7 @@ function parseTimeout(
 }
 
 export function createRunCommandTool(
-  config: AgentConfig,
+  options: RunCommandToolOptions,
   hooks?: RunCommandHooks,
 ): ToolDefinition {
   return {
@@ -150,10 +161,10 @@ export function createRunCommandTool(
     execute: async (input: Record<string, unknown>): Promise<string> => {
       const command = expectNonEmptyString(input, "command");
       const rawTimeout = expectOptionalNumber(input, "timeout");
-      const timeoutMs = parseTimeout(rawTimeout, config.commandTimeoutMs);
+      const timeoutMs = parseTimeout(rawTimeout, options.commandTimeoutMs);
 
-      validateCommand(command, config.commandDenylist);
-      if (config.confirmDestructive && isDestructiveCommand(command)) {
+      validateCommand(command, options.commandDenylist);
+      if (options.confirmDestructive && isDestructiveCommand(command)) {
         throw new Error(
           `Command "${command}" appears destructive and requires explicit user confirmation.`,
         );
@@ -161,7 +172,7 @@ export function createRunCommandTool(
 
       const result = await executeBashCommand(
         command,
-        config.workspaceRoot,
+        options.workspaceRoot,
         timeoutMs,
       );
 

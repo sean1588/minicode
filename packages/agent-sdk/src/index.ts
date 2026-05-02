@@ -42,12 +42,33 @@ export {
 export { ToolRegistry, type CoreToolHooks } from "./tools/registry.js";
 
 // Individual tool factories
-export { createReadFileTool } from "./tools/read-file.js";
-export { createWriteFileTool, type WriteFileHooks } from "./tools/write-file.js";
-export { createEditFileTool, type EditFileHooks } from "./tools/edit-file.js";
-export { createSearchTool } from "./tools/search.js";
-export { createListFilesTool } from "./tools/list-files.js";
-export { createRunCommandTool, type RunCommandHooks } from "./tools/run-command.js";
+export {
+  createReadFileTool,
+  type ReadFileToolOptions,
+} from "./tools/read-file.js";
+export {
+  createWriteFileTool,
+  type WriteFileHooks,
+  type WriteFileToolOptions,
+} from "./tools/write-file.js";
+export {
+  createEditFileTool,
+  type EditFileHooks,
+  type EditFileToolOptions,
+} from "./tools/edit-file.js";
+export {
+  createSearchTool,
+  type SearchToolOptions,
+} from "./tools/search.js";
+export {
+  createListFilesTool,
+  type ListFilesToolOptions,
+} from "./tools/list-files.js";
+export {
+  createRunCommandTool,
+  type RunCommandHooks,
+  type RunCommandToolOptions,
+} from "./tools/run-command.js";
 
 // Tool helpers
 export {
@@ -73,6 +94,8 @@ export {
 // System prompt
 export {
   buildSystemPrompt,
+  type SystemPromptBuilder,
+  type SystemPromptContext,
 } from "./prompt/system-prompt.js";
 
 // Focus tracker
