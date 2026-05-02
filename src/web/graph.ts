@@ -251,6 +251,27 @@ export function resizeGraph(): void {
   if (cy) cy.resize();
 }
 
+/**
+ * Notify cytoscape that its container's width changed. The
+ * symbol-detail side panel is a real flex sibling of `#cy`, so showing
+ * or hiding it (via the `hidden` class) automatically redistributes
+ * width. Cytoscape doesn't pick that up on its own — we have to call
+ * `cy.resize()` so it re-measures. Optionally re-fits the visible
+ * graph into the new canvas bounds.
+ *
+ * @param fit when true, also re-fit the visible graph after resize.
+ *   Use this on panel open (so right-side nodes that just got hidden
+ *   behind the panel get repacked). Skip on close and during
+ *   drag-resize so the user's current view stays put.
+ */
+function syncDetailPanelLayout({ fit = false }: { fit?: boolean } = {}): void {
+  if (!cy) return;
+  cy.resize();
+  if (fit && cy.nodes().length > 0) {
+    cy.fit(80);
+  }
+}
+
 // -- Graph building (incremental) --
 
 async function loadGraphSnapshot(refreshIndex: boolean): Promise<boolean> {
@@ -328,6 +349,7 @@ function renderGraphAfterDataRefresh(previousVisibleIds: string[], preserveVisib
 
   cy.elements().remove();
   document.getElementById('symbol-detail')?.classList.add('hidden');
+  syncDetailPanelLayout();
 
   const visibleIds = preserveVisible
     ? [...new Set(previousVisibleIds)].filter((id) => graphNodes.has(id))
@@ -439,6 +461,7 @@ function focusFileInGraph(filePath: string): void {
   });
   cy.elements().remove();
   document.getElementById('symbol-detail')?.classList.add('hidden');
+  syncDetailPanelLayout();
 
   if (selection.nodeIds.length === 0) {
     const cyEl = document.getElementById('cy');
@@ -1151,6 +1174,7 @@ function setupInteractions(cyInst: CyInstance, detailEl: HTMLElement): void {
   cyInst.on('tap', function (evt: CyEvent) {
     if (evt.target === (cyInst as unknown)) {
       detailEl.classList.add('hidden');
+      syncDetailPanelLayout();
     }
   });
 }
@@ -1224,6 +1248,9 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
 
   detailEl.innerHTML = '<div class="resize-handle"></div>' + html;
   detailEl.classList.remove('hidden');
+  // Shrink the cytoscape canvas to make room for the panel and re-fit so
+  // any nodes the panel just covered get repacked into the visible area.
+  syncDetailPanelLayout({ fit: true });
 
   // Setup resize handle drag
   const handle = detailEl.querySelector('.resize-handle') as HTMLElement;
@@ -1235,6 +1262,10 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
     function onMove(ev: MouseEvent) {
       const newWidth = startWidth - (ev.clientX - startX);
       detailEl.style.width = Math.max(200, newWidth) + 'px';
+      // Track the panel's width live so the canvas grows/shrinks with the
+      // drag. Skip the fit — the user is actively manipulating the layout
+      // and would find auto-fit jarring.
+      syncDetailPanelLayout();
     }
     function onUp() {
       handle.classList.remove('dragging');
@@ -1590,6 +1621,7 @@ function setupToolbar(): void {
     if (!cy) return;
     cy.elements().remove();
     document.getElementById('symbol-detail')!.classList.add('hidden');
+    syncDetailPanelLayout();
     const cyEl = document.getElementById('cy');
     if (cyEl) showOnboardingHint(cyEl);
     refreshAnalysisGraphState();
