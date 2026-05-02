@@ -91,6 +91,14 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
     }
   }
 
+  // Anthropic reports `cache_read_input_tokens` (cache hits) separately
+  // from `input_tokens` (uncached portion that still got billed at the
+  // standard rate). Surface the cache hits so callers can show savings
+  // and so the rolled-up totals are honest about how much was billable.
+  const cacheReadTokens = (response.usage as {
+    cache_read_input_tokens?: number;
+  }).cache_read_input_tokens;
+
   return {
     text: textParts.join("\n").trim(),
     toolCalls,
@@ -103,6 +111,9 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+      ...(cacheReadTokens !== undefined && cacheReadTokens > 0
+        ? { cachedInputTokens: cacheReadTokens }
+        : {}),
     },
   };
 }
@@ -284,6 +295,14 @@ interface OpenAICompatibleCompletionResponse {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    /**
+     * Prompt-caching stats. OpenAI, OpenRouter, DeepSeek, Gemini, Groq,
+     * and others all report cache hits via this nested shape; we normalise
+     * to `ModelResponse.usage.cachedInputTokens` for callers.
+     */
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
   };
 }
 
@@ -439,6 +458,8 @@ function parseOpenAICompatibleResponse(
           ? "tool_use"
           : "end_turn";
 
+  const cachedTokens = response.usage?.prompt_tokens_details?.cached_tokens;
+
   return {
     text: (message.content ?? "").trim(),
     toolCalls,
@@ -446,6 +467,9 @@ function parseOpenAICompatibleResponse(
     usage: {
       inputTokens: response.usage?.prompt_tokens ?? 0,
       outputTokens: response.usage?.completion_tokens ?? 0,
+      ...(cachedTokens !== undefined && cachedTokens > 0
+        ? { cachedInputTokens: cachedTokens }
+        : {}),
     },
   };
 }
@@ -502,13 +526,43 @@ export class AnthropicModelClient implements ModelClient {
     reasoningEffort?: ReasoningEffort;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
+    cacheableSystem?: boolean;
   }): Promise<ModelResponse> {
+    // Anthropic prompt caching: mark stable parts of the prefix with
+    // `cache_control: { type: "ephemeral" }` so the provider serves
+    // them at the cache-read rate (~10% of input cost) on subsequent
+    // calls within ~5 minutes.
+    //   - System prompt: cacheable when the caller signals it's stable
+    //     across calls (i.e. not rebuilt every step). Skipped under
+    //     `cacheableSystem: false` to avoid constant cache writes.
+    //   - Tools: marking the LAST tool also caches every preceding
+    //     tool, so a single breakpoint covers the whole tool set.
+    //     Tools change rarely; always cache.
+    const cacheableSystem = params.cacheableSystem !== false;
+    const systemBlocks = cacheableSystem && params.system.length > 0
+      ? [
+          {
+            type: "text" as const,
+            text: params.system,
+            cache_control: { type: "ephemeral" as const },
+          },
+        ]
+      : params.system;
+    const toolsWithCache =
+      params.tools.length > 0
+        ? (params.tools as unknown as Anthropic.Messages.ToolUnion[]).map(
+            (tool, i) =>
+              i === params.tools.length - 1
+                ? { ...tool, cache_control: { type: "ephemeral" } }
+                : tool,
+          )
+        : params.tools;
     const baseParams = {
       model: params.model,
       max_tokens: params.maxTokens,
-      system: params.system,
+      system: systemBlocks,
       messages: toAnthropicMessages(params.messages),
-      tools: params.tools as unknown as Anthropic.Messages.ToolUnion[],
+      tools: toolsWithCache as unknown as Anthropic.Messages.ToolUnion[],
     };
 
     // Build thinking parameter for models that support extended thinking.
@@ -583,7 +637,13 @@ interface OpenAIStreamChunk {
     };
     finish_reason?: string;
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+  };
 }
 
 async function parseOpenAIStream(
@@ -594,7 +654,7 @@ async function parseOpenAIStream(
   let buffer = "";
   let content = "";
   const toolCallsAcc: Array<{ id: string; name: string; arguments: string }> = [];
-  const usage = { prompt_tokens: 0, completion_tokens: 0 };
+  const usage = { prompt_tokens: 0, completion_tokens: 0, cached_tokens: 0 };
   let finishReason: string | null = null;
 
   const processLines = (lines: string[]) => {
@@ -631,6 +691,8 @@ async function parseOpenAIStream(
         if (chunk.usage) {
           usage.prompt_tokens = chunk.usage.prompt_tokens ?? 0;
           usage.completion_tokens = chunk.usage.completion_tokens ?? 0;
+          usage.cached_tokens =
+            chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
         }
       } catch {
         // skip malformed chunks
@@ -673,7 +735,13 @@ async function parseOpenAIStream(
     text: content.trim(),
     toolCalls,
     stopReason,
-    usage: { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens },
+    usage: {
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      ...(usage.cached_tokens > 0
+        ? { cachedInputTokens: usage.cached_tokens }
+        : {}),
+    },
   };
 }
 
@@ -711,6 +779,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     reasoningEffort?: ReasoningEffort;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
+    cacheableSystem?: boolean;
   }): Promise<ModelResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -747,6 +816,18 @@ export class OpenAICompatibleModelClient implements ModelClient {
 
     if (params.reasoningEffort) {
       requestBody.reasoning = { effort: params.reasoningEffort };
+    }
+
+    // Prompt caching. Most OpenAI-compatible providers (OpenAI, DeepSeek,
+    // Grok, Groq, Moonshot, Gemini) cache automatically and ignore this
+    // field. OpenRouter honours the Anthropic-shaped `cache_control` and
+    // routes it to underlying Claude models so they cache the stable
+    // prefix. We send it as a top-level shortcut: OpenRouter then
+    // auto-applies the breakpoint to the last cacheable block (system +
+    // tools). Skipped when the system prompt rebuilds every step
+    // (`cacheableSystem: false`) to avoid pointless cache writes.
+    if (params.cacheableSystem !== false) {
+      requestBody.cache_control = { type: "ephemeral" };
     }
 
     const response = await withRetry(

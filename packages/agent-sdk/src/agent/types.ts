@@ -107,6 +107,15 @@ export interface ModelResponse {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    /**
+     * Tokens served from the provider's prompt cache, when reported.
+     * Anthropic exposes `cache_read_input_tokens`; OpenAI / OpenRouter /
+     * DeepSeek / Gemini expose `prompt_tokens_details.cached_tokens`.
+     * Both clients normalise to this field. Useful for surfacing cache
+     * effectiveness in the UI without callers needing to know the
+     * provider-specific shape.
+     */
+    cachedInputTokens?: number;
   };
 }
 
@@ -126,6 +135,14 @@ export interface ModelClient {
     reasoningEffort?: ReasoningEffort;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
+    /**
+     * When true (default), the client tells the provider to cache the
+     * stable prefix of the request (system prompt + tools). Set to false
+     * when the system prompt is rebuilt on every step (e.g. with
+     * `enableDynamicPrompt: true`) so the cache isn't constantly
+     * invalidated and re-written. Tools are always cacheable separately.
+     */
+    cacheableSystem?: boolean;
   }): Promise<ModelResponse>;
 
   /** List models available from the provider. Returns empty array on failure. */

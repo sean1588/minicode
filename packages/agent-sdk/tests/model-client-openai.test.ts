@@ -288,6 +288,132 @@ test("openai-compatible client retries when the model never starts responding", 
   assert.equal(attempts, 3);
 });
 
+test("openai-compatible client adds top-level cache_control by default (OpenRouter prompt-cache opt-in)", async () => {
+  let capturedBody = "";
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    capturedBody = String(init?.body ?? "");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  const body = JSON.parse(capturedBody) as { cache_control?: { type: string } };
+  assert.deepEqual(
+    body.cache_control,
+    { type: "ephemeral" },
+    "default request should include the top-level cache_control marker so OpenRouter caches the stable prefix",
+  );
+});
+
+test("openai-compatible client omits cache_control when cacheableSystem is false", async () => {
+  let capturedBody = "";
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    capturedBody = String(init?.body ?? "");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Dynamic Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+    cacheableSystem: false,
+  });
+
+  const body = JSON.parse(capturedBody) as { cache_control?: { type: string } };
+  assert.equal(
+    body.cache_control,
+    undefined,
+    "cacheableSystem: false should suppress cache_control to avoid pointless cache writes when the system prompt rebuilds",
+  );
+});
+
+test("openai-compatible client surfaces cached_tokens via prompt_tokens_details", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "hi" } }],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_tokens_details: { cached_tokens: 80 },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.usage.inputTokens, 100);
+  assert.equal(response.usage.cachedInputTokens, 80);
+});
+
+test("openai-compatible client omits cachedInputTokens when zero or absent", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "hi" } }],
+        usage: { prompt_tokens: 100, completion_tokens: 10 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(
+    response.usage.cachedInputTokens,
+    undefined,
+    "absent cached_tokens should not surface as 0 or noise",
+  );
+});
+
 test("createModelClient returns openai-compatible client", () => {
   const config = {
     ...createTestAgentConfig("/tmp"),
