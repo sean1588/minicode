@@ -472,3 +472,104 @@ test("compactContext uses compactionModel override when set", async () => {
     "compactionModel override should win over the primary model",
   );
 });
+
+test("agent passes cacheableSystem: true by default and accumulates cachedInputTokens across steps", async () => {
+  const cacheableSystemFlags: Array<boolean | undefined> = [];
+  const stepResponses: ModelResponse[] = [
+    {
+      text: "Step 1",
+      toolCalls: [{ id: "t1", name: "echo_tool", input: { value: "a" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 80 },
+    },
+    {
+      text: "Final",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 110, outputTokens: 10, cachedInputTokens: 95 },
+    },
+  ];
+  const client: ModelClient = {
+    async chat(params) {
+      cacheableSystemFlags.push(
+        (params as { cacheableSystem?: boolean }).cacheableSystem,
+      );
+      const next = stepResponses.shift();
+      if (!next) throw new Error("ran out of queued responses");
+      return next;
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: client,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const result = await agent.runTurn("Hello");
+
+  assert.deepEqual(
+    cacheableSystemFlags,
+    [true, true],
+    "agent should default to cacheableSystem: true on every step when enableDynamicPrompt is off",
+  );
+  assert.equal(result.usage?.cachedInputTokens, 175, "should sum 80 + 95 across the turn");
+  assert.equal(result.usage?.inputTokens, 210);
+});
+
+test("agent passes cacheableSystem: false when enableDynamicPrompt is enabled", async () => {
+  const cacheableSystemFlags: Array<boolean | undefined> = [];
+  const client: ModelClient = {
+    async chat(params) {
+      cacheableSystemFlags.push(
+        (params as { cacheableSystem?: boolean }).cacheableSystem,
+      );
+      return {
+        text: "Done",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 50, outputTokens: 5 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: { ...createTestAgentConfig("/tmp"), enableDynamicPrompt: true },
+    modelClient: client,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  await agent.runTurn("Hello");
+
+  assert.deepEqual(
+    cacheableSystemFlags,
+    [false],
+    "dynamic prompts rebuild the system on every step, so caching it would just burn cache writes",
+  );
+});
+
+test("agent omits cachedInputTokens when no step reported any", async () => {
+  const client: ModelClient = {
+    async chat() {
+      return {
+        text: "Done",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 50, outputTokens: 5 },
+      };
+    },
+  };
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: client,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const result = await agent.runTurn("Hello");
+
+  assert.equal(
+    result.usage?.cachedInputTokens,
+    undefined,
+    "no cache hits should mean no cachedInputTokens field on the totals",
+  );
+});

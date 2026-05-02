@@ -349,7 +349,11 @@ export class CodingAgent {
     options?: { signal?: AbortSignal },
   ): Promise<{
     text: string;
-    usage?: { inputTokens: number; outputTokens: number };
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      cachedInputTokens?: number;
+    };
     streamed?: boolean;
   }> {
     this.session.addMessage({
@@ -361,6 +365,7 @@ export class CodingAgent {
     const recentToolCallFingerprints: string[] = [];
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCachedInputTokens = 0;
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {
       ensureStepWithinLimit(step, this.config.maxSteps);
@@ -460,6 +465,11 @@ export class CodingAgent {
         messages,
         tools: toolSchemas,
         maxTokens: this.config.maxTokens,
+        // Caching is always-on for the stable prefix EXCEPT when
+        // dynamic prompts are enabled — then the system prompt rebuilds
+        // every step (focus-adaptive code map), so caching it would just
+        // burn cache writes that never get hit.
+        cacheableSystem: !this.config.enableDynamicPrompt,
         ...(this.config.reasoningEffort
           ? { reasoningEffort: this.config.reasoningEffort }
           : {}),
@@ -475,6 +485,7 @@ export class CodingAgent {
 
       totalInputTokens += response.usage.inputTokens;
       totalOutputTokens += response.usage.outputTokens;
+      totalCachedInputTokens += response.usage.cachedInputTokens ?? 0;
 
       if (this.verbose) {
         this.verboseLog(`\n${VERBOSE_SEP}`);
@@ -505,7 +516,13 @@ export class CodingAgent {
           this.config.modelProvider === "openai-compatible" && !!this.onUiUpdate;
         return {
           text: finalText,
-          usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+          usage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            ...(totalCachedInputTokens > 0
+              ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+          },
           streamed,
         };
       }
@@ -569,7 +586,13 @@ export class CodingAgent {
           });
           return {
             text: loopMessage,
-            usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+            usage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            ...(totalCachedInputTokens > 0
+              ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+          },
             streamed: false,
           };
         }
@@ -659,7 +682,13 @@ export class CodingAgent {
     });
     return {
       text: stepLimitMessage,
-      usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+      usage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            ...(totalCachedInputTokens > 0
+              ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+          },
       streamed: false,
     };
   }
