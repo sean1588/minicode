@@ -5,7 +5,12 @@ import { Session } from "../session/session.js";
 import type { CompactionResult } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { FocusTracker } from "../indexer/focus-tracker.js";
-import type { AgentConfig, ModelClient, ToolCall } from "./types.js";
+import type {
+  AgentConfig,
+  BeforeToolCallHook,
+  ModelClient,
+  ToolCall,
+} from "./types.js";
 
 function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) {
@@ -199,6 +204,7 @@ export class CodingAgent {
   private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
   private readonly onVerbose: ((message: string) => void) | undefined;
   private readonly getSystemPromptSuffix: (() => string | undefined) | undefined;
+  private readonly beforeToolCall: BeforeToolCallHook | undefined;
 
   /**
    * Tracks symbol names the user/agent has been working with.
@@ -228,6 +234,13 @@ export class CodingAgent {
     onUiUpdate?: (event: UiUpdate) => void;
     onVerbose?: (message: string) => void;
     getSystemPromptSuffix?: () => string | undefined;
+    /**
+     * Called before each tool call. Return `{outcome: "deny", reason}` to
+     * skip execution; the reason is fed back to the model as the tool's
+     * result. Hosts use this to implement permission prompts (web UI
+     * modal, CLI confirmation, etc.).
+     */
+    beforeToolCall?: BeforeToolCallHook;
   }) {
     this.config = params.config;
     this.modelClient = params.modelClient;
@@ -239,6 +252,7 @@ export class CodingAgent {
     this.onUiUpdate = params.onUiUpdate;
     this.onVerbose = params.onVerbose;
     this.getSystemPromptSuffix = params.getSystemPromptSuffix;
+    this.beforeToolCall = params.beforeToolCall;
   }
 
   private verboseLog(...args: unknown[]): void {
@@ -308,6 +322,25 @@ export class CodingAgent {
       }
     }
     return false;
+  }
+
+  /**
+   * Run a tool call, gated through `beforeToolCall` if a hook was provided.
+   * A `deny` decision short-circuits execution and feeds the hook's reason
+   * back to the model as the tool's result, so the model sees the rejection
+   * in-band and can choose how to respond.
+   */
+  private async executeToolCall(toolCall: ToolCall): Promise<string> {
+    if (this.beforeToolCall) {
+      const decision = await this.beforeToolCall({
+        name: toolCall.name,
+        input: toolCall.input,
+      });
+      if (decision.outcome === "deny") {
+        return `Tool call denied by user: ${decision.reason}`;
+      }
+    }
+    return this.toolRegistry.execute(toolCall.name, toolCall.input);
   }
 
   async runTurn(
@@ -568,17 +601,11 @@ export class CodingAgent {
           if (canDedup) {
             toolResult = `[File "${toolCall.input.path}" was already read at step ${cachedStep}. Refer to that earlier output.]`;
           } else {
-            toolResult = await this.toolRegistry.execute(
-              toolCall.name,
-              toolCall.input,
-            );
+            toolResult = await this.executeToolCall(toolCall);
             this.fileReadCache.set(cacheKey, step);
           }
         } else {
-          toolResult = await this.toolRegistry.execute(
-            toolCall.name,
-            toolCall.input,
-          );
+          toolResult = await this.executeToolCall(toolCall);
         }
 
         // Apply content-aware truncation when enabled, otherwise

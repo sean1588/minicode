@@ -143,9 +143,8 @@ export function buildSystemPrompt(
     "",
     "[Safety Rules]",
     "- Never modify files outside the workspace directory.",
-    "- Never run destructive commands without explicit user confirmation.",
     "- Ask for clarification if user intent is ambiguous.",
-    "- When asked to perform a task, communicate your execution plan to the user and ask for their confirmation before proceeding with any modifications."
+    "- Briefly explain what you're about to do before making changes, then proceed. The host enforces per-tool-call permission gating where appropriate; do not also ask for confirmation in chat."
   );
 
   return sections.join("\n");

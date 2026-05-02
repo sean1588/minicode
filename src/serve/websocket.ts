@@ -35,6 +35,15 @@ export function createWebSocketServer(
         for (const client of wss.clients) {
           client.send(JSON.stringify(changed));
         }
+      } else if (msg.type === "permission_response") {
+        bridge.resolvePermissionRequest(msg.requestId, {
+          decision: msg.decision,
+          ...(msg.setAutoAllowMode !== undefined
+            ? { setAutoAllowMode: msg.setAutoAllowMode }
+            : {}),
+        });
+      } else if (msg.type === "set_auto_allow_mode") {
+        bridge.setAutoAllowMode(msg.mode);
       }
     });
   });

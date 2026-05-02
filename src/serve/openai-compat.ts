@@ -96,7 +96,7 @@ async function handleNonStreaming(
   created: number,
 ): Promise<void> {
   try {
-    const result = await bridge.runTurn(message);
+    const result = await bridge.runApiTurn(message);
     sendJson(res, 200, {
       id: completionId,
       object: "chat.completion",
@@ -164,7 +164,7 @@ async function handleStreaming(
   bridge.addListener(listener);
 
   try {
-    await bridge.runTurn(message);
+    await bridge.runApiTurn(message);
 
     sendSSE({
       id: completionId,

@@ -3,8 +3,26 @@ import type {
   ActivityItemToolCall,
   UiPhase,
 } from "../events.js";
+import type { AutoAllowMode } from "../../auto-allow.js";
 
 type Listener = () => void;
+
+export interface PendingPermissionPrompt {
+  toolName: string;
+  input: Record<string, unknown>;
+  /**
+   * Resolves the agent's `beforeToolCall` promise. Set by the permission
+   * gate when it parks a prompt; called by the UI when the user picks an
+   * option. Cleared from the store as soon as it fires. `setMode` lets
+   * the prompt update the per-session auto-allow mode before resolving
+   * (used by the `[a] allow all (session)` shortcut).
+   */
+  resolve: (
+    response:
+      | { decision: "allow"; setMode?: AutoAllowMode }
+      | { decision: "deny" },
+  ) => void;
+}
 
 export interface UiStoreState {
   phase: UiPhase;
@@ -19,6 +37,10 @@ export interface UiStoreState {
   indexStatus: string;
   items: ActivityItem[];
   errorMessage: string | null;
+  /** Set while a mutating tool call is awaiting the user's approval. */
+  pendingPermission: PendingPermissionPrompt | null;
+  /** Per-session auto-allow mode for the permission gate. */
+  autoAllowMode: AutoAllowMode;
 }
 
 const DEFAULT_STATE: UiStoreState = {
@@ -34,6 +56,8 @@ const DEFAULT_STATE: UiStoreState = {
   indexStatus: "",
   items: [],
   errorMessage: null,
+  pendingPermission: null,
+  autoAllowMode: "none",
 };
 
 export class UiStore {
@@ -133,5 +157,18 @@ export class UiStore {
   reset(): void {
     this.state = { ...DEFAULT_STATE };
     this.notify();
+  }
+
+  setPendingPermission(prompt: PendingPermissionPrompt | null): void {
+    this.update({ pendingPermission: prompt });
+  }
+
+  setAutoAllowMode(mode: AutoAllowMode): void {
+    if (this.state.autoAllowMode === mode) return;
+    this.update({ autoAllowMode: mode });
+  }
+
+  getAutoAllowMode(): AutoAllowMode {
+    return this.state.autoAllowMode;
   }
 }

@@ -2,6 +2,7 @@
 export type {
   AgentConfig,
   AssistantMessage,
+  BeforeToolCallHook,
   ModelClient,
   ModelInfo,
   ModelResponse,
@@ -9,6 +10,7 @@ export type {
   SessionMessage,
   ToolCall,
   ToolDefinition,
+  ToolPermissionDecision,
   ToolResultMessage,
   ToolSchema,
   UserMessage,

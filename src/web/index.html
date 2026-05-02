@@ -125,6 +125,15 @@ MODEL=your-model-name</pre>
         </div>
         <main id="messages"></main>
         <footer>
+          <label id="auto-allow-row" class="auto-allow-row" title="Skip the approval prompt for some or all of write_file, edit_file, and run_command. The mode persists for this session only.">
+            <span>Auto-allow:</span>
+            <select id="auto-allow-mode">
+              <option value="none">none — always prompt</option>
+              <option value="writes">writes only (write_file, edit_file)</option>
+              <option value="commands">commands only (run_command)</option>
+              <option value="all">all — write_file, edit_file, run_command</option>
+            </select>
+          </label>
           <form id="chat-form">
             <textarea id="chat-input" placeholder="Send a message..." rows="1" autofocus></textarea>
             <button type="submit" id="send-btn">Send</button>
@@ -356,6 +365,35 @@ MODEL=your-model-name</pre>
       </div>
       <div class="file-preview-body">
         <pre id="file-preview-code" class="file-preview-code">Loading...</pre>
+      </div>
+    </section>
+  </div>
+
+  <div id="permission-modal" class="modal hidden" aria-hidden="true">
+    <div id="permission-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel modal-panel-compact" role="dialog" aria-modal="true" aria-labelledby="permission-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="permission-title">Allow this action?</h2>
+          <p id="permission-subtitle" class="modal-subtitle">The agent wants to run a tool that modifies your workspace.</p>
+        </div>
+      </div>
+      <div class="permission-body">
+        <div class="permission-tool">
+          <span class="permission-label">Tool</span>
+          <code id="permission-tool-name"></code>
+        </div>
+        <div class="permission-tool">
+          <span class="permission-label">Input</span>
+          <pre id="permission-tool-input" class="permission-tool-input"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <p class="settings-footnote">To skip future prompts for this session, change the <strong>Auto-allow</strong> dropdown below the chat input.</p>
+        <div class="settings-actions">
+          <button id="permission-deny" class="header-btn" type="button">Deny</button>
+          <button id="permission-allow" class="dropdown-action" type="button">Allow</button>
+        </div>
       </div>
     </section>
   </div>

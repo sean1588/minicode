@@ -1,5 +1,16 @@
 import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
-import type { ModelInfo, UiUpdate } from "@minicode/agent-sdk";
+import type {
+  BeforeToolCallHook,
+  ModelInfo,
+  ToolPermissionDecision,
+  UiUpdate,
+} from "@minicode/agent-sdk";
+import { randomUUID } from "node:crypto";
+import {
+  type AutoAllowMode,
+  isGatedTool,
+  shouldAutoAllow,
+} from "../auto-allow.js";
 import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
@@ -44,6 +55,35 @@ export class AgentBridge {
   private readonly annotations = new Map<string, string[]>();
   private fileWatcher: FSWatcher | null = null;
   private reindexTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /**
+   * Per-session auto-allow mode. Default `none` — every gated tool call
+   * prompts the user. Set via the web UI dropdown or via a CLI shortcut
+   * (which is encoded in `permission_response.setAutoAllowMode`).
+   */
+  private autoAllowMode: AutoAllowMode = "none";
+
+  /**
+   * Set for the duration of a programmatic API turn (OpenAI-compatible
+   * `/v1/chat/completions`). When true, the permission gate is bypassed
+   * entirely — API clients can't answer prompts, so prompting them
+   * would just hang the agent (and a human in another browser tab
+   * shouldn't be approving someone else's script either). Counter so
+   * concurrent or nested API calls don't clear the flag prematurely;
+   * `runTurn`'s busy check still serializes turns, but defending in
+   * depth costs nothing.
+   */
+  private apiBypassDepth = 0;
+
+  /**
+   * In-flight permission requests keyed by `requestId`. The agent loop is
+   * paused on the promise; the WebSocket handler calls
+   * `resolvePermissionRequest(requestId, ...)` when the user responds.
+   */
+  private readonly pendingPermissions = new Map<
+    string,
+    (decision: ToolPermissionDecision) => void
+  >();
 
   constructor(broadcast: (msg: ServerMessage) => void, verbose: boolean) {
     this.broadcast = broadcast;
@@ -156,7 +196,107 @@ export class AgentBridge {
         this.emit(event as ServerMessage);
       }),
       getSystemPromptSuffix: () => this.buildAnnotationSuffix(),
+      beforeToolCall: this.gateToolCall,
     });
+  }
+
+  /**
+   * Permission gate for tool calls. Read-only tools bypass; mutating
+   * tools (`write_file`, `edit_file`, `run_command`) either auto-allow
+   * (when the current `autoAllowMode` covers that tool) or open a
+   * round-trip prompt against the connected web client.
+   *
+   * Defined as an arrow-property so `this` binding survives passing it
+   * straight into `CodingAgent` as `beforeToolCall`.
+   */
+  private gateToolCall: BeforeToolCallHook = async (toolCall) => {
+    if (!isGatedTool(toolCall.name)) {
+      return { outcome: "allow" };
+    }
+    if (this.apiBypassDepth > 0) {
+      // Programmatic API turn: no UI to prompt, treat as fully auto-allowed.
+      return { outcome: "allow" };
+    }
+    if (shouldAutoAllow(this.autoAllowMode, toolCall.name)) {
+      return { outcome: "allow" };
+    }
+    return new Promise<ToolPermissionDecision>((resolve) => {
+      const requestId = randomUUID();
+      this.pendingPermissions.set(requestId, resolve);
+      this.emit({
+        type: "permission_required",
+        requestId,
+        toolName: toolCall.name,
+        input: toolCall.input,
+      });
+    });
+  };
+
+  /**
+   * Resolve a pending permission request. Called by the WebSocket handler
+   * when a `permission_response` arrives. Idempotent: a duplicate response
+   * for the same requestId is silently ignored. When the response carries
+   * `setAutoAllowMode` (used by CLI shortcuts), the mode is updated and
+   * broadcast before the promise resolves.
+   */
+  resolvePermissionRequest(
+    requestId: string,
+    response: {
+      decision: "allow" | "deny";
+      setAutoAllowMode?: AutoAllowMode;
+    },
+  ): void {
+    const resolve = this.pendingPermissions.get(requestId);
+    if (!resolve) return;
+    this.pendingPermissions.delete(requestId);
+
+    if (response.decision === "allow" && response.setAutoAllowMode) {
+      this.setAutoAllowMode(response.setAutoAllowMode);
+    }
+
+    if (response.decision === "allow") {
+      resolve({ outcome: "allow" });
+    } else {
+      resolve({
+        outcome: "deny",
+        reason: "User declined the tool call.",
+      });
+    }
+  }
+
+  /**
+   * Set the per-session auto-allow mode and broadcast the new value so
+   * any connected client UI stays in sync.
+   */
+  setAutoAllowMode(mode: AutoAllowMode): void {
+    if (this.autoAllowMode === mode) return;
+    this.autoAllowMode = mode;
+    this.emit({ type: "auto_allow_mode_changed", mode });
+  }
+
+  getAutoAllowMode(): AutoAllowMode {
+    return this.autoAllowMode;
+  }
+
+  /**
+   * @internal
+   * Exposed for tests so the gating logic can be exercised without spinning
+   * up a full agent + model client.
+   */
+  invokeToolPermissionGateForTesting(toolCall: {
+    name: string;
+    input: Record<string, unknown>;
+  }): Promise<ToolPermissionDecision> {
+    return this.gateToolCall(toolCall);
+  }
+
+  /**
+   * @internal
+   * Exposed for tests so the API-bypass branch can be exercised without
+   * spinning up a real OpenAI-compatible HTTP request.
+   */
+  setApiBypassForTesting(active: boolean): void {
+    this.apiBypassDepth = active ? 1 : 0;
   }
 
   // ── File watcher for automatic reindexing ──
@@ -392,6 +532,24 @@ export class AgentBridge {
     } finally {
       this.busy = false;
       this.abortController = null;
+    }
+  }
+
+  /**
+   * Run a turn for a programmatic caller (the OpenAI-compatible
+   * `/v1/chat/completions` endpoint). Identical to `runTurn` but bypasses
+   * the permission gate for the duration of the turn — API clients can't
+   * answer interactive prompts, so gating would just hang the agent.
+   * Read-only tools and the `confirmDestructive` guardrail are unaffected.
+   */
+  async runApiTurn(
+    message: string,
+  ): Promise<{ text: string; usage?: { inputTokens: number; outputTokens: number } }> {
+    this.apiBypassDepth += 1;
+    try {
+      return await this.runTurn(message);
+    } finally {
+      this.apiBypassDepth -= 1;
     }
   }
 
