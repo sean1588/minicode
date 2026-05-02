@@ -163,10 +163,11 @@ async function runInteractive(
     if (trimmed === "/compact") {
       const session = agent.getSession();
       const tokensBefore = session.getTokenEstimate();
-      const result = session.compact(config.keepRecentMessages);
+      const result = await agent.compactContext();
       if (result) {
+        const method = result.method === "llm" ? "LLM" : "mechanical";
         console.log(
-          `Compacted: ${result.removedMessages} messages summarized, ` +
+          `Compacted (${method}): ${result.removedMessages} messages summarized, ` +
           `${result.previousTokens} → ${result.newTokens} tokens ` +
           `(saved ${result.previousTokens - result.newTokens} tokens)`,
         );

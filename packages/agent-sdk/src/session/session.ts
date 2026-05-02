@@ -40,6 +40,14 @@ export interface CompactionResult {
   summaryTokens: number;
   previousTokens: number;
   newTokens: number;
+  /**
+   * Which strategy actually produced the summary. `compactWithLlm` falls
+   * back to mechanical compaction on error, so the method that *attempted*
+   * the work isn't always the one that finished it. UI surfaces this so
+   * users know whether the LLM call ran (slow, billable) or the
+   * deterministic fallback fired (instant, free).
+   */
+  method: "llm" | "mechanical";
 }
 
 export class Session {
@@ -209,6 +217,7 @@ export class Session {
       summaryTokens,
       previousTokens,
       newTokens,
+      method: "mechanical",
     };
   }
 
@@ -303,6 +312,7 @@ export class Session {
       summaryTokens,
       previousTokens,
       newTokens,
+      method: "llm",
     };
   }
 

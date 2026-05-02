@@ -286,16 +286,17 @@ export class CodingAgent {
   }
 
   /**
-   * Manually compact the conversation context.
-   * Uses LLM-based summarization when compactionModel is configured,
-   * otherwise falls back to mechanical compaction.
+   * Manually compact the conversation context. Uses LLM-based
+   * summarization with `config.compactionModel` if set, otherwise the
+   * agent's primary model (`config.model`). Mechanical compaction is
+   * the internal fallback inside `compactWithLlm` when the LLM call
+   * fails — the result's `method` field tells you which strategy
+   * actually ran.
    */
   async compactContext(): Promise<CompactionResult | null> {
     const keepRecent = this.config.keepRecentMessages;
-    const compactionModel = this.config.compactionModel;
-    return compactionModel
-      ? this.session.compactWithLlm(keepRecent, this.modelClient, compactionModel)
-      : this.session.compact(keepRecent);
+    const model = this.config.compactionModel ?? this.config.model;
+    return this.session.compactWithLlm(keepRecent, this.modelClient, model);
   }
 
   private getFocusSet(): Set<string> | undefined {
@@ -377,23 +378,27 @@ export class CodingAgent {
         : this.config.keepRecentMessages;
 
       // Auto-compact when context exceeds the configured threshold.
-      // When compactionModel is set, use LLM-based summarization for higher
-      // quality summaries. Otherwise, fall back to mechanical compaction.
+      // Always uses LLM-based summarization (with `compactionModel` if
+      // set, otherwise the agent's primary model). `compactWithLlm`
+      // falls back to mechanical compaction internally on error; the
+      // `method` field on the result tells us which actually ran.
       const compactionThreshold = this.config.compactionThreshold;
       if (compactionThreshold !== undefined && this.session.shouldCompact(this.config.maxContextTokens, compactionThreshold)) {
-        const compactionModel = this.config.compactionModel;
-        const result = compactionModel
-          ? await this.session.compactWithLlm(effectiveKeepRecent, this.modelClient, compactionModel)
-          : this.session.compact(effectiveKeepRecent);
+        const compactionModel = this.config.compactionModel ?? this.config.model;
+        const result = await this.session.compactWithLlm(
+          effectiveKeepRecent,
+          this.modelClient,
+          compactionModel,
+        );
         if (result && this.onProgress) {
-          const method = compactionModel ? "LLM" : "mechanical";
+          const method = result.method === "llm" ? "LLM" : "mechanical";
           this.onProgress(
             `context compacted (${method}): ${result.removedMessages} messages summarized, ` +
             `${result.previousTokens} → ${result.newTokens} tokens`,
           );
         }
         if (result && this.onUiUpdate) {
-          const method = compactionModel ? "LLM" : "mechanical";
+          const method = result.method === "llm" ? "LLM" : "mechanical";
           this.onUiUpdate({
             type: "thinking",
             content:

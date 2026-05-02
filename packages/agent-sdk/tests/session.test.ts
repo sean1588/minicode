@@ -240,3 +240,44 @@ test("compactWithLlm falls back to mechanical compaction on error", async () => 
   assert.ok(messages[0]?.content.includes("Conversation Summary"));
   assert.ok(!messages[0]?.content.includes("LLM summarization"));
 });
+
+test("CompactionResult.method reflects which strategy actually ran", async () => {
+  // Mechanical path
+  const mech = new Session("method-mech");
+  mech.addMessage({ role: "user", content: "a" });
+  mech.addMessage({ role: "assistant", content: "b" });
+  mech.addMessage({ role: "user", content: "c" });
+  mech.addMessage({ role: "assistant", content: "d" });
+  const mechResult = mech.compact(2);
+  assert.ok(mechResult);
+  assert.equal(mechResult!.method, "mechanical");
+
+  // LLM success path
+  const llm = new Session("method-llm");
+  llm.addMessage({ role: "user", content: "a" });
+  llm.addMessage({ role: "assistant", content: "b" });
+  llm.addMessage({ role: "user", content: "c" });
+  llm.addMessage({ role: "assistant", content: "d" });
+  const llmResult = await llm.compactWithLlm(2, new FakeModelClient(), "test-haiku");
+  assert.ok(llmResult);
+  assert.equal(llmResult!.method, "llm");
+
+  // LLM fallback path — error in chat() → mechanical compaction
+  const fallback = new Session("method-fallback");
+  fallback.addMessage({ role: "user", content: "a" });
+  fallback.addMessage({ role: "assistant", content: "b" });
+  fallback.addMessage({ role: "user", content: "c" });
+  fallback.addMessage({ role: "assistant", content: "d" });
+  const failing: ModelClient = {
+    async chat() {
+      throw new Error("API down");
+    },
+  };
+  const fallbackResult = await fallback.compactWithLlm(2, failing, "test-haiku");
+  assert.ok(fallbackResult);
+  assert.equal(
+    fallbackResult!.method,
+    "mechanical",
+    "fallback should report mechanical, not the originally-attempted LLM",
+  );
+});

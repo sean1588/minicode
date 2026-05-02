@@ -402,3 +402,73 @@ test("beforeToolCall: hook receives the tool name and full input payload", async
   assert.equal(captured[0]!.name, "echo_tool");
   assert.deepEqual(captured[0]!.input, { value: "hello world" });
 });
+
+function createSummarizerClient(captured: string[]): ModelClient {
+  return {
+    async chat(params) {
+      captured.push(params.model);
+      return {
+        text: "Summary",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+    },
+  };
+}
+
+function seedCompactableSession(agent: CodingAgent): void {
+  // keepRecentMessages defaults to 2 in this helper's caller; seed 10
+  // messages so there's something to summarize.
+  for (let i = 0; i < 5; i += 1) {
+    agent.getSession().addMessage({ role: "user", content: `msg ${i}` });
+    agent.getSession().addMessage({ role: "assistant", content: `reply ${i}` });
+  }
+}
+
+test("compactContext defaults to LLM compaction with the agent's primary model", async () => {
+  const captured: string[] = [];
+  const agent = new CodingAgent({
+    config: {
+      ...createTestAgentConfig("/tmp"),
+      model: "primary-model",
+      keepRecentMessages: 2,
+    },
+    modelClient: createSummarizerClient(captured),
+    toolRegistry: new ToolRegistry([]),
+  });
+  seedCompactableSession(agent);
+
+  const result = await agent.compactContext();
+
+  assert.ok(result, "compactContext should produce a result");
+  assert.equal(result!.method, "llm");
+  assert.deepEqual(
+    captured,
+    ["primary-model"],
+    "summarizer should have been called with the agent's primary model",
+  );
+});
+
+test("compactContext uses compactionModel override when set", async () => {
+  const captured: string[] = [];
+  const agent = new CodingAgent({
+    config: {
+      ...createTestAgentConfig("/tmp"),
+      model: "primary-model",
+      compactionModel: "cheap-summarizer",
+      keepRecentMessages: 2,
+    },
+    modelClient: createSummarizerClient(captured),
+    toolRegistry: new ToolRegistry([]),
+  });
+  seedCompactableSession(agent);
+
+  await agent.compactContext();
+
+  assert.deepEqual(
+    captured,
+    ["cheap-summarizer"],
+    "compactionModel override should win over the primary model",
+  );
+});
