@@ -1545,6 +1545,16 @@ main::-webkit-scrollbar-thumb {
 }
 
 #graph-stage {
+  /*
+   * Flex row so the symbol-detail side panel (#symbol-detail, when not
+   * hidden) sits as a real layout sibling to #cy and the cytoscape
+   * canvas automatically shrinks to fill the remaining space. Mirrors
+   * the chat ↔ graph divider pattern at the workspace level. The
+   * analysis panel stays absolute (it's an overlay, not a layout
+   * participant).
+   */
+  display: flex;
+  flex-direction: row;
   position: relative;
   flex: 1;
   min-height: 0;
@@ -1634,7 +1644,9 @@ main::-webkit-scrollbar-thumb {
 }
 
 #cy {
-  width: 100%;
+  /* Fill the row, leaving the symbol-detail panel its declared width. */
+  flex: 1;
+  min-width: 0;
   height: 100%;
   background: var(--bg);
   position: relative;
@@ -2004,11 +2016,11 @@ main::-webkit-scrollbar-thumb {
   line-height: 1.5;
 }
 
-/* Symbol detail panel */
+/* Symbol detail panel — flex sibling of #cy inside #graph-stage. */
 #symbol-detail {
-  position: absolute;
-  top: 0;
-  right: 0;
+  flex-shrink: 0;
+  /* Width is the user's drag-resizable value (default 380px, set on
+   * the element style). Flex layout takes care of pushing #cy aside. */
   width: 380px;
   min-width: 200px;
   max-width: 80%;
@@ -2017,7 +2029,8 @@ main::-webkit-scrollbar-thumb {
   border-left: 1px solid var(--border);
   overflow-y: auto;
   padding: 16px;
-  z-index: 50;
+  position: relative;
+  /* Soft shadow at the boundary; reads as a layered seam against the graph. */
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
 }
 
