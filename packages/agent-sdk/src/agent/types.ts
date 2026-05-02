@@ -73,7 +73,13 @@ export interface AgentConfig {
   enableToolOutputTruncation?: boolean;
   /** Context fullness ratio (0-1) at which compaction triggers. Default: undefined (no auto-compaction) */
   compactionThreshold?: number;
-  /** Model to use for LLM-based compaction. When set, compaction uses an LLM to summarize instead of mechanical truncation. */
+  /**
+   * Override the model used for LLM-based compaction. Compaction always
+   * uses an LLM by default (with `model` as the implicit choice); set this
+   * to use a different, typically cheaper or faster, model for the
+   * summarization call. Mechanical compaction is the internal fallback
+   * if the LLM call fails.
+   */
   compactionModel?: string;
   /** Reasoning effort level for models that support reasoning tokens. When unset, no reasoning parameters are sent. */
   reasoningEffort?: ReasoningEffort;

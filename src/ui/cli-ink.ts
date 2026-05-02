@@ -191,7 +191,7 @@ export async function runInkCli(
       const session = agent.getSession();
       const result = await agent.compactContext();
       if (result) {
-        const method = config.compactionModel ? "LLM" : "mechanical";
+        const method = result.method === "llm" ? "LLM" : "mechanical";
         store.addItem({
           type: "system",
           content:
