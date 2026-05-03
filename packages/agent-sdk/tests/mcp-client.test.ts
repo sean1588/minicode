@@ -212,6 +212,47 @@ test("wrapMcpClients forwards isError through the wrapped result", async () => {
   await bundle.close();
 });
 
+test("wrapMcpClients closes clients whose listTools throws (no transport leak)", async () => {
+  // Build a real connected client, then monkey-patch listTools to throw.
+  // We'd otherwise leak its in-memory transport — verify close() ran.
+  const client = await spawnInMemoryServer({
+    name: "leaky",
+    tools: [
+      {
+        name: "noop",
+        description: "noop",
+        schema: {},
+        handler: async () => ({ content: [{ type: "text" as const, text: "" }] }),
+      },
+    ],
+  });
+
+  let closed = false;
+  const originalClose = client.close.bind(client);
+  client.close = async () => {
+    closed = true;
+    await originalClose();
+  };
+  client.listTools = async () => {
+    throw new Error("listTools failed");
+  };
+
+  const errors: string[] = [];
+  const bundle = await wrapMcpClients(
+    [{ name: "leaky", client }],
+    {
+      onError: (name) => {
+        errors.push(name);
+      },
+    },
+  );
+
+  assert.equal(bundle.tools.length, 0);
+  assert.deepEqual(errors, ["leaky"]);
+  assert.equal(closed, true, "client.close() should have been called when listTools threw");
+  await bundle.close();
+});
+
 test("wrapMcpClients uses onError when listTools rejects, skips that server", async () => {
   const good = await spawnInMemoryServer({
     name: "good",

@@ -241,6 +241,11 @@ function buildToolDefinition(
  * spawning / connecting the underlying transport. Useful when the
  * caller wants to bring its own `Client` (e.g. a custom transport or
  * an in-memory test server).
+ *
+ * Ownership: the returned bundle takes ownership of every client
+ * passed in. `bundle.close()` closes successful clients; any client
+ * whose `listTools()` throws is also closed before `onError` fires,
+ * so callers don't have to worry about leaked transports.
  */
 export async function wrapMcpClients(
   servers: Array<{ name: string; client: Client }>,
@@ -264,6 +269,15 @@ export async function wrapMcpClients(
           })),
         });
       } catch (error) {
+        // Transport may have already connected before listTools threw —
+        // close it so we don't leak the spawned subprocess / HTTP /
+        // SSE connection. Errors during cleanup are swallowed; the
+        // original failure is what the caller cares about.
+        try {
+          await client.close();
+        } catch {
+          // ignore
+        }
         onError(name, error);
       }
     }),
