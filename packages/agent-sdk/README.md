@@ -195,6 +195,20 @@ const combined = new ToolRegistry([
 
 In practice, the simplest pattern is usually to create the built-in registry and wrap or extend it in your own application code. The SDK does not currently expose a public "appendTool" helper.
 
+Each `createXTool` factory also accepts a narrow per-tool options interface
+(`ReadFileToolOptions`, `WriteFileToolOptions`, `EditFileToolOptions`,
+`ListFilesToolOptions`, `SearchToolOptions`, `RunCommandToolOptions`) so you
+can wire individual tools without constructing a full `AgentConfig`.
+`AgentConfig` satisfies all of them structurally, so passing the full config
+keeps working.
+
+```typescript
+const readTool = createReadFileTool({
+  workspaceRoot: "/path/to/repo",
+  maxFileSizeBytes: 1_000_000,
+});
+```
+
 ## Tool Hooks (Indexer Integration)
 
 When integrating with a project indexer, use `CoreToolHooks` to get notified after file writes/edits:
@@ -256,14 +270,45 @@ Generate a system prompt tailored to the workspace and available tools:
 ```typescript
 import { buildSystemPrompt } from "@minicode/agent-sdk";
 
-const toolSchemas = toolRegistry.getToolSchemas();
-const systemPrompt = buildSystemPrompt(config, toolSchemas);
+const tools = toolRegistry.getToolSchemas();
+const systemPrompt = buildSystemPrompt({ config, tools });
 
 // Optionally include a code map for symbol-aware navigation
-const systemPromptWithCodeMap = buildSystemPrompt(config, toolSchemas, {
-  text: "src/index.ts: main(), startServer()\nsrc/db.ts: connect(), query()",
-  totalCount: 50,
-  shownCount: 2,
+const systemPromptWithCodeMap = buildSystemPrompt({
+  config,
+  tools,
+  codeMap: {
+    text: "src/index.ts: main(), startServer()\nsrc/db.ts: connect(), query()",
+    totalCount: 50,
+    shownCount: 2,
+  },
+});
+```
+
+### Overriding the system prompt
+
+`CodingAgent` accepts an optional `buildSystemPrompt` builder. Return a string
+(or `Promise<string>`) to fully replace the default prompt — handy for review
+bots, RAG assistants, or other non-coding use cases. Import the default
+builder and call it from your override to extend rather than replace it.
+
+```typescript
+import {
+  buildSystemPrompt,
+  CodingAgent,
+  type SystemPromptBuilder,
+} from "@minicode/agent-sdk";
+
+const myBuilder: SystemPromptBuilder = async ({ config, tools, codeMap }) => {
+  const base = buildSystemPrompt({ config, tools, codeMap });
+  return `${base}\n\nAdditional house rules: be terse.`;
+};
+
+const agent = new CodingAgent({
+  config,
+  modelClient,
+  toolRegistry,
+  buildSystemPrompt: myBuilder,
 });
 ```
 

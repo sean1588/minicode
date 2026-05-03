@@ -1,9 +1,17 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "../agent/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectOptionalNumber } from "./helpers.js";
+
+/**
+ * Minimal options needed by the list_files tool. `AgentConfig` satisfies
+ * this structurally, so passing the full config keeps working.
+ */
+export interface ListFilesToolOptions {
+  workspaceRoot: string;
+}
 
 const EXCLUDED_DIRS = new Set(["node_modules", ".git", ".minicode"]);
 const DEFAULT_LIMIT = 200;
@@ -19,7 +27,7 @@ function parsePath(input: Record<string, unknown>): string {
   return value;
 }
 
-export function createListFilesTool(config: AgentConfig): ToolDefinition {
+export function createListFilesTool(options: ListFilesToolOptions): ToolDefinition {
   return {
     name: "list_files",
     description: "List files and directories at a path.",
@@ -49,7 +57,7 @@ export function createListFilesTool(config: AgentConfig): ToolDefinition {
       const skip = Math.max(0, expectOptionalNumber(input, "skip") ?? 0);
       const limit = Math.max(1, Math.min(500, expectOptionalNumber(input, "limit") ?? DEFAULT_LIMIT));
 
-      const dirPath = resolveWorkspacePath(requestedPath, config.workspaceRoot);
+      const dirPath = resolveWorkspacePath(requestedPath, options.workspaceRoot);
       const entries = await readdir(dirPath, { withFileTypes: true });
 
       const filtered = entries.filter(

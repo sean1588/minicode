@@ -1,9 +1,18 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-import type { AgentConfig, ToolDefinition } from "../agent/types.js";
+import type { ToolDefinition } from "../agent/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
 import { expectNonEmptyString } from "./helpers.js";
+
+/**
+ * Minimal options needed by the search tool. `AgentConfig` satisfies
+ * this structurally, so passing the full config keeps working.
+ */
+export interface SearchToolOptions {
+  workspaceRoot: string;
+  commandTimeoutMs: number;
+}
 
 interface CommandResult {
   stdout: string;
@@ -73,7 +82,7 @@ function getOptionalString(
   return value;
 }
 
-export function createSearchTool(config: AgentConfig): ToolDefinition {
+export function createSearchTool(options: SearchToolOptions): ToolDefinition {
   return {
     name: "search",
     description:
@@ -104,10 +113,10 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
       const include = getOptionalString(input, "include");
       const targetPath = resolveWorkspacePath(
         requestedPath,
-        config.workspaceRoot,
+        options.workspaceRoot,
       );
       const relativeTarget =
-        path.relative(config.workspaceRoot, targetPath) || ".";
+        path.relative(options.workspaceRoot, targetPath) || ".";
 
       const rgArgs = [
         "--line-number",
@@ -142,8 +151,8 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
         const result = await runCommand(
           "rg",
           rgArgs,
-          config.workspaceRoot,
-          config.commandTimeoutMs,
+          options.workspaceRoot,
+          options.commandTimeoutMs,
         );
 
         if (result.code !== 0) {
@@ -184,8 +193,8 @@ export function createSearchTool(config: AgentConfig): ToolDefinition {
       const fallbackResult = await runCommand(
         "grep",
         grepArgs,
-        config.workspaceRoot,
-        config.commandTimeoutMs,
+        options.workspaceRoot,
+        options.commandTimeoutMs,
       );
       if (fallbackResult.code !== 0) {
         if (fallbackResult.code === 1) {

@@ -33,11 +33,42 @@ function hasTool(tools: ToolSchema[], name: string): boolean {
   return tools.some((t) => t.name === name);
 }
 
-export function buildSystemPrompt(
-  config: AgentConfig,
-  tools: ToolSchema[],
-  codeMapResult?: CodeMapResult,
-): string {
+/**
+ * Inputs to a system-prompt builder. Passed to the default
+ * `buildSystemPrompt` and to any custom builder a consumer wires into
+ * `CodingAgent` via the `buildSystemPrompt` constructor option.
+ *
+ * Custom builders can use these freely or ignore them — minicode's
+ * default ships a coding-agent identity, workspace context, tool
+ * guidelines, code-map injection, and safety rules. Consumers building
+ * domain-specific agents (review bots, RAG assistants, non-coding
+ * use cases) typically want to drop most of that and assemble their
+ * own from these inputs.
+ */
+export interface SystemPromptContext {
+  config: AgentConfig;
+  tools: ToolSchema[];
+  /**
+   * The current code map snippet, when one is available. Built once per
+   * turn (or per session, depending on `enableDynamicPrompt`) and
+   * passed in so builders can inject it without knowing how it was
+   * computed. May be undefined when no language plugin is active.
+   */
+  codeMap?: CodeMapResult | undefined;
+}
+
+/**
+ * Function shape for a system-prompt builder. Returning a Promise is
+ * supported so consumers can fetch context from external sources (RAG
+ * snippets, git status, on-disk preferences, etc.) before assembling
+ * the prompt.
+ */
+export type SystemPromptBuilder = (
+  ctx: SystemPromptContext,
+) => string | Promise<string>;
+
+export function buildSystemPrompt(ctx: SystemPromptContext): string {
+  const { config, tools, codeMap } = ctx;
   const projectType = detectProjectType(config.workspaceRoot);
 
   const sections: string[] = [
@@ -52,17 +83,17 @@ export function buildSystemPrompt(
 
   const hasSearchCodeMap = hasTool(tools, "search_code_map");
 
-  if (codeMapResult && codeMapResult.text.length > 0) {
-    sections.push("[Project Code Map]", codeMapResult.text, "");
+  if (codeMap && codeMap.text.length > 0) {
+    sections.push("[Project Code Map]", codeMap.text, "");
     const truncated =
-      codeMapResult.totalCount > 0 &&
-      codeMapResult.shownCount < codeMapResult.totalCount;
+      codeMap.totalCount > 0 &&
+      codeMap.shownCount < codeMap.totalCount;
     if (truncated) {
       const hint = hasSearchCodeMap
         ? " Use search_code_map to find symbols not listed above."
         : "";
       sections.push(
-        `Showing ${codeMapResult.shownCount} of ${codeMapResult.totalCount} symbols.${hint}`,
+        `Showing ${codeMap.shownCount} of ${codeMap.totalCount} symbols.${hint}`,
         "",
       );
     }

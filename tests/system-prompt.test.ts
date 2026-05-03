@@ -43,53 +43,53 @@ const TOOLS_WITH_SEARCH_CODE_MAP: ToolSchema[] = [
 ];
 
 test("buildSystemPrompt omits code map when undefined", () => {
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/tmp"),
-    MINIMAL_TOOLS,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/tmp"),
+    tools: MINIMAL_TOOLS,
+  });
   assert.ok(!prompt.includes("[Project Code Map]"));
   assert.ok(prompt.includes("[Identity]"));
   assert.ok(prompt.includes("[Tool Descriptions]"));
 });
 
 test("buildSystemPrompt omits code map when empty", () => {
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/tmp"),
-    MINIMAL_TOOLS,
-    { text: "", shownCount: 0, totalCount: 0 },
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/tmp"),
+    tools: MINIMAL_TOOLS,
+    codeMap: { text: "", shownCount: 0, totalCount: 0 },
+  });
   assert.ok(!prompt.includes("[Project Code Map]"));
 });
 
 test("buildSystemPrompt includes code map when provided", () => {
-  const codeMapResult = {
+  const codeMap = {
     text: "# Project Code Map\n\n  src/foo.ts\n    function bar()",
     shownCount: 1,
     totalCount: 1,
   };
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/tmp"),
-    MINIMAL_TOOLS,
-    codeMapResult,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/tmp"),
+    tools: MINIMAL_TOOLS,
+    codeMap,
+  });
   assert.ok(prompt.includes("[Project Code Map]"));
   assert.ok(prompt.includes("src/foo.ts"));
   assert.ok(prompt.includes("function bar()"));
 });
 
 test("buildSystemPrompt includes workspace context", () => {
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/home/user/project"),
-    MINIMAL_TOOLS,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/home/user/project"),
+    tools: MINIMAL_TOOLS,
+  });
   assert.ok(prompt.includes("/home/user/project"));
 });
 
 test("buildSystemPrompt omits runtime budget knobs", () => {
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/tmp"),
-    MINIMAL_TOOLS,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/tmp"),
+    tools: MINIMAL_TOOLS,
+  });
 
   assert.doesNotMatch(prompt, /maxSteps/i);
   assert.doesNotMatch(prompt, /maxTokens/i);
@@ -99,35 +99,35 @@ test("buildSystemPrompt omits runtime budget knobs", () => {
 });
 
 test("buildSystemPrompt includes tool list", () => {
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/tmp"),
-    MINIMAL_TOOLS,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/tmp"),
+    tools: MINIMAL_TOOLS,
+  });
   assert.ok(prompt.includes("read_file"));
   assert.ok(prompt.includes("Read a file"));
 });
 
 test("buildSystemPrompt shows truncated stats and search_code_map hint when truncated", () => {
-  const codeMapResult = {
+  const codeMap = {
     text: "# Project Code Map\n\n  src/foo.ts\n    function bar()",
     shownCount: 5,
     totalCount: 100,
   };
-  const prompt = buildSystemPrompt(
-    createMinimalConfig("/tmp"),
-    TOOLS_WITH_SEARCH_CODE_MAP,
-    codeMapResult,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig("/tmp"),
+    tools: TOOLS_WITH_SEARCH_CODE_MAP,
+    codeMap,
+  });
   assert.ok(prompt.includes("Showing 5 of 100 symbols"));
   assert.ok(prompt.includes("search_code_map to find symbols not listed above"));
 });
 
 test("buildSystemPrompt detects project type from workspace", () => {
   const root = path.resolve(import.meta.dirname, "..");
-  const prompt = buildSystemPrompt(
-    createMinimalConfig(root),
-    MINIMAL_TOOLS,
-  );
+  const prompt = buildSystemPrompt({
+    config: createMinimalConfig(root),
+    tools: MINIMAL_TOOLS,
+  });
   assert.ok(
     prompt.includes("Node.js") || prompt.includes("TypeScript"),
     "minicode has package.json",

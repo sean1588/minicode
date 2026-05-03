@@ -573,3 +573,130 @@ test("agent omits cachedInputTokens when no step reported any", async () => {
     "no cache hits should mean no cachedInputTokens field on the totals",
   );
 });
+
+test("buildSystemPrompt override replaces the default builder", async () => {
+  let capturedSystem = "";
+  const spyClient: ModelClient = {
+    async chat(params) {
+      capturedSystem = params.system;
+      return {
+        text: "ok",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    buildSystemPrompt: () => "CUSTOM PROMPT — nothing else",
+  });
+
+  await agent.runTurn("Hello");
+
+  assert.equal(capturedSystem, "CUSTOM PROMPT — nothing else");
+  assert.ok(
+    !capturedSystem.includes("[Identity]"),
+    "default coding-agent identity should not appear when overridden",
+  );
+});
+
+test("buildSystemPrompt override receives config, tools, and codeMap context", async () => {
+  const seenCtx: Array<{ workspaceRoot: string; toolNames: string[]; hasCodeMap: boolean }> = [];
+  const spyClient: ModelClient = {
+    async chat() {
+      return {
+        text: "ok",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: { ...createTestAgentConfig("/some/workspace"), enableDynamicPrompt: true },
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    getCodeMap: () => ({ text: "# map", shownCount: 1, totalCount: 1 }),
+    buildSystemPrompt: (ctx) => {
+      seenCtx.push({
+        workspaceRoot: ctx.config.workspaceRoot,
+        toolNames: ctx.tools.map((t) => t.name),
+        hasCodeMap: ctx.codeMap !== undefined,
+      });
+      return "x";
+    },
+  });
+
+  await agent.runTurn("Hi");
+
+  assert.equal(seenCtx.length, 1);
+  assert.equal(seenCtx[0]!.workspaceRoot, "/some/workspace");
+  assert.deepEqual(seenCtx[0]!.toolNames, ["echo_tool"]);
+  assert.equal(seenCtx[0]!.hasCodeMap, true);
+});
+
+test("buildSystemPrompt override may return a Promise (async builder)", async () => {
+  let capturedSystem = "";
+  const spyClient: ModelClient = {
+    async chat(params) {
+      capturedSystem = params.system;
+      return {
+        text: "ok",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    buildSystemPrompt: async () => {
+      // Simulate fetching context async (e.g. RAG, git status, on-disk prefs).
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return "ASYNC PROMPT";
+    },
+  });
+
+  await agent.runTurn("Hello");
+
+  assert.equal(capturedSystem, "ASYNC PROMPT");
+});
+
+test("getSystemPromptSuffix still appends after the buildSystemPrompt override", async () => {
+  let capturedSystem = "";
+  const spyClient: ModelClient = {
+    async chat(params) {
+      capturedSystem = params.system;
+      return {
+        text: "ok",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: spyClient,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    buildSystemPrompt: () => "BASE",
+    getSystemPromptSuffix: () => "EXTRA",
+  });
+
+  await agent.runTurn("Hello");
+
+  assert.equal(
+    capturedSystem,
+    "BASE\n\nEXTRA",
+    "suffix should append regardless of which builder produced the base",
+  );
+});

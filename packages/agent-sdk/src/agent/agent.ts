@@ -1,4 +1,7 @@
-import { buildSystemPrompt } from "../prompt/system-prompt.js";
+import {
+  buildSystemPrompt as defaultBuildSystemPrompt,
+  type SystemPromptBuilder,
+} from "../prompt/system-prompt.js";
 import type { CodeMapResult } from "../indexer/types.js";
 import { ensureStepWithinLimit, formatStepLimitMessage } from "../safety/guardrails.js";
 import { Session } from "../session/session.js";
@@ -204,6 +207,7 @@ export class CodingAgent {
   private readonly onUiUpdate: ((event: UiUpdate) => void) | undefined;
   private readonly onVerbose: ((message: string) => void) | undefined;
   private readonly getSystemPromptSuffix: (() => string | undefined) | undefined;
+  private readonly buildSystemPrompt: SystemPromptBuilder;
   private readonly beforeToolCall: BeforeToolCallHook | undefined;
 
   /**
@@ -235,6 +239,19 @@ export class CodingAgent {
     onVerbose?: (message: string) => void;
     getSystemPromptSuffix?: () => string | undefined;
     /**
+     * Replace the default system-prompt builder. Receives the agent's
+     * config, the active tools, and the current code-map snippet (when
+     * available). Return a string or a Promise<string>. When omitted,
+     * minicode's default coding-agent prompt is used.
+     *
+     * Use this to point the agent at a different domain (review bot,
+     * RAG assistant, non-coding use case) without rewriting the rest
+     * of the SDK. Import `buildSystemPrompt` from `@minicode/agent-sdk`
+     * and call it from your builder to extend the default rather than
+     * replace it.
+     */
+    buildSystemPrompt?: SystemPromptBuilder;
+    /**
      * Called before each tool call. Return `{outcome: "deny", reason}` to
      * skip execution; the reason is fed back to the model as the tool's
      * result. Hosts use this to implement permission prompts (web UI
@@ -251,6 +268,7 @@ export class CodingAgent {
     this.onProgress = params.onProgress;
     this.onUiUpdate = params.onUiUpdate;
     this.onVerbose = params.onVerbose;
+    this.buildSystemPrompt = params.buildSystemPrompt ?? defaultBuildSystemPrompt;
     this.getSystemPromptSuffix = params.getSystemPromptSuffix;
     this.beforeToolCall = params.beforeToolCall;
   }
@@ -434,12 +452,12 @@ export class CodingAgent {
       const dynamicPrompt = this.config.enableDynamicPrompt !== false;
       let systemPrompt: string;
       if (dynamicPrompt || !this.cachedSystemPrompt) {
-        const codeMapResult = this.getCodeMap?.(dynamicPrompt ? this.getFocusSet() : undefined);
-        const basePrompt = buildSystemPrompt(
-          this.config,
-          toolSchemas,
-          codeMapResult,
-        );
+        const codeMap = this.getCodeMap?.(dynamicPrompt ? this.getFocusSet() : undefined);
+        const basePrompt = await this.buildSystemPrompt({
+          config: this.config,
+          tools: toolSchemas,
+          codeMap,
+        });
         const suffix = this.getSystemPromptSuffix?.();
         systemPrompt = suffix ? basePrompt + "\n\n" + suffix : basePrompt;
         if (!dynamicPrompt) {

@@ -6,7 +6,7 @@ import { createTestAgentConfig } from "./test-utils.js";
 
 test("system prompt includes identity and workspace context", () => {
   const config = createTestAgentConfig("/tmp/myproject");
-  const prompt = buildSystemPrompt(config, []);
+  const prompt = buildSystemPrompt({ config, tools: [] });
 
   assert.ok(prompt.includes("[Identity]"));
   assert.ok(prompt.includes("coding agent"));
@@ -24,7 +24,7 @@ test("system prompt includes tool descriptions", () => {
     },
   ];
 
-  const prompt = buildSystemPrompt(config, tools);
+  const prompt = buildSystemPrompt({ config, tools });
   assert.ok(prompt.includes("read_file: Read a file"));
 });
 
@@ -36,7 +36,7 @@ test("system prompt includes code map when provided", () => {
     totalCount: 2,
   };
 
-  const prompt = buildSystemPrompt(config, [], codeMap);
+  const prompt = buildSystemPrompt({ config, tools: [], codeMap });
   assert.ok(prompt.includes("[Project Code Map]"));
   assert.ok(prompt.includes("FooClass"));
   assert.ok(prompt.includes("BarFunction"));
@@ -50,19 +50,19 @@ test("system prompt shows truncation hint when code map is partial", () => {
     totalCount: 100,
   };
 
-  const prompt = buildSystemPrompt(config, [], codeMap);
+  const prompt = buildSystemPrompt({ config, tools: [], codeMap });
   assert.ok(prompt.includes("Showing 1 of 100 symbols"));
 });
 
 test("system prompt omits code map when not provided", () => {
   const config = createTestAgentConfig("/tmp");
-  const prompt = buildSystemPrompt(config, []);
+  const prompt = buildSystemPrompt({ config, tools: [] });
   assert.ok(!prompt.includes("[Project Code Map]"));
 });
 
 test("system prompt includes safety rules", () => {
   const config = createTestAgentConfig("/tmp");
-  const prompt = buildSystemPrompt(config, []);
+  const prompt = buildSystemPrompt({ config, tools: [] });
   assert.ok(prompt.includes("[Safety Rules]"));
   assert.ok(prompt.includes("Never modify files outside the workspace"));
 });
@@ -82,7 +82,7 @@ test("system prompt includes specialized tool guidance when present", () => {
     },
   ];
 
-  const prompt = buildSystemPrompt(config, tools);
+  const prompt = buildSystemPrompt({ config, tools });
   assert.ok(prompt.includes("PREFER read_symbol"));
   assert.ok(prompt.includes("find_references"));
 });
