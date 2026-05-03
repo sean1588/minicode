@@ -399,6 +399,12 @@ await mcp.close();
   (e.g. `github__create_issue`) so two servers can both expose
   `read_file` without collisions. Pass `{ namespace: false }` to opt out
   when you control the server set.
+- **Name sanitization.** Anthropic and OpenAI-compatible providers
+  restrict tool names to `[a-zA-Z0-9_-]{1,64}`. Server and tool names
+  outside that pattern (e.g. `github mcp`, `repo.create_issue`) get
+  invalid characters replaced with `_` and the result truncated to 64
+  chars before exposure. The original MCP tool name is preserved for
+  `callTool` dispatch — sanitization only changes what the model sees.
 - **Failure isolation.** A server that fails to start or list its tools
   is skipped with a warning; other servers keep working. Pass `onError`
   to override the default `console.warn`.

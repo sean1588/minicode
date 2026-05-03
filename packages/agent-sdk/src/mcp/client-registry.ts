@@ -208,12 +208,39 @@ async function connectServer(
   return { name: config.name, client };
 }
 
+/**
+ * Anthropic and OpenAI-compatible providers restrict tool names to
+ * `^[a-zA-Z0-9_-]{1,64}$`. MCP servers and config impose no such
+ * limit (a server might be named `github mcp` or expose a tool
+ * `repo.create_issue`), so we sanitize each segment by replacing any
+ * disallowed character with `_` and truncating to 64 chars. The
+ * original MCP tool name is preserved separately for `callTool`
+ * dispatch — sanitization only affects what the model sees.
+ */
+const TOOL_NAME_INVALID = /[^a-zA-Z0-9_-]/g;
+const TOOL_NAME_MAX_LENGTH = 64;
+
+function sanitizeNameSegment(segment: string): string {
+  return segment.replace(TOOL_NAME_INVALID, "_");
+}
+
+function buildExposedName(
+  serverName: string,
+  toolName: string,
+  namespace: boolean,
+): string {
+  const raw = namespace
+    ? `${sanitizeNameSegment(serverName)}__${sanitizeNameSegment(toolName)}`
+    : sanitizeNameSegment(toolName);
+  return raw.slice(0, TOOL_NAME_MAX_LENGTH);
+}
+
 function buildToolDefinition(
   server: ConnectedServer,
   tool: ConnectedServer["tools"][number],
   namespace: boolean,
 ): ToolDefinition {
-  const exposedName = namespace ? `${server.name}__${tool.name}` : tool.name;
+  const exposedName = buildExposedName(server.name, tool.name, namespace);
   return {
     name: exposedName,
     description: tool.description ?? `Tool from MCP server "${server.name}".`,
@@ -288,6 +315,15 @@ export async function wrapMcpClients(
   for (const server of connected) {
     for (const tool of server.tools) {
       const def = buildToolDefinition(server, tool, namespace);
+      if (def.name.length === 0) {
+        onError(
+          server.name,
+          new Error(
+            `Tool "${tool.name}" sanitized to an empty name; skipping.`,
+          ),
+        );
+        continue;
+      }
       if (seenNames.has(def.name)) {
         onError(
           server.name,

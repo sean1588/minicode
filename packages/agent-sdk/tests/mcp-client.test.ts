@@ -138,6 +138,66 @@ test("wrapMcpClients omits namespacing when namespace is false", async () => {
   await bundle.close();
 });
 
+test("wrapMcpClients sanitizes invalid characters in server and tool names", async () => {
+  // Anthropic / OpenAI restrict tool names to [a-zA-Z0-9_-]{1,64}.
+  // A server / tool with dots or spaces would otherwise crash the API call.
+  const seenArgs: Array<Record<string, unknown>> = [];
+  const client = await spawnInMemoryServer({
+    name: "fixture",
+    tools: [
+      {
+        name: "repo.create_issue",
+        description: "namespaced tool",
+        schema: { title: z.string() },
+        handler: async (args) => {
+          seenArgs.push(args);
+          return { content: [{ type: "text" as const, text: "ok" }] };
+        },
+      },
+    ],
+  });
+
+  const bundle = await wrapMcpClients([
+    { name: "github mcp", client },
+  ]);
+
+  assert.equal(bundle.tools.length, 1);
+  assert.equal(bundle.tools[0]!.name, "github_mcp__repo_create_issue");
+  // Original MCP tool name must be preserved for the actual callTool dispatch.
+  await bundle.tools[0]!.execute({ title: "hello" });
+  assert.equal(seenArgs.length, 1);
+  assert.equal(seenArgs[0]!.title, "hello");
+  await bundle.close();
+});
+
+test("wrapMcpClients truncates exposed names that exceed 64 chars", async () => {
+  const longTool = "x".repeat(80);
+  const client = await spawnInMemoryServer({
+    name: "fixture",
+    tools: [
+      {
+        name: longTool,
+        description: "very long",
+        schema: {},
+        handler: async () => ({
+          content: [{ type: "text" as const, text: "ok" }],
+        }),
+      },
+    ],
+  });
+
+  const bundle = await wrapMcpClients(
+    [{ name: "s", client }],
+    { namespace: false },
+  );
+  assert.equal(bundle.tools.length, 1);
+  assert.ok(
+    bundle.tools[0]!.name.length <= 64,
+    `expected <= 64 chars, got ${bundle.tools[0]!.name.length}`,
+  );
+  await bundle.close();
+});
+
 test("wrapMcpClients reports name collisions via onError and skips duplicates", async () => {
   const a = await spawnInMemoryServer({
     name: "a",
