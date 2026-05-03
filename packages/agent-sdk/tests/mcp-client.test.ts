@@ -85,6 +85,34 @@ test("formatMcpResult inlines text from resource blocks", () => {
   assert.equal(out, "resource body");
 });
 
+test("formatMcpResult labels binary resource blocks with uri and mime type", () => {
+  const out = formatMcpResult([
+    {
+      type: "resource",
+      resource: {
+        uri: "test://blob",
+        blob: "base64...",
+        mimeType: "application/octet-stream",
+      },
+    },
+  ]);
+  assert.equal(out, "[resource test://blob (application/octet-stream)]");
+});
+
+test("formatMcpResult renders resource_link blocks", () => {
+  const out = formatMcpResult([
+    { type: "resource_link", uri: "test://link", name: "linked-thing" },
+  ]);
+  assert.equal(out, "[resource_link linked-thing]");
+});
+
+test("formatMcpResult labels unsupported content types", () => {
+  const out = formatMcpResult([
+    { type: "video", data: "..." },
+  ]);
+  assert.equal(out, "[unsupported content type: video]");
+});
+
 test("formatMcpResult returns sentinel on empty content", () => {
   assert.equal(formatMcpResult([]), "(empty result)");
 });
