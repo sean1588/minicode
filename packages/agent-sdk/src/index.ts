@@ -111,3 +111,13 @@ export type {
   ProjectIndex,
   SymbolKind,
 } from "./indexer/types.js";
+
+// MCP client integration
+export {
+  createMcpTools,
+  formatMcpResult,
+  wrapMcpClients,
+  type CreateMcpToolsOptions,
+  type McpServerConfig,
+  type McpToolBundle,
+} from "./mcp/client-registry.js";

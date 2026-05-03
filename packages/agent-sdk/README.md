@@ -348,6 +348,82 @@ const agent = new CodingAgent({
 | `list_files` | List files and directories with pagination |
 | `run_command` | Execute shell commands with timeout and safety checks |
 
+## External MCP Servers
+
+Connect to one or more MCP (Model Context Protocol) servers and pull
+their tools into the agent's `ToolRegistry` alongside the built-in
+ones. The SDK ships the entire MCP client stack — no extra dependency
+is required — and supports the three common transports: `stdio`
+(subprocess), `http` (Streamable-HTTP), and `sse` (legacy SSE).
+
+```typescript
+import {
+  CodingAgent,
+  ToolRegistry,
+  createMcpTools,
+  createReadFileTool,
+} from "@minicode/agent-sdk";
+
+const mcp = await createMcpTools({
+  servers: [
+    {
+      name: "github",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github"],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GH_TOKEN! },
+    },
+    {
+      name: "fs",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
+    },
+  ],
+});
+
+const registry = new ToolRegistry([
+  createReadFileTool({ workspaceRoot, maxFileSizeBytes: 1_000_000 }),
+  ...mcp.tools,
+]);
+
+const agent = new CodingAgent({ config, modelClient, toolRegistry: registry });
+
+// On shutdown:
+await mcp.close();
+```
+
+### Behavior notes
+
+- **Namespacing.** Tool names are prefixed with `<server>__` by default
+  (e.g. `github__create_issue`) so two servers can both expose
+  `read_file` without collisions. Pass `{ namespace: false }` to opt out
+  when you control the server set.
+- **Name sanitization.** Anthropic and OpenAI-compatible providers
+  restrict tool names to `[a-zA-Z0-9_-]{1,64}`. Server and tool names
+  outside that pattern (e.g. `github mcp`, `repo.create_issue`) get
+  invalid characters replaced with `_` and the result truncated to 64
+  chars before exposure. The original MCP tool name is preserved for
+  `callTool` dispatch — sanitization only changes what the model sees.
+- **Failure isolation.** A server that fails to start or list its tools
+  is skipped with a warning; other servers keep working. Pass `onError`
+  to override the default `console.warn`.
+- **Permission gate.** MCP tools flow through the existing
+  `beforeToolCall` hook unchanged — hosts can gate them by tool name
+  the same way they gate built-in tools.
+- **Result formatting.** Text content blocks are concatenated into
+  the tool's string output. Image, audio, and binary resource blocks
+  are replaced with bracketed placeholders for now.
+- **Lifecycle.** Connections open at `createMcpTools()` time and stay
+  open until `bundle.close()`. There is no auto-reconnect in v1; if a
+  server crashes mid-session, the next call returns an error and the
+  model can react.
+
+For advanced use cases (custom transport, in-process server, BYO
+`Client`), use the `wrapMcpClients(servers, options)` lower-level
+entry point instead — it takes pre-connected clients and produces the
+same `McpToolBundle`.
+
 ## Development
 
 ```bash
