@@ -6,6 +6,7 @@ export type {
   ModelClient,
   ModelInfo,
   ModelResponse,
+  OutputSchema,
   ReasoningEffort,
   SessionMessage,
   ToolCall,
@@ -15,6 +16,9 @@ export type {
   ToolSchema,
   UserMessage,
 } from "./agent/types.js";
+
+// Structured output
+export { OutputValidationError } from "./agent/types.js";
 
 // Agent runtime
 export {

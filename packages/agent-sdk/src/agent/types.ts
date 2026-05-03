@@ -104,6 +104,13 @@ export interface ModelResponse {
   text: string;
   toolCalls: ToolCall[];
   stopReason: "end_turn" | "tool_use" | "max_tokens";
+  /**
+   * Set when the caller supplied an `outputSchema` and the model
+   * called the synthetic respond tool with arguments matching the
+   * schema. The synthetic tool call is stripped from `toolCalls` so
+   * the agent loop does not try to dispatch it.
+   */
+  output?: unknown;
   usage: {
     inputTokens: number;
     outputTokens: number;
@@ -117,6 +124,47 @@ export interface ModelResponse {
      */
     cachedInputTokens?: number;
   };
+}
+
+/**
+ * Schema for structured-output turns. When passed to `runTurn` or
+ * `ModelClient.chat`, the SDK registers a synthetic tool with this
+ * shape; the model "calling" it delivers a structured answer that the
+ * SDK validates and returns as `ModelResponse.output` /
+ * `runTurn().output`.
+ */
+export interface OutputSchema {
+  /**
+   * Tool-facing name. Must match `^[a-zA-Z0-9_-]{1,64}$` (the tool-name
+   * pattern both providers accept). Pick a descriptive name —
+   * the model sees it.
+   */
+  name: string;
+  /** JSON Schema (draft 2020-12 subset) describing the desired output. */
+  schema: Record<string, unknown>;
+  /** Description shown to the model on the synthetic tool. */
+  description?: string;
+}
+
+/**
+ * Thrown when the model's structured-output call fails JSON Schema
+ * validation. Carries the raw arguments and the validator's error
+ * list so consumers can log, retry, or surface diagnostics.
+ */
+export class OutputValidationError extends Error {
+  readonly raw: unknown;
+  readonly errors: ReadonlyArray<{ path: string; message: string }>;
+
+  constructor(
+    message: string,
+    raw: unknown,
+    errors: ReadonlyArray<{ path: string; message: string }>,
+  ) {
+    super(message);
+    this.name = "OutputValidationError";
+    this.raw = raw;
+    this.errors = errors;
+  }
 }
 
 /** Describes a model available from the provider. */
@@ -143,6 +191,14 @@ export interface ModelClient {
      * invalidated and re-written. Tools are always cacheable separately.
      */
     cacheableSystem?: boolean;
+    /**
+     * When supplied, the client appends a synthetic tool with this
+     * schema to the request. If the model calls that tool, the
+     * arguments are validated against the schema and surfaced via
+     * `ModelResponse.output`; the synthetic call is stripped from
+     * `toolCalls`. A schema mismatch throws `OutputValidationError`.
+     */
+    outputSchema?: OutputSchema;
   }): Promise<ModelResponse>;
 
   /** List models available from the provider. Returns empty array on failure. */

@@ -12,6 +12,7 @@ import type {
   AgentConfig,
   BeforeToolCallHook,
   ModelClient,
+  OutputSchema,
   ToolCall,
 } from "./types.js";
 
@@ -364,9 +365,10 @@ export class CodingAgent {
 
   async runTurn(
     userMessage: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; outputSchema?: OutputSchema },
   ): Promise<{
     text: string;
+    output?: unknown;
     usage?: {
       inputTokens: number;
       outputTokens: number;
@@ -499,6 +501,7 @@ export class CodingAgent {
             }
           : {}),
         ...(options?.signal && { signal: options.signal }),
+        ...(options?.outputSchema && { outputSchema: options.outputSchema }),
       });
 
       totalInputTokens += response.usage.inputTokens;
@@ -519,6 +522,33 @@ export class CodingAgent {
         }
         this.verboseLog("Usage:", response.usage);
         this.verboseLog(VERBOSE_SEP);
+      }
+
+      // Structured-output turn: the model called the synthetic respond
+      // tool. The validated value is on `response.output`; the synthetic
+      // call has already been stripped from `toolCalls`. Terminate the
+      // loop immediately. Any other tool calls in the same step are
+      // ignored — when the model has decided on a final answer we don't
+      // try to fold side-effects back into history.
+      if (response.output !== undefined) {
+        this.session.addMessage({
+          role: "assistant",
+          content: response.text,
+        });
+        const streamed =
+          this.config.modelProvider === "openai-compatible" && !!this.onUiUpdate;
+        return {
+          text: response.text,
+          output: response.output,
+          usage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            ...(totalCachedInputTokens > 0
+              ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+          },
+          streamed,
+        };
       }
 
       if (response.toolCalls.length === 0) {
