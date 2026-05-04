@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>minicode</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/styles/tokyo-night-dark.min.css">
   <script src="https://unpkg.com/@highlightjs/cdn-assets@11.11.1/highlight.min.js"></script>
@@ -15,7 +18,22 @@
   <div id="app">
     <header>
       <div class="header-left">
-        <h1>minicode</h1>
+        <h1>
+          <span class="logo-glyph" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <line x1="9" y1="9" x2="22" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+              <line x1="9" y1="9" x2="10" y2="22" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+              <line x1="22" y1="11" x2="23" y2="23" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+              <line x1="10" y1="22" x2="23" y2="23" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+              <line x1="9" y1="9" x2="23" y2="23" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.35"/>
+              <circle cx="9"  cy="9"  r="3"   fill="currentColor"/>
+              <circle cx="22" cy="11" r="2.6" fill="currentColor" opacity="0.85"/>
+              <circle cx="10" cy="22" r="2.6" fill="currentColor" opacity="0.85"/>
+              <circle cx="23" cy="23" r="3"   fill="currentColor"/>
+            </svg>
+          </span>
+          minicode
+        </h1>
         <span id="status-badge" class="badge ready">ready</span>
         <div id="context-indicator" title="Context window usage. Adjust context size in Settings if you want it larger or smaller.">
           <div id="context-bar">
