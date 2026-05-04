@@ -8,15 +8,42 @@ import type {
   ModelClient,
   ModelInfo,
   ModelResponse,
+  OutputSchema,
   ReasoningEffort,
   SessionMessage,
   ToolCall,
   ToolSchema,
 } from "../agent/types.js";
+import {
+  extractStructuredOutput,
+  synthesizeRespondTool,
+  validateOutputSchema,
+} from "../agent/structured-output.js";
 
 const DEFAULT_MODEL_START_TIMEOUT_SECONDS = 60;
 const RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
+
+/**
+ * If the caller supplied an `outputSchema`, look for the synthetic
+ * respond-tool's call in the parsed response, validate it, and surface
+ * it via `ModelResponse.output`. The synthetic call is removed from
+ * `toolCalls` so the agent loop does not try to dispatch it. When the
+ * model didn't call the synthetic tool, the response is unchanged.
+ */
+function applyStructuredOutput(
+  response: ModelResponse,
+  outputSchema: OutputSchema | undefined,
+): ModelResponse {
+  if (!outputSchema) return response;
+  const extracted = extractStructuredOutput(outputSchema, response.toolCalls);
+  if (!extracted) return response;
+  return {
+    ...response,
+    output: extracted.output,
+    toolCalls: extracted.remainingToolCalls,
+  };
+}
 
 function toAnthropicMessages(
   messages: SessionMessage[],
@@ -527,7 +554,17 @@ export class AnthropicModelClient implements ModelClient {
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     cacheableSystem?: boolean;
+    outputSchema?: OutputSchema;
   }): Promise<ModelResponse> {
+    // Structured output: append a synthetic respond-tool with the
+    // caller's schema so the model can "call" it with a typed answer.
+    // Validated early to surface name collisions before the request.
+    const effectiveTools = params.tools;
+    const toolsForRequest: ToolSchema[] = (() => {
+      if (!params.outputSchema) return effectiveTools;
+      validateOutputSchema(params.outputSchema, effectiveTools);
+      return [...effectiveTools, synthesizeRespondTool(params.outputSchema)];
+    })();
     // Anthropic prompt caching: mark stable parts of the prefix with
     // `cache_control: { type: "ephemeral" }` so the provider serves
     // them at the cache-read rate (~10% of input cost) on subsequent
@@ -549,14 +586,14 @@ export class AnthropicModelClient implements ModelClient {
         ]
       : params.system;
     const toolsWithCache =
-      params.tools.length > 0
-        ? (params.tools as unknown as Anthropic.Messages.ToolUnion[]).map(
+      toolsForRequest.length > 0
+        ? (toolsForRequest as unknown as Anthropic.Messages.ToolUnion[]).map(
             (tool, i) =>
-              i === params.tools.length - 1
+              i === toolsForRequest.length - 1
                 ? { ...tool, cache_control: { type: "ephemeral" } }
                 : tool,
           )
-        : params.tools;
+        : toolsForRequest;
     const baseParams = {
       model: params.model,
       max_tokens: params.maxTokens,
@@ -605,7 +642,7 @@ export class AnthropicModelClient implements ModelClient {
       });
 
       const finalMessage = await stream.finalMessage();
-      return parseResponse(finalMessage);
+      return applyStructuredOutput(parseResponse(finalMessage), params.outputSchema);
     }, {
       shouldRetry: isRetryableAnthropicError,
     });
@@ -780,7 +817,13 @@ export class OpenAICompatibleModelClient implements ModelClient {
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     cacheableSystem?: boolean;
+    outputSchema?: OutputSchema;
   }): Promise<ModelResponse> {
+    const toolsForRequest: ToolSchema[] = (() => {
+      if (!params.outputSchema) return params.tools;
+      validateOutputSchema(params.outputSchema, params.tools);
+      return [...params.tools, synthesizeRespondTool(params.outputSchema)];
+    })();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "HTTP-Referer": "https://minicode.seanholung.com",
@@ -808,7 +851,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     const requestBody: Record<string, unknown> = {
       model: params.model,
       messages: toOpenAICompatibleMessages(params.system, params.messages),
-      tools: toOpenAICompatibleTools(params.tools),
+      tools: toOpenAICompatibleTools(toolsForRequest),
       tool_choice: "auto",
       max_tokens: params.maxTokens,
       stream: useStream,
@@ -849,15 +892,21 @@ export class OpenAICompatibleModelClient implements ModelClient {
           }
 
           if (useStream && httpResponse.body) {
-            return parseOpenAIStream(
-              httpResponse.body.getReader(),
-              params.onStream,
+            return applyStructuredOutput(
+              await parseOpenAIStream(
+                httpResponse.body.getReader(),
+                params.onStream,
+              ),
+              params.outputSchema,
             );
           }
 
           const payload =
             (await httpResponse.json()) as OpenAICompatibleCompletionResponse;
-          return parseOpenAICompatibleResponse(payload);
+          return applyStructuredOutput(
+            parseOpenAICompatibleResponse(payload),
+            params.outputSchema,
+          );
         }),
       {
         shouldRetry: isRetryableOpenAICompatibleError,

@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

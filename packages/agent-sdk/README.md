@@ -424,6 +424,81 @@ For advanced use cases (custom transport, in-process server, BYO
 entry point instead — it takes pre-connected clients and produces the
 same `McpToolBundle`.
 
+## Structured Output
+
+Ask a turn to return validated, schema-conformant JSON instead of free-form
+text. Useful for extraction, classification, and any "agent that thinks via
+tools, then commits to a structured answer" workflow.
+
+Under the hood: when you pass an `outputSchema`, the SDK appends a synthetic
+tool with that input shape to the model's tool list. The model decides to
+"call" it the same way it'd call any other tool; the SDK intercepts the call,
+validates the arguments against your schema, and returns them as
+`result.output`. Real tools and the synthetic tool coexist — the model can
+gather data via real tool calls and then deliver the structured answer.
+
+```typescript
+import {
+  CodingAgent,
+  ToolRegistry,
+  createMcpTools,
+  type OutputSchema,
+} from "@minicode/agent-sdk";
+
+const InvoiceSchema: OutputSchema = {
+  name: "Invoice",
+  description: "Call this with the extracted invoice once you've finished reading the file.",
+  schema: {
+    type: "object",
+    properties: {
+      vendor: { type: "string" },
+      total: { type: "number" },
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            quantity: { type: "number" },
+            price: { type: "number" },
+          },
+          required: ["description", "quantity", "price"],
+        },
+      },
+    },
+    required: ["vendor", "total", "items"],
+  },
+};
+
+const result = await agent.runTurn(invoiceText, {
+  outputSchema: InvoiceSchema,
+});
+
+// result.output is { vendor: "...", total: 1234, items: [...] }, validated.
+// result.text is the free-form text the model produced (often empty when the
+// model "spoke" entirely via the synthetic tool call).
+```
+
+### Behavior notes
+
+- **Schema mismatch throws.** When the model produces arguments that don't
+  match `outputSchema.schema`, the call rejects with `OutputValidationError`
+  carrying the raw value and ajv's error path list. Catch and retry, or
+  surface diagnostics — silent fallback isn't supported by design.
+- **Loop termination.** A turn with `outputSchema` exits as soon as the
+  model calls the synthetic tool. If real-tool calls and the synthetic call
+  arrive in the same step, the structured answer wins and side-effect calls
+  in that step are ignored.
+- **No output → `result.output === undefined`.** If the model returns plain
+  text and never calls the synthetic tool, you get the same shape as a
+  normal `runTurn` — `result.text` carries the answer. This is rare in
+  practice but worth catching defensively.
+- **Tool-name collisions.** `outputSchema.name` must not match any tool
+  registered with the agent's `ToolRegistry`; the model client throws at
+  call time if it does.
+- **Provider-agnostic.** The same code works against Anthropic and any
+  OpenAI-compatible backend. No provider-specific switches.
+
 ## Development
 
 ```bash
