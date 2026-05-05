@@ -681,18 +681,6 @@ h1 .logo-glyph svg {
   width: 240px;
 }
 
-/* Analyze = primary action in toolbar */
-#graph-analyze {
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
-  color: var(--accent);
-  font-weight: 600;
-}
-#graph-analyze:hover {
-  background: rgba(86,200,216,0.2);
-  border-color: var(--accent);
-}
-
 /* ── Graph stage ─────────────────────────────────────────────────────── */
 #graph-stage {
   display: flex;
