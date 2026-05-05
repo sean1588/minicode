@@ -29,3 +29,49 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # Build the full publish artifact so the verify and smoke steps
+      # can inspect it.
+      - name: Build full package
+        run: npm run build
+
+      # Static check: every external import in the publishable
+      # dist/ + workspace dist/ output must be declared in the root
+      # package.json. Catches the class of bug where a workspace
+      # package adds a new runtime dep that isn't propagated to the
+      # root's `dependencies` / `bundleDependencies`, leaving the
+      # published tarball unable to resolve it post-install.
+      - name: Verify publish-bundle dependencies
+        run: node scripts/verify-bundle-deps.mjs
+
+      # Defense in depth: pack the tarball, install it into a scratch
+      # directory, and boot the binary. Catches any boot-time module
+      # resolution errors the static check might miss (e.g. native
+      # modules, dynamic requires).
+      - name: Pack tarball
+        id: pack
+        run: |
+          TARBALL=$(npm pack --silent)
+          echo "tarball=$PWD/$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Install into scratch dir and smoke-test boot
+        run: |
+          set -e
+          SCRATCH=$(mktemp -d)
+          cd "$SCRATCH"
+          npm init -y > /dev/null
+          npm install "${{ steps.pack.outputs.tarball }}"
+
+          # Boot the binary with stdin closed and a short timeout. The
+          # binary will try to talk to a model server and fail — that's
+          # expected. We're only checking that all imports resolve.
+          set +e
+          OUTPUT=$(echo "" | timeout 8 ./node_modules/.bin/minicode 2>&1)
+          set -e
+
+          if echo "$OUTPUT" | grep -qE "ERR_MODULE_NOT_FOUND|Cannot find (package|module)|MODULE_NOT_FOUND"; then
+            echo "::error::Install smoke test failed — binary cannot resolve a bundled dependency."
+            echo "$OUTPUT"
+            exit 1
+          fi
+          echo "Install smoke test passed."
