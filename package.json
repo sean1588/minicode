@@ -31,6 +31,8 @@
     "minicode-plugin-python",
     "picocolors",
     "react",
+    "tree-sitter",
+    "tree-sitter-python",
     "typescript",
     "ws",
     "zod"
@@ -64,6 +66,8 @@
     "minicode-plugin-python": "*",
     "picocolors": "^1.1.1",
     "react": "^19.2.4",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
     "typescript": "^5.9.3",
     "ws": "^8.19.0",
     "zod": "^3.25.76"
