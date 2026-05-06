@@ -50,7 +50,7 @@ export function createReadSymbolTool(
 
       const resolution = resolveSymbolInput(projectIndex, name);
       if (resolution.status === "missing") {
-        return `Symbol "${name}" not found in the project index. Try using search to find it, or use read_file to read the full file.`;
+        return `Symbol "${name}" not found in the project index. Try search_code_map for fuzzy symbol matching first — it understands the AST. Fall back to search (text/regex) or read_file (whole file) only if symbol-based retrieval can't find what you need.`;
       }
       if (resolution.status === "ambiguous") {
         return formatAmbiguousSymbolMatches("read_symbol", name, resolution.matches);

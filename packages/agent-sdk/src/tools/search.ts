@@ -118,6 +118,20 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
       const relativeTarget =
         path.relative(options.workspaceRoot, targetPath) || ".";
 
+      // When ripgrep / grep return zero matches we surface the search
+      // domain so the agent can tell "the pattern truly isn't there"
+      // apart from "the search was filtered or scoped wrong." Without
+      // this, the same string ("No matches found.") is returned in
+      // both cases and the agent can't escalate.
+      const noMatchesMessage = (): string => {
+        const filterSuffix = include ? ` matching glob "${include}"` : "";
+        return [
+          `No matches for /${pattern}/ in "${relativeTarget}"${filterSuffix}.`,
+          `Excluded: node_modules, .git, .minicode, package-lock.json, yarn.lock, pnpm-lock.yaml, *.min.js.`,
+          `If you expected a hit, try: a broader path, a less restrictive include glob, search_code_map for symbol-name lookups, or read_file on the suspected file directly.`,
+        ].join("\n");
+      };
+
       const rgArgs = [
         "--line-number",
         "--color",
@@ -157,12 +171,12 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
 
         if (result.code !== 0) {
           if (result.code === 1) {
-            return "No matches found.";
+            return noMatchesMessage();
           }
           throw new Error(result.stderr || "ripgrep search failed.");
         }
         if (result.stdout.trim().length === 0) {
-          return "No matches found.";
+          return noMatchesMessage();
         }
         const output = result.stdout.trimEnd();
         if (output.length > maxOutputChars) {
@@ -198,7 +212,7 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
       );
       if (fallbackResult.code !== 0) {
         if (fallbackResult.code === 1) {
-          return "No matches found.";
+          return noMatchesMessage();
         }
         throw new Error(fallbackResult.stderr || "grep search failed.");
       }

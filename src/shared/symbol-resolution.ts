@@ -24,17 +24,42 @@ export function formatSymbolMatch(match: IndexedSymbol): string {
   return `${getSymbolDisplayName(match)} (${match.kind}) — ${match.filePath}:${match.startLine} — qualified: ${match.qualifiedName}`;
 }
 
+/**
+ * Cap on how many disambiguation entries we render. The output flows
+ * through the agent's generic tool-output truncator, which clips by
+ * character count — including in the middle of a qualified name. That
+ * leaves the model with an unparseable lookup key, which it then
+ * guesses at, producing a "not found" loop. Bounding by entry count
+ * here means each shown match has its full qualified name intact, and
+ * generic char-truncation never has occasion to fire on the result.
+ *
+ * 12 covers virtually every real ambiguity (a name that genuinely
+ * matches more is too generic to be useful — the agent should refine
+ * regardless). Each entry is ~150-300 chars, so 12 entries fit
+ * comfortably under typical maxToolOutputChars caps.
+ */
+export const MAX_AMBIGUOUS_MATCHES = 12;
+
 export function formatAmbiguousSymbolMatches(
   toolName: string,
   name: string,
   matches: IndexedSymbol[],
 ): string {
-  return [
+  const shown = matches.slice(0, MAX_AMBIGUOUS_MATCHES);
+  const elided = matches.length - shown.length;
+  const lines = [
     `Symbol "${name}" is ambiguous; ${matches.length} matches were found.`,
     `Re-run ${toolName} with one of these qualified or disambiguated names:`,
     "",
-    ...matches.map((match) => `- ${formatSymbolMatch(match)}`),
-  ].join("\n");
+    ...shown.map((match) => `- ${formatSymbolMatch(match)}`),
+  ];
+  if (elided > 0) {
+    lines.push(
+      "",
+      `[... and ${elided} more match(es) not shown. Refine the name (e.g. include the file path or use the qualified form like "Foo#class@path/to/file.ts") to narrow further.]`,
+    );
+  }
+  return lines.join("\n");
 }
 
 export function serializeSymbolMatch(match: IndexedSymbol): {

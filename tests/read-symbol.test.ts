@@ -35,6 +35,14 @@ test("read_symbol returns error for unknown symbol name", async () => {
 
   assert.ok(result.includes("not found"));
   assert.ok(result.includes("search") || result.includes("read_file"));
+  // Miss path should preferentially nudge toward search_code_map (the
+  // graph-aware retry) before suggesting full-file reads — otherwise
+  // the agent abandons minicode's symbol-aware path the moment it
+  // hits a single miss.
+  assert.ok(
+    result.includes("search_code_map"),
+    `expected miss message to suggest search_code_map; got: ${result}`,
+  );
 });
 
 test("read_symbol with includeBody: false returns signature only", async () => {

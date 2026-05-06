@@ -102,16 +102,20 @@ export function createReadFileTool(options: ReadFileToolOptions): ToolDefinition
       const effectiveLimit = parseLimit(limit, lines.length);
       const output = formatWithLineNumbers(content, startLine, effectiveLimit);
 
-      if (
-        limit === undefined &&
-        lines.length > DEFAULT_LINE_LIMIT &&
-        effectiveLimit < lines.length
-      ) {
-        const remaining = Math.max(
-          0,
-          lines.length - (startLine - 1) - effectiveLimit,
-        );
-        return `${output}\n\n[... truncated, ${remaining} more lines. Use offset and limit to read specific sections.]`;
+      // Always tell the agent how much of the file it actually saw.
+      // The previous gate only fired when `limit` was undefined and the
+      // default kicked in — so an explicit `limit: 260` on a 462-line
+      // file silently returned the first 260 lines with no signal that
+      // anything was missing. The model would then assert the missing
+      // content didn't exist. Footer now fires on content-clipped, not
+      // on parameter-implicit.
+      const lastShownLine = Math.min(
+        lines.length,
+        startLine - 1 + effectiveLimit,
+      );
+      if (lastShownLine < lines.length) {
+        const remaining = lines.length - lastShownLine;
+        return `${output}\n\n[... showed lines ${startLine}-${lastShownLine} of ${lines.length}; ${remaining} more line(s). Use offset/limit to read further.]`;
       }
       return output;
     },
