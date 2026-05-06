@@ -102,7 +102,7 @@ const PROGRESS_THINKING_MAX = 200;
  * - search: Keep head with a match count footer
  * - default: Keep head (existing behavior)
  */
-function truncateToolOutput(
+export function truncateToolOutput(
   toolName: string,
   output: string,
   maxChars: number,
@@ -117,7 +117,6 @@ function truncateToolOutput(
   }
 
   const totalLen = output.length;
-  const overflowNote = `\n\n[... truncated, ${totalLen - maxChars} more chars ...]`;
 
   if (toolName === "run_command") {
     // Keep tail — errors and results are usually at the end
@@ -125,7 +124,7 @@ function truncateToolOutput(
     const headChars = maxChars - tailChars;
     const head = output.slice(0, headChars);
     const tail = output.slice(totalLen - tailChars);
-    return `${head}\n\n[... ${totalLen - headChars - tailChars} chars omitted ...]\n\n${tail}`;
+    return `${head}\n\n[... agent-level truncation: ${totalLen - headChars - tailChars} chars omitted from middle of run_command output to keep head + tail.]\n\n${tail}`;
   }
 
   if (toolName === "search") {
@@ -133,11 +132,11 @@ function truncateToolOutput(
     const lines = output.split("\n");
     const truncated = output.slice(0, maxChars);
     const shownLines = truncated.split("\n").length;
-    return `${truncated}\n\n[... showing ~${shownLines} of ${lines.length} match lines, ${totalLen - maxChars} more chars ...]`;
+    return `${truncated}\n\n[... agent-level truncation: showing ~${shownLines} of ${lines.length} match lines, ${totalLen - maxChars} more chars elided. Narrow the search with a more specific path or include glob.]`;
   }
 
-  // Default: head-only (existing behavior)
-  return `${output.slice(0, maxChars)}${overflowNote}`;
+  // Default: head-only (existing behavior, with a layer-identifying footer)
+  return `${output.slice(0, maxChars)}\n\n[... agent-level truncation: showed ${maxChars} of ${totalLen} chars from ${toolName}; ${totalLen - maxChars} more chars elided.]`;
 }
 
 export type UiUpdateThinking = { type: "thinking"; content: string };
@@ -685,7 +684,11 @@ export class CodingAgent {
         }
 
         // Apply content-aware truncation when enabled, otherwise
-        // fall back to simple head-only truncation.
+        // fall back to simple head-only truncation. Footers identify
+        // the truncation *layer* — without that, the agent can't tell
+        // whether a tool's own footer was already there and an agent-
+        // level cut chopped it off, vs. the tool returned everything
+        // and the agent simply clipped to the char cap.
         if (this.config.enableToolOutputTruncation) {
           toolResult = truncateToolOutput(
             toolCall.name,
@@ -695,7 +698,8 @@ export class CodingAgent {
         } else {
           const maxChars = this.config.maxToolOutputChars;
           if (maxChars > 0 && toolResult.length > maxChars) {
-            toolResult = `${toolResult.slice(0, maxChars)}\n\n[... truncated, ${toolResult.length - maxChars} more chars ...]`;
+            const remaining = toolResult.length - maxChars;
+            toolResult = `${toolResult.slice(0, maxChars)}\n\n[... agent-level truncation: showed ${maxChars} of ${toolResult.length} chars from ${toolCall.name}; ${remaining} more chars elided. The tool may have already truncated above this footer. To read more, retry with a narrower scope (e.g. read_file with offset/limit, search with --include, list_files with skip/limit).]`;
           }
         }
         if (this.onUiUpdate) {

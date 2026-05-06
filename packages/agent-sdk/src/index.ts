@@ -23,6 +23,7 @@ export { OutputValidationError } from "./agent/types.js";
 // Agent runtime
 export {
   CodingAgent,
+  truncateToolOutput,
   type UiUpdate,
   type UiUpdateThinking,
   type UiUpdateStreamingChunk,

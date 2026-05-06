@@ -171,3 +171,76 @@ test("search finds matches inside gitignored files", async () => {
 
   assert.ok(result.includes("generated.txt"));
 });
+
+
+// ─── Honest tool outputs (closes #176) ────────────────────────
+
+test("read_file emits a footer when content is clipped by an explicit limit", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const lines = Array.from({ length: 462 }, (_, i) => `line ${i + 1}`);
+  await writeFile(path.join(workspaceRoot, "big.txt"), lines.join("\n"), "utf8");
+
+  const readTool = createReadFileTool(createTestAgentConfig(workspaceRoot));
+  const result = await readTool.execute({ path: "big.txt", limit: 260 });
+
+  // The agent must know it didn't see the full file. Without this,
+  // it confidently says "the symbol on line 462 doesn't exist."
+  assert.match(result, /showed lines 1-260 of 462/);
+  assert.match(result, /202 more line\(s\)/);
+});
+
+test("read_file emits no footer when the requested range covers the file", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  await writeFile(path.join(workspaceRoot, "small.txt"), "a\nb\nc\nd", "utf8");
+
+  const readTool = createReadFileTool(createTestAgentConfig(workspaceRoot));
+  const result = await readTool.execute({ path: "small.txt", limit: 10 });
+
+  assert.doesNotMatch(result, /more line/);
+  assert.doesNotMatch(result, /showed lines/);
+});
+
+test("read_file emits a footer when offset+limit covers only middle of file", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`);
+  await writeFile(path.join(workspaceRoot, "mid.txt"), lines.join("\n"), "utf8");
+
+  const readTool = createReadFileTool(createTestAgentConfig(workspaceRoot));
+  const result = await readTool.execute({
+    path: "mid.txt",
+    offset: 40,
+    limit: 20,
+  });
+
+  assert.match(result, /showed lines 40-59 of 100/);
+  assert.match(result, /41 more line\(s\)/);
+});
+
+test("search 'no matches' annotates the search domain and exclusions", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  await writeFile(path.join(workspaceRoot, "a.txt"), "hello world\n", "utf8");
+
+  const searchTool = createSearchTool(createTestAgentConfig(workspaceRoot));
+  const result = await searchTool.execute({ pattern: "definitely-not-there" });
+
+  // Without these breadcrumbs the agent can't tell "the pattern truly
+  // isn't there" from "the search was filtered or scoped wrong."
+  assert.match(result, /No matches for/);
+  assert.match(result, /definitely-not-there/);
+  assert.match(result, /Excluded/);
+  assert.match(result, /node_modules/);
+  assert.match(result, /search_code_map|read_file/);
+});
+
+test("search 'no matches' surfaces include glob in the domain footer", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  await writeFile(path.join(workspaceRoot, "a.ts"), "hello\n", "utf8");
+
+  const searchTool = createSearchTool(createTestAgentConfig(workspaceRoot));
+  const result = await searchTool.execute({
+    pattern: "definitely-not-there",
+    include: "*.md",
+  });
+
+  assert.match(result, /matching glob "\*\.md"/);
+});
