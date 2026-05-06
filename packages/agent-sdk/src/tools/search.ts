@@ -68,6 +68,43 @@ function runCommand(
   });
 }
 
+/**
+ * Single source of truth for what the search tool excludes. Both the
+ * ripgrep / grep invocations and the "no matches" message read from
+ * this list so the user-facing message can never lie about the
+ * actual search domain. Add an entry here, get it everywhere.
+ */
+const EXCLUDED_PATHS: ReadonlyArray<{
+  name: string;
+  kind: "dir" | "file" | "glob";
+}> = [
+  { name: ".git", kind: "dir" },
+  { name: ".minicode", kind: "dir" },
+  { name: "node_modules", kind: "dir" },
+  { name: "package-lock.json", kind: "file" },
+  { name: "yarn.lock", kind: "file" },
+  { name: "pnpm-lock.yaml", kind: "file" },
+  { name: "*.min.js", kind: "glob" },
+];
+
+function rgGlobArgs(): string[] {
+  const args: string[] = [];
+  for (const e of EXCLUDED_PATHS) {
+    args.push("--glob", e.kind === "dir" ? `!${e.name}/**` : `!${e.name}`);
+  }
+  return args;
+}
+
+function grepExcludeArgs(): string[] {
+  return EXCLUDED_PATHS.map((e) =>
+    e.kind === "dir" ? `--exclude-dir=${e.name}` : `--exclude=${e.name}`,
+  );
+}
+
+function excludedPathsForMessage(): string {
+  return EXCLUDED_PATHS.map((e) => e.name).join(", ");
+}
+
 function getOptionalString(
   input: Record<string, unknown>,
   key: string,
@@ -127,7 +164,7 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
         const filterSuffix = include ? ` matching glob "${include}"` : "";
         return [
           `No matches for /${pattern}/ in "${relativeTarget}"${filterSuffix}.`,
-          `Excluded: node_modules, .git, .minicode, package-lock.json, yarn.lock, pnpm-lock.yaml, *.min.js.`,
+          `Excluded: ${excludedPathsForMessage()}.`,
           `If you expected a hit, try: a broader path, a less restrictive include glob, search_code_map for symbol-name lookups, or read_file on the suspected file directly.`,
         ].join("\n");
       };
@@ -139,20 +176,7 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
         "--no-heading",
         "--hidden",
         "--no-ignore",
-        "--glob",
-        "!.git/**",
-        "--glob",
-        "!.minicode/**",
-        "--glob",
-        "!node_modules/**",
-        "--glob",
-        "!package-lock.json",
-        "--glob",
-        "!yarn.lock",
-        "--glob",
-        "!pnpm-lock.yaml",
-        "--glob",
-        "!*.min.js",
+        ...rgGlobArgs(),
         "-m",
         "50",
       ];
@@ -193,12 +217,7 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
       // Minimal fallback for systems without rg installed.
       const grepArgs = [
         "-RIn",
-        "--exclude-dir=.minicode",
-        "--exclude-dir=node_modules",
-        "--exclude-dir=.git",
-        "--exclude=package-lock.json",
-        "--exclude=yarn.lock",
-        "--exclude=pnpm-lock.yaml",
+        ...grepExcludeArgs(),
         "-m",
         "50",
         pattern,

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  MAX_AMBIGUOUS_MATCHES,
-  formatAmbiguousSymbolMatches,
-} from "../src/shared/symbol-resolution.js";
+import { formatAmbiguousSymbolMatches } from "../src/shared/symbol-resolution.js";
 import type { IndexedSymbol } from "../src/indexer/types.js";
+
+// Mirrors the cap inside formatAmbiguousSymbolMatches. Kept private
+// in the production module since no other consumer needs it; this
+// test pins the contract value so a silent change to the cap fails
+// loudly here.
+const MAX_AMBIGUOUS_MATCHES = 12;
 
 function fakeMatch(i: number): IndexedSymbol {
   const qn = `Foo#class@some/dir/file${i}.ts:${10 + i}`;

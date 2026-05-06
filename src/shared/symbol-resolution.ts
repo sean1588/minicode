@@ -38,7 +38,7 @@ export function formatSymbolMatch(match: IndexedSymbol): string {
  * regardless). Each entry is ~150-300 chars, so 12 entries fit
  * comfortably under typical maxToolOutputChars caps.
  */
-export const MAX_AMBIGUOUS_MATCHES = 12;
+const MAX_AMBIGUOUS_MATCHES = 12;
 
 export function formatAmbiguousSymbolMatches(
   toolName: string,

@@ -172,7 +172,8 @@ test("search finds matches inside gitignored files", async () => {
   assert.ok(result.includes("generated.txt"));
 });
 
-// ─── Honest tool outputs (closes #176) ───────────────────────────────────
+
+// ─── Honest tool outputs (closes #176) ────────────────────────
 
 test("read_file emits a footer when content is clipped by an explicit limit", async () => {
   const workspaceRoot = await createTempWorkspace();

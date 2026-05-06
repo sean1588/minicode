@@ -102,7 +102,7 @@ const PROGRESS_THINKING_MAX = 200;
  * - search: Keep head with a match count footer
  * - default: Keep head (existing behavior)
  */
-function truncateToolOutput(
+export function truncateToolOutput(
   toolName: string,
   output: string,
   maxChars: number,
