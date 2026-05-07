@@ -27,6 +27,13 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      # Workspaces have their own lint scripts that cover packages/*/src
+      # and packages/*/tests, which the root's lint script doesn't reach.
+      # Without this, lint errors inside packages/ hide until they hit
+      # the publish workflow.
+      - name: Run workspace lints
+        run: npm run lint --workspaces --if-present
+
       - name: Run tests
         run: npm test
 

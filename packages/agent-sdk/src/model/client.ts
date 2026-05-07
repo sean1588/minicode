@@ -249,6 +249,8 @@ function createTimeoutSignal(timeoutSeconds: number, parentSignal?: AbortSignal)
 } {
   const controller = new AbortController();
   let timedOut = false;
+  // Forward-declared because the returned `cleanup` closure references
+  // it before the setTimeout call below assigns the handle.
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutMs = timeoutSeconds * 1000;
 
@@ -262,6 +264,7 @@ function createTimeoutSignal(timeoutSeconds: number, parentSignal?: AbortSignal)
     parentSignal.addEventListener("abort", handleParentAbort, { once: true });
   }
 
+  // eslint-disable-next-line prefer-const -- forward-declared above
   timeoutHandle = setTimeout(() => {
     timedOut = true;
     controller.abort(new ModelStartTimeoutError(timeoutSeconds));
