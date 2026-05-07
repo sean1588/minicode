@@ -48,6 +48,9 @@ function executeBashCommand(
     let stderr = "";
     let timedOut = false;
     let settled = false;
+    // Forward-declared because the `cleanup` closure below reads it
+    // before the setTimeout call lower in the function assigns it.
+    // eslint-disable-next-line prefer-const -- reassigned in setTimeout call below; declared early so cleanup() closure can reference it
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let forceKillTimeout: ReturnType<typeof setTimeout> | undefined;
     let forceResolveTimeout: ReturnType<typeof setTimeout> | undefined;
