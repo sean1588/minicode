@@ -10,7 +10,7 @@ import type {
   SessionMessage,
   ToolDefinition,
   ToolSchema,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 import { loadBenchmarkTasks, loadBenchmarkTask } from "../src/benchmark/task-loader.js";
 import { evaluate } from "../src/benchmark/evaluator.js";

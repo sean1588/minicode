@@ -1,4 +1,4 @@
-import type { ModelInfo } from "@minicode/agent-sdk";
+import type { ModelInfo } from "@sean.holung/minicode-sdk";
 
 export function getModelDisplayName(model: ModelInfo): string {
   return (model.name ?? model.id).trim();

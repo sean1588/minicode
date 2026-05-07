@@ -4,7 +4,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-import { Session } from "@minicode/agent-sdk";
+import { Session } from "@sean.holung/minicode-sdk";
 
 import {
   deleteSession,

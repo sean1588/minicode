@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import type { ModelInfo } from "@minicode/agent-sdk";
+import type { ModelInfo } from "@sean.holung/minicode-sdk";
 import { createRequestHandler } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import { createTestAgentConfig } from "./test-utils.js";

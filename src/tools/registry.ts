@@ -6,8 +6,8 @@ import {
   createSearchTool,
   createListFilesTool,
   createRunCommandTool,
-} from "@minicode/agent-sdk";
-import type { AgentConfig, ToolDefinition } from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
+import type { AgentConfig, ToolDefinition } from "@sean.holung/minicode-sdk";
 import type { ProjectIndex } from "../indexer/types.js";
 import { createFindReferencesTool } from "./find-references.js";
 import { createGetDependenciesTool } from "./get-dependencies.js";

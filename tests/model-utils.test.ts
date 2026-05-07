@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { ModelInfo } from "@minicode/agent-sdk";
+import type { ModelInfo } from "@sean.holung/minicode-sdk";
 import { filterModelsByQuery, getModelDisplayName, sortModelsAlphabetically } from "../src/model-utils.js";
 
 test("sortModelsAlphabetically sorts by display name without mutating input", () => {

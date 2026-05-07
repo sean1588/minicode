@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
 
-import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
+import type { AgentConfig, ReasoningEffort } from "@sean.holung/minicode-sdk";
 
 const DEFAULT_COMMAND_DENYLIST: RegExp[] = [
   /\brm\s+-rf\s+\//i,

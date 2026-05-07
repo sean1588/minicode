@@ -199,7 +199,7 @@ npm init -y
 Create `src/index.ts` (or `index.js`):
 
 ```typescript
-import type { IndexedSymbol, LanguagePlugin } from "@minicode/agent-sdk";
+import type { IndexedSymbol, LanguagePlugin } from "@sean.holung/minicode-sdk";
 
 const plugin: LanguagePlugin = {
   name: "my-language",
@@ -234,7 +234,7 @@ Your package must export the plugin. In `package.json`:
     ".": "./dist/index.js"
   },
   "peerDependencies": {
-    "@minicode/agent-sdk": "*"
+    "@sean.holung/minicode-sdk": "*"
   }
 }
 ```
@@ -307,7 +307,7 @@ It implements `resolveDependencies` using heuristic AST analysis (heritage claus
 
 ## Reference: Python Plugin
 
-The built-in Python plugin is powered by `tree-sitter-python` and lives in its own workspace package at `packages/minicode-plugin-python/`. It serves as the canonical example of how an external `minicode-plugin-*` package would be structured: it imports `LanguagePlugin` from `@minicode/agent-sdk`, declares its own native dependencies, and is bundled into minicode at publish time via `bundleDependencies`. Authors of new built-in or third-party plugins can copy this layout directly.
+The built-in Python plugin is powered by `tree-sitter-python` and lives in its own workspace package at `packages/minicode-plugin-python/`. It serves as the canonical example of how an external `minicode-plugin-*` package would be structured: it imports `LanguagePlugin` from `@sean.holung/minicode-sdk`, declares its own native dependencies, and is bundled into minicode at publish time via `bundleDependencies`. Authors of new built-in or third-party plugins can copy this layout directly.
 
 It extracts:
 

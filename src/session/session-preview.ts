@@ -1,4 +1,4 @@
-import type { SessionMessage } from "@minicode/agent-sdk";
+import type { SessionMessage } from "@sean.holung/minicode-sdk";
 
 export const DEFAULT_SESSION_PREVIEW_LIMIT = 10;
 const COMPACTION_SUMMARY_PREFIX = "[Conversation Summary";

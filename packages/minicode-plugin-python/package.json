@@ -26,10 +26,10 @@
     "tree-sitter-python": "^0.25.0"
   },
   "peerDependencies": {
-    "@minicode/agent-sdk": "*"
+    "@sean.holung/minicode-sdk": "*"
   },
   "devDependencies": {
-    "@minicode/agent-sdk": "*",
+    "@sean.holung/minicode-sdk": "*",
     "@types/node": "^25.2.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"

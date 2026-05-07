@@ -1,6 +1,6 @@
 # Agent Runtime SDK Specification (Draft)
 
-The repo now includes an extracted workspace package at `packages/agent-sdk` that publishes to npm as `@minicode/agent-sdk` via `.github/workflows/publish-sdk.yml`. The shipped surface — `CodingAgent`, `Session`, `ToolRegistry`, the model clients, structured-output types, MCP client integration, etc. — is documented in `packages/agent-sdk/README.md`. This document remains the broader design spec for where the public API could go next (multi-package split, additional adapters, hosted variants).
+The repo now includes an extracted workspace package at `packages/agent-sdk` that publishes to npm as `@sean.holung/minicode-sdk` via `.github/workflows/publish-sdk.yml`. The shipped surface — `CodingAgent`, `Session`, `ToolRegistry`, the model clients, structured-output types, MCP client integration, etc. — is documented in `packages/agent-sdk/README.md`. This document remains the broader design spec for where the public API could go next (multi-package split, additional adapters, hosted variants).
 
 This document proposes a reusable SDK extracted from minicode's existing runtime so the CLI can become one consumer among many (CLI, web app, CI bot, IDE extension, custom agent service).
 

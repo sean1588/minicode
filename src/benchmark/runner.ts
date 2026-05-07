@@ -14,12 +14,12 @@ import {
   CodingAgent,
   Session,
   ToolRegistry,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import type {
   AgentConfig,
   ModelClient,
   ToolDefinition,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 import type {
   BenchmarkTask,

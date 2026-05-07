@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { DependencyEdge, IndexedSymbol } from "@minicode/agent-sdk";
+import type { DependencyEdge, IndexedSymbol } from "@sean.holung/minicode-sdk";
 import { analyzeProjectStructure } from "../src/analysis/structural-analysis.js";
 import { createProjectIndex } from "../src/indexer/project-index.js";
 

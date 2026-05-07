@@ -1,12 +1,12 @@
 import { readFile, stat } from "node:fs/promises";
 
-import type { AgentConfig, ToolDefinition } from "@minicode/agent-sdk";
+import type { AgentConfig, ToolDefinition } from "@sean.holung/minicode-sdk";
 import {
   resolveWorkspacePath,
   validateFileReadSize,
   expectNonEmptyString,
   expectOptionalBoolean,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 import {

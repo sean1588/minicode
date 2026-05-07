@@ -246,7 +246,7 @@ export class CodingAgent {
      *
      * Use this to point the agent at a different domain (review bot,
      * RAG assistant, non-coding use case) without rewriting the rest
-     * of the SDK. Import `buildSystemPrompt` from `@minicode/agent-sdk`
+     * of the SDK. Import `buildSystemPrompt` from `@sean.holung/minicode-sdk`
      * and call it from your builder to extend the default rather than
      * replace it.
      */

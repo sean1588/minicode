@@ -22,7 +22,7 @@
   "bundleDependencies": [
     "@anthropic-ai/sdk",
     "@inkjs/ui",
-    "@minicode/agent-sdk",
+    "@sean.holung/minicode-sdk",
     "@modelcontextprotocol/sdk",
     "ajv",
     "dotenv",
@@ -57,7 +57,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",
     "@inkjs/ui": "^2.0.0",
-    "@minicode/agent-sdk": "*",
+    "@sean.holung/minicode-sdk": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ajv": "^8.18.0",
     "dotenv": "^17.3.1",

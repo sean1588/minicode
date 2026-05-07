@@ -5,7 +5,7 @@ import type {
   DependencyEdgeKind,
   IndexedSymbol,
   LanguagePlugin,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 import Python from "tree-sitter-python";
 

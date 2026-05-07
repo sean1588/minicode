@@ -1,6 +1,7 @@
 {
-  "name": "@minicode/agent-sdk",
+  "name": "@sean.holung/minicode-sdk",
   "version": "0.1.0",
+  "private": true,
   "description": "Reusable agent runtime SDK extracted from minicode",
   "type": "module",
   "engines": {

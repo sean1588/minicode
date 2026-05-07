@@ -1,7 +1,7 @@
 import process from "node:process";
 
-import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
-import type { UiUpdate, ReasoningEffort } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient } from "@sean.holung/minicode-sdk";
+import type { UiUpdate, ReasoningEffort } from "@sean.holung/minicode-sdk";
 import { loadAgentConfig, getConfigSetupMessage } from "../agent/config.js";
 import { handleConfigSlashCommand } from "../cli/config-slash-command.js";
 import {

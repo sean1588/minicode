@@ -1,4 +1,4 @@
-import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
+import type { AgentConfig, ReasoningEffort } from "@sean.holung/minicode-sdk";
 
 import {
   MINICODE_HOME,

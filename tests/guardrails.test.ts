@@ -5,7 +5,7 @@ import {
   resolveWorkspacePath,
   validateCommand,
   validatePath,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 test("validatePath allows files within workspace", () => {
   const workspaceRoot = "/tmp/workspace";

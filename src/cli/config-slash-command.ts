@@ -1,4 +1,4 @@
-import type { AgentConfig } from "@minicode/agent-sdk";
+import type { AgentConfig } from "@sean.holung/minicode-sdk";
 
 import { formatConfigForDisplay, MINICODE_HOME, resolveConfigEnv } from "../agent/config.js";
 import {
