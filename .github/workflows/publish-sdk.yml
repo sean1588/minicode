@@ -1,0 +1,96 @@
+# Manual publish: Actions → Publish agent-sdk to npm → Run workflow
+# Requires: NPM_TOKEN (npm Automation token, scope owner of @minicode)
+#
+# Publishes packages/agent-sdk as @minicode/agent-sdk. The package is
+# marked `private: true` in the workspace; this workflow strips that
+# at publish time, mirroring how the root `publish.yml` ships
+# @sean.holung/minicode.
+#
+# The SDK ships its TypeScript dependencies (@anthropic-ai/sdk,
+# @modelcontextprotocol/sdk, ajv) as normal `dependencies` — npm
+# resolves them on the consumer's side. No bundleDependencies here.
+name: Publish agent-sdk to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.1)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run agent-sdk tests
+        run: npm test --workspace=packages/agent-sdk
+
+      - name: Run agent-sdk lint
+        run: npm run lint --workspace=packages/agent-sdk
+
+      - name: Bump version
+        working-directory: packages/agent-sdk
+        run: |
+          npm version "${{ github.event.inputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Remove private for publish
+        working-directory: packages/agent-sdk
+        run: npm pkg delete private || true
+
+      - name: Build
+        run: npm run build --workspace=packages/agent-sdk
+
+      # Pack first so we can inspect what's about to ship before we
+      # actually publish. Surfaces missing files / oversized tarballs.
+      - name: Pack tarball (dry preview)
+        working-directory: packages/agent-sdk
+        run: |
+          npm pack --dry-run
+
+      # Smoke test: install the packed tarball into a scratch dir and
+      # import the entry point. Same idea as the root install-smoke
+      # in ci.yml — catches missing-runtime-dep regressions before
+      # they hit consumers.
+      - name: Pack + install smoke test
+        working-directory: packages/agent-sdk
+        run: |
+          set -e
+          TARBALL=$(npm pack --silent)
+          ABS_TARBALL="$PWD/$TARBALL"
+          SCRATCH=$(mktemp -d)
+          cd "$SCRATCH"
+          npm init -y > /dev/null
+          npm install "$ABS_TARBALL"
+          OUTPUT=$(node -e "import('@minicode/agent-sdk').then(m => { console.log('exports:', Object.keys(m).length); }, err => { console.error('IMPORT FAIL:', err.message); process.exit(1); });" 2>&1)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qE "ERR_MODULE_NOT_FOUND|Cannot find (package|module)|MODULE_NOT_FOUND|IMPORT FAIL"; then
+            echo "::error::SDK install smoke test failed."
+            exit 1
+          fi
+          cd -
+          # Clean up the local tarball before publish so npm doesn't
+          # try to publish from it.
+          rm -f "$ABS_TARBALL"
+
+      - name: Publish to npm
+        working-directory: packages/agent-sdk
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
