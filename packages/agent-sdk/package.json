@@ -1,7 +1,6 @@
 {
   "name": "@minicode/agent-sdk",
   "version": "0.1.0",
-  "private": true,
   "description": "Reusable agent runtime SDK extracted from minicode",
   "type": "module",
   "engines": {
@@ -15,7 +14,11 @@
       "import": "./dist/src/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test --import tsx \"tests/**/*.test.ts\"",

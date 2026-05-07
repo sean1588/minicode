@@ -4,18 +4,13 @@ Reusable agent runtime SDK extracted from minicode. Provides everything needed t
 
 ## Installation
 
-This package currently lives as a private workspace package inside the minicode repo:
-
 ```bash
-git clone https://github.com/sean1588/minicode.git
-cd minicode
-npm install
-npm run build --workspace=packages/agent-sdk
+npm install @minicode/agent-sdk
 ```
 
-> **Note:** `packages/agent-sdk/package.json` is currently marked `private`, so treat this README as documentation for the in-repo SDK surface rather than a published npm package.
->
 > **Requires:** Node.js >= 22.0.0
+>
+> The SDK ships its model SDKs (`@anthropic-ai/sdk`, `@modelcontextprotocol/sdk`) and the JSON Schema validator (`ajv`) as ordinary dependencies — no manual install needed.
 
 ## Quick Start
 
@@ -35,6 +30,7 @@ const config: AgentConfig = {
   model: "claude-sonnet-4-20250514",
   maxSteps: 20,
   maxTokens: 4096,
+  modelTimeoutSeconds: 60,
   maxContextTokens: 32_000,
   workspaceRoot: process.cwd(),
   commandTimeoutMs: 30_000,
@@ -232,6 +228,8 @@ const toolRegistry = ToolRegistry.createDefault(config, {
 
 The SDK exports indexer and plugin _types_ such as `LanguagePlugin`, `IndexedSymbol`, and `DependencyEdge`, but it does not currently ship the full project indexer implementation that the minicode CLI uses for its TypeScript/JavaScript graph tools. In the current repo layout, the richer indexer lives in the top-level `src/indexer/` directory.
 
+`FocusTracker` is the one piece of indexer machinery the SDK does export — it tracks which symbols an agent has explored during a turn so a code-map renderer can boost their ranking on the next step. Hosts that build their own indexer can use it to drive focus-adaptive prompt assembly.
+
 ## Safety Guardrails
 
 The SDK includes built-in safety features:
@@ -332,10 +330,21 @@ const agent = new CodingAgent({
 | `ToolDefinition` | Tool implementation (name, description, schema, execute fn) |
 | `ToolSchema` | Tool schema sent to the model |
 | `ModelClient` | Interface for model providers |
-| `ModelResponse` | Parsed model response (text, tool calls, usage) |
+| `ModelResponse` | Parsed model response (text, tool calls, usage, optional `output`) |
 | `SessionMessage` | Union of `UserMessage`, `AssistantMessage`, `ToolResultMessage` |
 | `UiUpdate` | Structured event for UI rendering during agent turns |
 | `CoreToolHooks` | Hooks for `afterWrite` and `afterEdit` events |
+| `BeforeToolCallHook` | Per-tool permission gate; return `{outcome:"deny", reason}` to block |
+| `ToolPermissionDecision` | Allow/deny return type for `BeforeToolCallHook` |
+| `ReasoningEffort` | Extended thinking budget level (`xhigh`, `high`, …, `none`) |
+| `SessionSnapshot` | Serializable session state (for save/load) |
+| `CompactionResult` | Result of `Session.compact()` — method, tokens before/after |
+| `SystemPromptBuilder` | Signature for `CodingAgent`'s `buildSystemPrompt` override |
+| `OutputSchema` | Schema for structured-output turns (see Structured Output below) |
+| `OutputValidationError` | Thrown when structured output fails JSON Schema validation |
+| `McpServerConfig` | Per-server config for `createMcpTools` (stdio/http/sse) |
+| `CreateMcpToolsOptions` | Top-level options for `createMcpTools` |
+| `McpToolBundle` | Returned bundle: `{ tools, close }` |
 
 ### Built-in Tools
 
@@ -347,6 +356,18 @@ const agent = new CodingAgent({
 | `search` | Search file contents using ripgrep (with grep fallback) |
 | `list_files` | List files and directories with pagination |
 | `run_command` | Execute shell commands with timeout and safety checks |
+
+### Helpers
+
+| Helper | Description |
+|--------|-------------|
+| `createModelClient(config)` | Factory that picks Anthropic vs OpenAI-compatible based on `config.modelProvider` |
+| `truncateToolOutput(toolName, output, maxChars)` | Content-aware truncation with self-identifying footers — exempts `read_file`, keeps the tail of `run_command`, head + match count for `search`, default head-only otherwise |
+| `formatMcpResult(content)` | Render an MCP `tool_use` result block into a string for the model |
+| `wrapMcpClients(servers, options)` | Lower-level entry point for `createMcpTools` — accepts pre-connected MCP `Client` instances |
+| `buildSystemPrompt(ctx)` | Build the default system prompt; can be called from a custom `SystemPromptBuilder` to extend rather than replace it |
+| `expectNonEmptyString`, `expectOptionalBoolean`, `expectOptionalNumber`, `formatWithLineNumbers`, `toJson` | Tool-input validators and small formatters useful when writing custom tools |
+| `resolveWorkspacePath`, `validatePath`, `validateCommand`, `isDestructiveCommand`, `validateFileReadSize`, `ensureStepWithinLimit`, `normalizeWorkspaceRoot`, `isWithinWorkspacePath` | Safety guardrails (see [Safety Guardrails](#safety-guardrails)) |
 
 ## External MCP Servers
 
