@@ -44,7 +44,7 @@ function isRelative(spec) {
  *   "react" → "react"
  *   "react/jsx-runtime" → "react"
  *   "@anthropic-ai/sdk" → "@anthropic-ai/sdk"
- *   "@minicode/agent-sdk/dist/foo.js" → "@minicode/agent-sdk"
+ *   "@sean.holung/minicode-sdk/dist/foo.js" → "@sean.holung/minicode-sdk"
  */
 function packageNameOf(spec) {
   if (spec.startsWith("@")) {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { FocusTracker } from "@minicode/agent-sdk";
+import { FocusTracker } from "@sean.holung/minicode-sdk";
 
 test("FocusTracker tracks added symbols", () => {
   const tracker = new FocusTracker();

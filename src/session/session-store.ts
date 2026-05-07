@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { Session, type SessionSnapshot } from "@minicode/agent-sdk";
+import { Session, type SessionSnapshot } from "@sean.holung/minicode-sdk";
 
 export interface SavedSessionMeta {
   id: string;

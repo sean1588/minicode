@@ -1,10 +1,10 @@
-import { CodingAgent, Session, createModelClient } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient } from "@sean.holung/minicode-sdk";
 import type {
   BeforeToolCallHook,
   ModelInfo,
   ToolPermissionDecision,
   UiUpdate,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import { randomUUID } from "node:crypto";
 import {
   type AutoAllowMode,

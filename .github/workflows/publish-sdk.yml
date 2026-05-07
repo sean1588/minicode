@@ -1,7 +1,7 @@
 # Manual publish: Actions → Publish agent-sdk to npm → Run workflow
 # Requires: NPM_TOKEN (npm Automation token, scope owner of @minicode)
 #
-# Publishes packages/agent-sdk as @minicode/agent-sdk. The package is
+# Publishes packages/agent-sdk as @sean.holung/minicode-sdk. The package is
 # marked `private: true` in the workspace; this workflow strips that
 # at publish time, mirroring how the root `publish.yml` ships
 # @sean.holung/minicode.
@@ -78,7 +78,7 @@ jobs:
           cd "$SCRATCH"
           npm init -y > /dev/null
           npm install "$ABS_TARBALL"
-          OUTPUT=$(node -e "import('@minicode/agent-sdk').then(m => { console.log('exports:', Object.keys(m).length); }, err => { console.error('IMPORT FAIL:', err.message); process.exit(1); });" 2>&1)
+          OUTPUT=$(node -e "import('@sean.holung/minicode-sdk').then(m => { console.log('exports:', Object.keys(m).length); }, err => { console.error('IMPORT FAIL:', err.message); process.exit(1); });" 2>&1)
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -qE "ERR_MODULE_NOT_FOUND|Cannot find (package|module)|MODULE_NOT_FOUND|IMPORT FAIL"; then
             echo "::error::SDK install smoke test failed."

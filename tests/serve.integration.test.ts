@@ -8,7 +8,7 @@ import path from "node:path";
 import type { StructuralAnalysisReport } from "../src/analysis/structural-analysis.js";
 import { createRequestHandler, shutdownServe } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
-import { Session, type UiUpdate } from "@minicode/agent-sdk";
+import { Session, type UiUpdate } from "@sean.holung/minicode-sdk";
 import type { IndexedSymbol } from "../src/indexer/types.js";
 import type { ServerMessage } from "../src/serve/types.js";
 import { DuplicateSessionLabelError } from "../src/session/session-store.js";

@@ -197,7 +197,7 @@ async function connectServer(
 ): Promise<{ name: string; client: Client }> {
   const transport = createTransport(config);
   const client = new Client(
-    { name: "@minicode/agent-sdk", version: "0.1.0" },
+    { name: "@sean.holung/minicode-sdk", version: "0.1.0" },
     { capabilities: {} },
   );
   // The MCP SDK's Transport interface uses `string` for some fields the

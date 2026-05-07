@@ -23,8 +23,8 @@ import { writeFile } from "node:fs/promises";
 
 import {
   createModelClient,
-} from "@minicode/agent-sdk";
-import type { AgentConfig } from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
+import type { AgentConfig } from "@sean.holung/minicode-sdk";
 import { parse as parseDotenv } from "dotenv";
 
 import { loadBenchmarkTasks, loadBenchmarkTask } from "../src/benchmark/task-loader.js";

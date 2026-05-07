@@ -6,18 +6,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequestHandler } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
-import type { UiUpdate } from "@minicode/agent-sdk";
+import type { UiUpdate } from "@sean.holung/minicode-sdk";
 import type { ServerMessage } from "../src/serve/types.js";
 import {
   CodingAgent,
   ToolRegistry,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import type {
   ModelClient,
   ModelResponse,
   SessionMessage,
   ToolSchema,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import { UiStore } from "../src/ui/state/ui-store.js";
 import { createTestAgentConfig } from "./test-utils.js";
 

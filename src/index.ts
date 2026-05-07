@@ -3,7 +3,7 @@ import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 
-import { CodingAgent, Session, createModelClient, type ModelClient, type ReasoningEffort } from "@minicode/agent-sdk";
+import { CodingAgent, Session, createModelClient, type ModelClient, type ReasoningEffort } from "@sean.holung/minicode-sdk";
 import { loadAgentConfig, getConfigSetupMessage } from "./agent/config.js";
 import {
   listSessions,

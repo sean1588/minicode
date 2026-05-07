@@ -7,7 +7,7 @@ import {
   createModelClient,
   type SessionMessage,
   type ToolCall,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 import { getConfigSetupMessage } from "../agent/config.js";
 import {

@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 
-import { OpenAICompatibleModelClient } from "@minicode/agent-sdk";
-import type { ModelInfo } from "@minicode/agent-sdk";
+import { OpenAICompatibleModelClient } from "@sean.holung/minicode-sdk";
+import type { ModelInfo } from "@sean.holung/minicode-sdk";
 import { createRequestHandler } from "../src/serve/server.js";
 import { AgentBridge } from "../src/serve/agent-bridge.js";
 import { createTestAgentConfig } from "./test-utils.js";

@@ -1,7 +1,7 @@
 import type {
   BeforeToolCallHook,
   ToolPermissionDecision,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 
 import { isGatedTool, shouldAutoAllow } from "../auto-allow.js";
 import type { UiStore } from "./state/ui-store.js";

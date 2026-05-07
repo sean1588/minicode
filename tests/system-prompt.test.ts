@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 
-import { buildSystemPrompt } from "@minicode/agent-sdk";
-import type { AgentConfig, ToolSchema } from "@minicode/agent-sdk";
+import { buildSystemPrompt } from "@sean.holung/minicode-sdk";
+import type { AgentConfig, ToolSchema } from "@sean.holung/minicode-sdk";
 
 function createMinimalConfig(workspaceRoot: string): AgentConfig {
   return {

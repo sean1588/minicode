@@ -1,5 +1,5 @@
-import type { ToolDefinition } from "@minicode/agent-sdk";
-import { expectNonEmptyString, expectOptionalNumber } from "@minicode/agent-sdk";
+import type { ToolDefinition } from "@sean.holung/minicode-sdk";
+import { expectNonEmptyString, expectOptionalNumber } from "@sean.holung/minicode-sdk";
 import { getSymbolDisplayName, getSymbolLookupNames } from "../indexer/symbol-names.js";
 import type { ProjectIndex } from "../indexer/types.js";
 import { searchSymbols } from "../shared/symbol-search.js";

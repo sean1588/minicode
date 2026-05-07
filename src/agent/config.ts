@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
 
-import type { AgentConfig, ReasoningEffort } from "@minicode/agent-sdk";
+import type { AgentConfig, ReasoningEffort } from "@sean.holung/minicode-sdk";
 
 /** User-level config directory: ~/.minicode */
 export const MINICODE_HOME = path.join(os.homedir(), ".minicode");

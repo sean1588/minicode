@@ -8,7 +8,7 @@ import {
   parseBenchmarkRunArgs,
   summarizeBenchmarkToolUsage,
 } from "../src/cli/benchmark-run.js";
-import type { SessionMessage } from "@minicode/agent-sdk";
+import type { SessionMessage } from "@sean.holung/minicode-sdk";
 
 test("benchmark system prompt suffix clearly disables approval-seeking behavior", () => {
   const suffix = getBenchmarkSystemPromptSuffix();

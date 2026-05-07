@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { createEditFileTool, createReadFileTool, createRunCommandTool, createWriteFileTool } from "@minicode/agent-sdk";
+import { createEditFileTool, createReadFileTool, createRunCommandTool, createWriteFileTool } from "@sean.holung/minicode-sdk";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createToolRegistry } from "../src/tools/registry.js";
 import { createTestAgentConfig } from "./test-utils.js";

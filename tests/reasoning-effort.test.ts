@@ -5,8 +5,8 @@ import {
   OpenAICompatibleModelClient,
   CodingAgent,
   ToolRegistry,
-} from "@minicode/agent-sdk";
-import type { AgentConfig, ModelResponse, ReasoningEffort } from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
+import type { AgentConfig, ModelResponse, ReasoningEffort } from "@sean.holung/minicode-sdk";
 import { createTestAgentConfig } from "./test-utils.js";
 import { loadAgentConfig } from "../src/agent/config.js";
 

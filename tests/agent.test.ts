@@ -5,14 +5,14 @@ import { test } from "node:test";
 import {
   CodingAgent,
   ToolRegistry,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import type {
   ModelClient,
   ModelResponse,
   SessionMessage,
   ToolDefinition,
   ToolSchema,
-} from "@minicode/agent-sdk";
+} from "@sean.holung/minicode-sdk";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { createTestAgentConfig } from "./test-utils.js";
 
