@@ -93,6 +93,78 @@ test("read_symbol appears in tool registry schemas when projectIndex provided", 
   assert.ok(props && "name" in props);
 });
 
+test("MINICODE_TOOL_PROFILE=file-search-only omits the five graph-aware tools", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const config = createTestAgentConfig(root);
+  const projectIndex = await buildProjectIndex(root);
+
+  const original = process.env.MINICODE_TOOL_PROFILE;
+  process.env.MINICODE_TOOL_PROFILE = "file-search-only";
+  try {
+    const registry = createToolRegistry(config, projectIndex);
+    const schemas = registry.getToolSchemas();
+    const names = new Set(schemas.map((s) => s.name));
+
+    // Graph-aware tools must be absent in file-search-only mode.
+    for (const omitted of [
+      "read_symbol",
+      "find_references",
+      "get_dependencies",
+      "find_path",
+      "search_code_map",
+    ]) {
+      assert.ok(!names.has(omitted), `expected ${omitted} to be absent`);
+    }
+
+    // Core file/search/run tools must still be present — that's the
+    // "search-only" half of the profile name.
+    for (const required of [
+      "read_file",
+      "write_file",
+      "edit_file",
+      "search",
+      "list_files",
+      "run_command",
+    ]) {
+      assert.ok(names.has(required), `expected ${required} to be present`);
+    }
+  } finally {
+    if (original === undefined) {
+      delete process.env.MINICODE_TOOL_PROFILE;
+    } else {
+      process.env.MINICODE_TOOL_PROFILE = original;
+    }
+  }
+});
+
+test("createToolRegistry includes graph-aware tools by default when projectIndex is provided", async () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const config = createTestAgentConfig(root);
+  const projectIndex = await buildProjectIndex(root);
+
+  // Must run with no MINICODE_TOOL_PROFILE set, otherwise the env from a
+  // host shell would mask the default behavior.
+  const original = process.env.MINICODE_TOOL_PROFILE;
+  delete process.env.MINICODE_TOOL_PROFILE;
+  try {
+    const registry = createToolRegistry(config, projectIndex);
+    const names = new Set(registry.getToolSchemas().map((s) => s.name));
+    for (const required of [
+      "read_symbol",
+      "find_references",
+      "get_dependencies",
+      "find_path",
+      "search_code_map",
+    ]) {
+      assert.ok(names.has(required), `expected ${required} to be present by default`);
+    }
+  } finally {
+    if (original !== undefined) {
+      process.env.MINICODE_TOOL_PROFILE = original;
+    }
+  }
+});
+
 test("read_symbol includes Referenced Types section for createToolRegistry", async () => {
   const root = path.resolve(import.meta.dirname, "..");
   const config = createTestAgentConfig(root);

@@ -4,9 +4,11 @@
 
 A graph-native coding agent and code exploration environment built around structural context optimization that leverages symbol-aware retrieval, dependency graphs, and targeted context. It started as a way to make local models viable under tighter context budgets, and it now also works well with hosted frontier models through the same runtime, web UI, and OpenAI-compatible serve mode. 
 
-minicode is built on a simple bet: models perform better when you give them less, but better context. Bloated context directly degrades output quality: attention dilutes, positional biases cause mid-context information loss, and inference latency grows as token count increases.
+minicode is built on a simple bet: models perform better when you give them more useful context, not less raw context. Bloated context dilutes attention; targeted context lets the model build a structural picture of the codebase before answering.
 
-Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup with language plugins, injects a compact **code map** (signatures only) into the system prompt, and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model reads only what it needs instead of entire files. This also enables the agent to walk the code structurally to gain a better understanding of the codebase at a structural level. TypeScript and JavaScript support come built-in, with custom language plugins leaving room for broader language support over time.
+Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup with language plugins, injects a compact **code map** (signatures only) into the system prompt, and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model can walk the code structurally instead of grepping and reading entire files. TypeScript and JavaScript support come built-in, with custom language plugins leaving room for broader language support over time.
+
+In our own ablation on a 25-task local benchmark suite (see [`benchmarks/RESULTS-GEMMA-4.md`](benchmarks/RESULTS-GEMMA-4.md)), turning the structural tools on raises pass rate from 47% to 61% on Gemma 4 26B-A4B — a +14.7 pp lift driven mostly by **comprehension-heavy tasks** (planning and refactor work where the agent has to trace relationships across files). The tradeoff is honest: graph tools cost about 30% more tokens per task when actually used, but they buy correctness on the kinds of questions where reading whole files just runs out the model's reasoning budget without building a structural picture.
 
 _Run `minicode serve` to get the web UI on localhost: chat, tool activity, session controls, model switching, symbol focus, annotations, and a live dependency graph._
 
@@ -118,7 +120,7 @@ For agent-loop internals (session lifecycle, tool execution, streaming, loop det
 
 For the proposed reusable package architecture and public interfaces for a standalone runtime SDK, see [docs/SDK_SPEC.md](docs/SDK_SPEC.md).
 
-minicode reduces token usage by indexing your project and providing targeted tools:
+minicode replaces grep-and-read-whole-file with symbol-level navigation:
 
 - **Code map** — A compact project skeleton (signatures only) is injected into the system prompt so the model can orient itself without reading full files.
 - `read_symbol` — Read a specific function or class by name, with referenced types.

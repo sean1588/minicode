@@ -136,7 +136,27 @@ function getTrackedSymbolNames(
     return [...new Set(names)];
   }
 
-  const name = input.symbol ?? input.symbolName ?? input.name ?? input.query;
+  // search_code_map uses `pattern`, the other graph tools use one of
+  // `name`/`symbol`/`symbolName`/`query`. Without `pattern` in this
+  // fallback chain, a search_code_map call would fail to register a
+  // queried symbol even when the pattern is the literal symbol name —
+  // and any rubric using `expectedSymbols` would then incorrectly fail
+  // tasks that were answered correctly via the code-map search.
+  //
+  // We register the pattern verbatim without resolving it against the
+  // project index. The downstream `expectedSymbols` matcher in
+  // `evaluator.ts` uses `queried.includes(expected)`, so a too-narrow
+  // query (e.g. `"Tool"` against `expectedSymbols: ["ToolRegistry"]`)
+  // correctly fails to satisfy the rubric. A too-broad query
+  // (`"ToolRegistryFactory"` against `["ToolRegistry"]`) does satisfy
+  // it — that asymmetry is intentional and matches how a user-facing
+  // search-by-substring is normally interpreted.
+  const name =
+    input.symbol ??
+    input.symbolName ??
+    input.name ??
+    input.query ??
+    input.pattern;
   return typeof name === "string" && name.length > 0 ? [name] : [];
 }
 
