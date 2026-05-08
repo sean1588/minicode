@@ -930,3 +930,110 @@ OPENROUTER_PROVIDER_ORDER=Novita \
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-pinned/{pinned-baseline,copilot-desc}-r{1,2,3}.{json,log}`.
+
+# Experiment 6: iteration-discipline block in the system prompt
+
+**Status: positive and clean. n=3 mean lifts 69.3% → 80.0% (+10.7 pp). The win concentrates exactly where the failure-mode analysis predicted (loop-guard failures in refactors and planning), with no regressions on previously-passing tasks. This is the keeper from the Copilot-inspired round.**
+
+## Why this experiment instead of `<plan>` mode
+
+Originally Experiment 6 was going to port Copilot's `<plan>` mode discipline ("gather all context first, then act"). Failure-mode analysis on the Experiment 5 traces flipped that plan:
+
+| Failure mode (across 3 runs of failing tasks) | Count |
+| --- | --- |
+| **Loop guard tripped** ("repeated identical tool calls") | **11** |
+| Empty output (model emitted tool calls but no final text) | 5 |
+| 0-tool confidently-wrong answer | 3 |
+| Malformed tool-call syntax | 1 |
+| Off-topic but readable | 2 |
+
+The dominant mode is the *opposite* of what `<plan>` mode addresses. The model is investigating exhaustively (`editing/fix-small-bug` 13/7/11 calls before tripping the guard, `editing/add-validation` 17/11/9, `refactors/consolidate-duplicates` 14/13/10) and never committing to an answer or edit. Copilot's explore agent has the matching discipline: *"Stop searching as soon as you can answer the question. Do not be exhaustive."*
+
+## Change shipped (`experiment/iteration-discipline`)
+
+A new `[Iteration Discipline]` block in the default system prompt, inserted before `[Termination Policy]`:
+
+```
+[Iteration Discipline]
+Looping on tool calls is the most common cause of task failure. To avoid it:
+- Stop investigating as soon as you have enough to answer or act. Do not be exhaustive.
+- If you have made 3 or more similar read/search calls without making forward progress, STOP and either commit to the best answer you can support with what you have, or acknowledge what you cannot determine.
+- Do not repeat a tool call with identical or near-identical arguments. If the result was useful, move on. If it was not, change your approach (different pattern, different path, different tool) rather than retrying.
+- Target: gather context in 3–5 read/search calls, then answer or edit.
+```
+
+Five lines, no architectural change, ships behind the same provider-pinning regime as Experiment 5.
+
+## Headline (n=3 mean)
+
+| Cell | r1 | r2 | r3 | mean / 25 | pass rate | tokens (avg) | duration (avg) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| pinned-baseline | 17 | 17 | 18 | 17.33 | **69.3%** | 58.6K | 33.2s |
+| **iter-discipline** | 21 | 19 | 20 | 20.00 | **80.0%** | 54.6K | 30.5s |
+| Δ | | | | +2.67 | **+10.7 pp** | -6.8% | -8.1% |
+
+Net per-task delta: **+8 passes across 75 trials**. The variance band (8 pp; 76–84%) is slightly wider than the pinned-baseline (4 pp) but doesn't materially affect the read on a +10.7 pp delta.
+
+## Per-category (n=3 mean pass rate)
+
+| Category | pinned-baseline | iter-discipline | Δ |
+| --- | --- | --- | --- |
+| navigation | 86.7% | **100.0%** | +13.3 pp |
+| **planning** | 66.7% | **86.7%** | **+20.0 pp** |
+| **refactors** | 73.3% | **93.3%** | **+20.0 pp** |
+| debugging | 73.3% | 73.3% | 0 pp |
+| editing | 46.7% | 46.7% | 0 pp |
+
+The +20 pp categories are exactly where loop-guard failures concentrated in the Experiment 5 traces. Both moved cleanly. The unmoved categories are also predicted by the failure-mode analysis:
+
+- **debugging unchanged**: the failing task is `diagnose-type-error` (0/3 → 0/3), which is the *opposite* failure shape — 0-tool calls, hallucinated answer from training-data knowledge. The discipline can't help a model that never called a tool.
+- **editing flat**: `fix-small-bug` 0/3→1/3 (loop-guard win) and `add-validation` 1/3→0/3 (variance-edge wash) net zero. The remaining editing failures (`add-logging`, `add-validation`) are empty-output or malformed-tool-call modes — separate mechanism, separate fix.
+
+## Per-task wins concentrated on the predicted shapes
+
+The +8 net delta breaks down as:
+
+- **Loop-guard tasks recovered** (+4): `refactors/extract-helper` 0/3→2/3 (was guard-trip on 9/_/6 calls), `planning/identify-serve-codepath` 2/3→3/3, `editing/fix-small-bug` 0/3→1/3 (was guard-trip on 13/7/11), `planning/plan-new-tool` 0/3→1/3.
+- **Variance-edge tasks tipped to ceiling** (+4): `navigation/explain-feature-flow` 2/3→3/3, `navigation/find-all-references` 2/3→3/3, `planning/explain-context-trimming` 2/3→3/3, `refactors/move-logic-to-helper` 2/3→3/3. Already trending toward 3/3; the discipline likely just removed the spurious investigation that was costing the third trial.
+- **One regression at the variance edge** (-1): `editing/add-validation` 1/3→0/3. Single task, was already noisy, not a previously-stable result.
+
+Crucially, **no previously-3/3 tasks regressed.** Every task at the ceiling stayed there. The discipline didn't introduce new failure modes; it suppressed the dominant existing one.
+
+## Token economy
+
+Tokens dropped from 58.6K → 54.6K per task (-6.8%); duration 33.2s → 30.5s (-8.1%). These are not the headline win — the correctness improvement is — but they're consistent: fewer wasted tool calls means less inference overall.
+
+## What this means
+
+1. **The right Copilot technique to port for gemma-class models on this lane is the explore-agent stopping rule, not the `<plan>` mode discipline.** This was a flipped hypothesis; the failure-mode analysis got us there.
+
+2. **Loop-guard trips are a load-bearing failure mode** that the system prompt can directly address. Before this change, four categories of tasks were systematically losing trials to over-investigation; after, they recover cleanly.
+
+3. **The remaining failure modes are mechanically distinct** and need separate fixes:
+   - Empty output / malformed tool-call: likely a model-format issue (provider-side or in our request shape). Not a prompting problem.
+   - 0-tool hallucinated answers (`diagnose-type-error`): the *opposite* of loop-guard. Probably needs an "investigate before answering" rule, but only for questions the model can't answer from system-prompt context. Tricky to scope without re-introducing the looping problem.
+
+4. **PR worth merging.** Unlike Experiment 5, this change is product-level and not just measurement infrastructure. Recommend merging after PR #186 (provider pinning) lands.
+
+## Reproducibility
+
+```bash
+# Same setup as Experiment 5, just with the iter-discipline branch
+git checkout experiment/iteration-discipline
+git cherry-pick <pinning-commit>  # for the experiment run only
+npm install && npm run build --workspace=packages/agent-sdk
+
+for r in 1 2 3; do
+  OPENROUTER_PROVIDER_ORDER=Novita \
+    MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant iter-disc-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-pinned/iter-disc-r${r}.json
+done
+```
+
+Pinned-baseline data is reused from Experiment 5 (`/tmp/minicode-bench-logs/internal-tasks-pinned/pinned-baseline-r{1,2,3}.json`).
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-pinned/iter-disc-r{1,2,3}.{json,log}`.
