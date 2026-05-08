@@ -1,8 +1,11 @@
 {
-  "title": "Find all references to buildProjectIndex",
-  "prompt": "Find all files that reference or call buildProjectIndex. List each file path.",
+  "title": "Find all files that call buildProjectIndex",
+  "prompt": "Find all files that reference or call buildProjectIndex (excluding the file where it is defined). List each caller file path.",
   "rubric": {
-    "expectedOutputPatterns": ["buildProjectIndex", "project-index"],
+    "expectedOutputPatterns": [
+      "buildProjectIndex",
+      "(?:src/index|src/cli/benchmark-run|src/serve/agent-bridge)"
+    ],
     "expectedSymbols": ["buildProjectIndex"],
     "maxToolCalls": 10
   }

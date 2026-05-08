@@ -81,3 +81,108 @@ export class Employee {
   assert.ok(result.includes("qualified: Employee#interface"));
   assert.ok(result.includes("qualified: Employee#class"));
 });
+
+// ─── Issue #184: disambiguation hints + doc summaries ──────────────────
+
+test("search_code_map surfaces JSDoc summaries beside each match (issue #184)", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-doc-summaries-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `/**
+ * Create a default ToolWidget with all builtin gears.
+ * Wraps the SDK class for application-level setup.
+ */
+export function createToolWidget(): ToolWidget {
+  return new ToolWidget();
+}
+
+export class ToolWidget {
+  constructor() {}
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createSearchCodeMapTool(projectIndex);
+
+  const result = await tool.execute({ pattern: "ToolWidget" });
+
+  // The doc summary's first line should appear under the createToolWidget
+  // entry — without it, the model can't tell `ToolWidget` (the class) apart
+  // from `createToolWidget` (the factory) by kind+path alone.
+  assert.match(result, /Create a default ToolWidget with all builtin gears\./);
+
+  // Each shown match should still expose its qualified name, intact.
+  assert.match(result, /qualified: ToolWidget/);
+  assert.match(result, /qualified: createToolWidget/);
+});
+
+test("search_code_map prepends an ambiguity hint when matches span class + function (issue #184)", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-ambiguity-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export class Widget {
+  constructor() {}
+}
+
+export function createWidget(): Widget {
+  return new Widget();
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createSearchCodeMapTool(projectIndex);
+
+  const result = await tool.execute({ pattern: "Widget" });
+
+  // The hint specifically calls out the noun-vs-verb-form shape that
+  // led to the find-tool-registration regression.
+  assert.match(result, /Note: results span multiple symbol kinds/);
+  assert.match(result, /class\/interface\/type and a function\/method/);
+  assert.match(result, /read_symbol/);
+});
+
+test("search_code_map does NOT prepend the ambiguity hint when matches are all the same kind", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-no-ambiguity-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export function widgetA(): void {}
+export function widgetB(): void {}
+export function widgetC(): void {}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createSearchCodeMapTool(projectIndex);
+
+  const result = await tool.execute({ pattern: "widget" });
+
+  // All three are functions — no ambiguity to flag.
+  assert.doesNotMatch(result, /results span multiple symbol kinds/);
+});
+
+test("search_code_map does NOT prepend the ambiguity hint for class-with-its-methods", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-class-methods-"));
+  await writeFile(
+    path.join(workspaceRoot, "sample.ts"),
+    `export class Widget {
+  init(): void {}
+  destroy(): void {}
+}
+`,
+    "utf8",
+  );
+
+  const projectIndex = await buildProjectIndex(workspaceRoot);
+  const tool = createSearchCodeMapTool(projectIndex);
+
+  const result = await tool.execute({ pattern: "Widget" });
+
+  // class + methods is a structurally expected pairing, not a noun/verb
+  // disambiguation problem. The hint should stay quiet here.
+  assert.doesNotMatch(result, /results span multiple symbol kinds/);
+});

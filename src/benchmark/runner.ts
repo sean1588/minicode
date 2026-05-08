@@ -136,7 +136,18 @@ function getTrackedSymbolNames(
     return [...new Set(names)];
   }
 
-  const name = input.symbol ?? input.symbolName ?? input.name ?? input.query;
+  // search_code_map uses `pattern`, the other graph tools use one of
+  // `name`/`symbol`/`symbolName`/`query`. Without `pattern` in this
+  // fallback chain, a search_code_map call would fail to register a
+  // queried symbol even when the pattern is the literal symbol name —
+  // and any rubric using `expectedSymbols` would then incorrectly fail
+  // tasks that were answered correctly via the code-map search.
+  const name =
+    input.symbol ??
+    input.symbolName ??
+    input.name ??
+    input.query ??
+    input.pattern;
   return typeof name === "string" && name.length > 0 ? [name] : [];
 }
 

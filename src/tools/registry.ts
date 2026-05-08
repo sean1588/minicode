@@ -32,6 +32,13 @@ async function reindexBestEffort(
 /**
  * Create a ToolRegistry with the SDK's core tools plus indexer-specific tools
  * when a ProjectIndex is available.
+ *
+ * Set `MINICODE_TOOL_PROFILE=file-search-only` (or pass it via the env to a
+ * benchmark run) to omit the five graph-aware tools (`read_symbol`,
+ * `find_references`, `get_dependencies`, `find_path`, `search_code_map`).
+ * The code map remains in the system prompt — only the interactive tools
+ * are gated. This is the right shape for an `all-tools` vs.
+ * `file-search-only` ablation per `benchmarks/STRATEGY.md`.
  */
 export function createToolRegistry(
   config: AgentConfig,
@@ -58,7 +65,11 @@ export function createToolRegistry(
     createRunCommandTool(config, hooks ? { afterCommand: hooks.afterCommand } : undefined),
   ];
 
-  if (projectIndex) {
+  const includeGraphTools =
+    projectIndex !== undefined &&
+    process.env.MINICODE_TOOL_PROFILE !== "file-search-only";
+
+  if (includeGraphTools && projectIndex) {
     tools.splice(1, 0, createReadSymbolTool(config, projectIndex));
     tools.splice(2, 0, createFindReferencesTool(projectIndex));
     tools.splice(3, 0, createGetDependenciesTool(projectIndex));
