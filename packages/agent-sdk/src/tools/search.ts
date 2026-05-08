@@ -123,7 +123,8 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
   return {
     name: "search",
     description:
-      "Search file contents using ripgrep. Use when you don't know the symbol name.",
+      "Search file contents using ripgrep. Use when you don't know the symbol name. " +
+      "When grepping for several patterns or under several paths, issue all the search calls in one response — they run in parallel.",
     inputSchema: {
       type: "object",
       properties: {

@@ -59,7 +59,10 @@ export function createReadFileTool(options: ReadFileToolOptions): ToolDefinition
   return {
     name: "read_file",
     description:
-      "Read file contents with line numbers. Use for config files, non-code files, or when symbol name is unknown. For large files, use offset and limit.",
+      "Read file contents with line numbers. Use for config files, non-code files, or when the symbol name is unknown. " +
+      "For files you expect to be large, pass `offset` and `limit` to avoid a wasted round-trip on truncated output. " +
+      "When reading multiple files (or multiple sections of one file), call read_file multiple times in the same response — they run in parallel. " +
+      "Example: to compare two configs, issue two read_file calls in one turn rather than two sequential turns.",
     inputSchema: {
       type: "object",
       properties: {

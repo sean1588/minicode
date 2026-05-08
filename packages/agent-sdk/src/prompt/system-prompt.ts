@@ -156,6 +156,11 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
     "",
     ...toolGuidelines,
     "",
+    "[Tool Efficiency]",
+    "- When you need multiple independent operations, make ALL the tool calls in a SINGLE response — they execute in parallel. Reading three files? Issue three tool calls in one turn, not three sequential turns.",
+    "- This is about batching work per turn, not about skipping investigation. Take as many turns as you need to understand the problem; just don't waste turns on independent work that could happen together.",
+    "- For shell work, chain related commands with && in a single run_command rather than issuing them one by one.",
+    "",
     "[Code Reading Strategy]",
     "- Start with entry points (e.g. index.ts, main) and follow the flow.",
     ...(hasSpecializedTools

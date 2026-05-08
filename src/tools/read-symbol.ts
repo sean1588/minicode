@@ -26,7 +26,8 @@ export function createReadSymbolTool(
       "Read a specific function, class, or type definition by name. " +
       "Returns the symbol's source code, referenced types, callers, and callees. " +
       "If a bare name matches multiple symbols, returns disambiguation candidates. " +
-      "PREFER this over read_file for .ts/.tsx/.js/.jsx — use the code map to find symbol names.",
+      "PREFER this over read_file for .ts/.tsx/.js/.jsx — use the code map to find symbol names. " +
+      "When inspecting several symbols, call read_symbol multiple times in the same response — they run in parallel.",
     inputSchema: {
       type: "object",
       properties: {
