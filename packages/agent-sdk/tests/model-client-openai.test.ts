@@ -424,3 +424,127 @@ test("createModelClient returns openai-compatible client", () => {
   const client = createModelClient(config);
   assert.ok(client instanceof OpenAICompatibleModelClient);
 });
+
+// ─── OpenRouter provider pinning (variance control) ─────────────────────
+
+function captureRequestBody(): {
+  fetchImpl: typeof fetch;
+  getBody: () => Record<string, unknown>;
+} {
+  let captured = "";
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    captured = String(init?.body ?? "");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  return {
+    fetchImpl,
+    getBody: () => JSON.parse(captured) as Record<string, unknown>,
+  };
+}
+
+async function runChatStub(
+  fetchImpl: typeof fetch,
+  baseUrl: string,
+): Promise<void> {
+  const client = new OpenAICompatibleModelClient({
+    baseUrl,
+    apiKey: "sk-or-v1-test",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "google/gemma-4-26b-a4b-it",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [],
+    maxTokens: 8,
+  });
+}
+
+test("OPENROUTER_PROVIDER_ORDER injects provider block when targeting OpenRouter", async () => {
+  const { fetchImpl, getBody } = captureRequestBody();
+  const original = process.env.OPENROUTER_PROVIDER_ORDER;
+  process.env.OPENROUTER_PROVIDER_ORDER = "Novita";
+  try {
+    await runChatStub(fetchImpl, "https://openrouter.ai/api/v1");
+    const body = getBody();
+    assert.deepEqual(body.provider, {
+      order: ["Novita"],
+      allow_fallbacks: false,
+    });
+  } finally {
+    if (original === undefined) delete process.env.OPENROUTER_PROVIDER_ORDER;
+    else process.env.OPENROUTER_PROVIDER_ORDER = original;
+  }
+});
+
+test("OPENROUTER_PROVIDER_ORDER accepts comma-separated lists", async () => {
+  const { fetchImpl, getBody } = captureRequestBody();
+  const original = process.env.OPENROUTER_PROVIDER_ORDER;
+  process.env.OPENROUTER_PROVIDER_ORDER = "Novita, DeepInfra ,Fireworks";
+  try {
+    await runChatStub(fetchImpl, "https://openrouter.ai/api/v1");
+    const body = getBody();
+    assert.deepEqual(body.provider, {
+      order: ["Novita", "DeepInfra", "Fireworks"],
+      allow_fallbacks: false,
+    });
+  } finally {
+    if (original === undefined) delete process.env.OPENROUTER_PROVIDER_ORDER;
+    else process.env.OPENROUTER_PROVIDER_ORDER = original;
+  }
+});
+
+test("OPENROUTER_PROVIDER_ALLOW_FALLBACKS=true opts back into fallbacks", async () => {
+  const { fetchImpl, getBody } = captureRequestBody();
+  const orderOrig = process.env.OPENROUTER_PROVIDER_ORDER;
+  const fallOrig = process.env.OPENROUTER_PROVIDER_ALLOW_FALLBACKS;
+  process.env.OPENROUTER_PROVIDER_ORDER = "Novita";
+  process.env.OPENROUTER_PROVIDER_ALLOW_FALLBACKS = "true";
+  try {
+    await runChatStub(fetchImpl, "https://openrouter.ai/api/v1");
+    const body = getBody();
+    assert.deepEqual(body.provider, {
+      order: ["Novita"],
+      allow_fallbacks: true,
+    });
+  } finally {
+    if (orderOrig === undefined) delete process.env.OPENROUTER_PROVIDER_ORDER;
+    else process.env.OPENROUTER_PROVIDER_ORDER = orderOrig;
+    if (fallOrig === undefined)
+      delete process.env.OPENROUTER_PROVIDER_ALLOW_FALLBACKS;
+    else process.env.OPENROUTER_PROVIDER_ALLOW_FALLBACKS = fallOrig;
+  }
+});
+
+test("provider block is NOT injected when baseUrl is not OpenRouter", async () => {
+  const { fetchImpl, getBody } = captureRequestBody();
+  const original = process.env.OPENROUTER_PROVIDER_ORDER;
+  process.env.OPENROUTER_PROVIDER_ORDER = "Novita";
+  try {
+    await runChatStub(fetchImpl, "http://localhost:1234/v1");
+    const body = getBody();
+    assert.equal(body.provider, undefined);
+  } finally {
+    if (original === undefined) delete process.env.OPENROUTER_PROVIDER_ORDER;
+    else process.env.OPENROUTER_PROVIDER_ORDER = original;
+  }
+});
+
+test("provider block is NOT injected when env var is unset", async () => {
+  const { fetchImpl, getBody } = captureRequestBody();
+  const original = process.env.OPENROUTER_PROVIDER_ORDER;
+  delete process.env.OPENROUTER_PROVIDER_ORDER;
+  try {
+    await runChatStub(fetchImpl, "https://openrouter.ai/api/v1");
+    const body = getBody();
+    assert.equal(body.provider, undefined);
+  } finally {
+    if (original !== undefined) process.env.OPENROUTER_PROVIDER_ORDER = original;
+  }
+});

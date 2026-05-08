@@ -876,6 +876,27 @@ export class OpenAICompatibleModelClient implements ModelClient {
       requestBody.cache_control = { type: "ephemeral" };
     }
 
+    // OpenRouter provider pinning (variance control). When
+    // `OPENROUTER_PROVIDER_ORDER` is set, requests are routed to the
+    // listed providers in order. Default is `allow_fallbacks: false`
+    // so an unavailable pinned provider fails loudly rather than
+    // silently routing elsewhere — which would defeat the variance
+    // control. Only injected when targeting OpenRouter.
+    if (this.baseUrl.includes("openrouter")) {
+      const providerOrderRaw = process.env.OPENROUTER_PROVIDER_ORDER;
+      if (providerOrderRaw && providerOrderRaw.trim().length > 0) {
+        const order = providerOrderRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (order.length > 0) {
+          const allowFallbacks =
+            process.env.OPENROUTER_PROVIDER_ALLOW_FALLBACKS === "true";
+          requestBody.provider = { order, allow_fallbacks: allowFallbacks };
+        }
+      }
+    }
+
     const response = await withRetry(
       () =>
         withResponseStartTimeout(this.timeoutSeconds, params.signal, async (signal) => {
