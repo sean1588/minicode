@@ -815,3 +815,118 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks/after-fixes-r{1,2,3}.{json,log}`.
+
+# Experiment 5: Copilot-inspired tool descriptions (negative result)
+
+**Status: null result on correctness. The hypothesis (gemma-4-26b benefits disproportionately from worked examples + parallel-call hints in tool descriptions) does not hold at our power level. Two real secondary findings worth documenting: provider pinning collapsed run-to-run variance from ~16 pp to ~4 pp, and the parallel-batching mechanism fired (-9% tokens, -7% duration), it just didn't move correctness.**
+
+## Background
+
+After inspecting the GitHub Copilot CLI source (closed-source agent loop ships as a minified bundle but un-minified prompts and tool descriptions are recoverable from `~/.nvm/.../@github/copilot/app.js` + `definitions/*.agent.yaml`), three techniques looked transferable:
+
+1. Tool descriptions with worked examples + parallelism hints
+2. `<plan>` tag protocol with question-intent classification
+3. Read-only "explore" sub-loop with hard "stop when answered" termination
+
+Sequenced cheapest-first to validate the post-pinning variance regime before stacking experiments. This experiment is #1.
+
+## Changes shipped (on `experiment/copilot-tool-descriptions`)
+
+- **New `[Tool Efficiency]` block** in the default system prompt: explicit "make multiple tool calls in a SINGLE response when independent", "this is about batching, not skipping investigation", "chain shell commands with `&&`".
+- **`read_file`, `read_symbol`, and `search` descriptions** now carry parallel-call hints with worked examples (e.g. "to compare two configs, issue two read_file calls in one turn rather than two sequential turns").
+
+## Methodology
+
+Two cells, both pinned to Novita (bf16) via `OPENROUTER_PROVIDER_ORDER=Novita` (env knob from `experiment/openrouter-provider-pinning`), n=3 each, sequential:
+
+- **pinned-baseline**: post-#185 main + provider pinning (no description changes)
+- **copilot-desc**: pinned-baseline + the description changes above
+
+The pinned-baseline cell exists specifically to disambiguate "did the description change help" from "did pinning to a single good provider help" — the prior 61.3% n=3 mean was on the unpinned OpenRouter routing lottery, so absolute deltas across that boundary would be confounded.
+
+Worktree at `/tmp/minicode-pinned-baseline` keeps each cell's SDK build isolated so concurrent runs don't clobber each other's `dist/`.
+
+## Headline (n=3 mean)
+
+| Cell | r1 | r2 | r3 | mean / 25 | pass rate | tokens (avg) | duration (avg) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| pinned-baseline | 17 | 17 | 18 | 17.33 | **69.3%** | 58.6K | 33.2s |
+| **copilot-desc** | 17 | 18 | 18 | 17.67 | **70.7%** | 53.2K | 31.0s |
+| Δ | | | | +0.33 | **+1.4 pp** | -9.3% | -6.6% |
+
+**Net per-task delta: +1 pass across all 75 trials.** Inside the variance band. Not credibly distinguishable from noise.
+
+## Per-category (n=3 mean pass rate)
+
+| Category | pinned-baseline | copilot-desc | Δ |
+| --- | --- | --- | --- |
+| navigation | 86.7% | 100.0% | +13.3 pp |
+| debugging | 73.3% | 80.0% | +6.7 pp |
+| planning | 66.7% | 73.3% | +6.7 pp |
+| editing | 46.7% | 40.0% | -6.7 pp |
+| refactors | 73.3% | 60.0% | -13.3 pp |
+
+The category-level deltas look more dramatic than the aggregate suggests, but each is dominated by 1–2 single-task swings at the variance boundary:
+
+- **navigation +13.3 pp**: `explain-feature-flow` and `find-all-references` each move 2/3 → 3/3. Both already trending toward the ceiling — the description change isn't unlocking new capability, just smoothing the last 1/3.
+- **refactors -13.3 pp**: dominated by `consolidate-duplicates` going 3/3 → 0/3. Same task that bailed with zero-tool-call refusals in earlier OpenRouter-routing-roulette runs. Even with Novita pinned, this task systematically fails under the description change. Possibly real, possibly variance — needs a larger n to call.
+- **editing -6.7 pp**: `add-validation` flips 1/3 → 0/3. One task at the margin.
+
+Editing floor (40%) and refactor mid-tier are exactly where the real product gap sits, and the description change does not move them. That's the load-bearing finding: parallel-call hints don't help with the kinds of failures that actually limit gemma-4-26b on this lane.
+
+## What did fire: token economy and batching
+
+- **Tokens per task: 58.6K → 53.2K (-9.3%)**
+- **Duration per task: 33.2s → 31.0s (-6.6%)**
+
+Both consistent with the parallel-batching hypothesis actually working as intended — the agent issues more tool calls per turn, the loop runs fewer turns total. The mechanism is doing what we asked it to. It just doesn't translate to correctness on these tasks.
+
+This is a useful piece of evidence: it tells us "the model is following the new instructions" rather than "the new instructions are being ignored." The wrong layer to attack our remaining failures.
+
+## Methodology finding: provider pinning collapsed variance
+
+The unpinned `after-fixes` n=3 from Experiment 4 spanned **60.0% → 76.0% (16 pp)**. The pinned cells here span:
+
+- pinned-baseline: 68% / 68% / 72% (4 pp)
+- copilot-desc: 68% / 72% / 72% (4 pp)
+
+**Variance band shrunk roughly 4×** by pinning to Novita with `allow_fallbacks: false`. This is more important than the experiment's null result — it means future experiments worth +3 pp can be read at n=3, where unpinned they'd have been drowned by routing noise.
+
+Recommend `experiment/openrouter-provider-pinning` (PR #186) merges regardless of the (3) outcome — its value is measurement infrastructure, not a product gain.
+
+## What this means for the thesis
+
+1. **Tool-description rewrites are not the right lever for gemma-4-26b on this lane.** The mechanism fires (tokens down, duration down) but correctness doesn't move. Either the parallel-call hints solve a problem we don't have on these tasks, or the model needs a stronger architectural intervention than prompt nudges.
+2. **Editing/refactor floor is where the real correctness gap lives** (40-60%) and is unmoved by this change. That's where the next experiment should aim.
+3. **Don't merge this PR's description changes** as a product change. The token savings are nice but not worth the description-string maintenance burden if correctness doesn't track. Keep the work in `experiment/copilot-tool-descriptions` (PR #187) as a documented null result.
+
+## Implications for the next experiment
+
+The Copilot technique that's most directly aligned with our actual failure modes is the `<plan>` mode discipline — specifically the "gather context fully before proposing changes" rule for implement-class tasks. Editing tasks on this lane fail when the model writes code before understanding the surrounding API; that's a different failure shape than parallel-call efficiency.
+
+The third candidate (read-only explore sub-loop on a smaller cheap model) is a heavier architectural lift; conditional on (2) being insufficient.
+
+## Reproducibility
+
+```bash
+# pinned-baseline (worktree) and copilot-desc (main repo) run in parallel,
+# both on Novita via OPENROUTER_PROVIDER_ORDER. n=3 each.
+
+# Pinned-baseline cell (run from /tmp/minicode-pinned-baseline worktree)
+git worktree add /tmp/minicode-pinned-baseline main
+cd /tmp/minicode-pinned-baseline
+git checkout -b experiment/pinned-baseline
+git cherry-pick <pinning-commit>
+npm install && npm run build --workspace=packages/agent-sdk
+
+# Then for r1..r3:
+OPENROUTER_PROVIDER_ORDER=Novita \
+  MODEL_PROVIDER=openai-compatible \
+  MODEL=google/gemma-4-26b-a4b-it \
+  OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+  OPENROUTER_API_KEY=... \
+  npm run benchmark -- --variant pinned-baseline-r${r} \
+    --out /tmp/minicode-bench-logs/internal-tasks-pinned/pinned-baseline-r${r}.json
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-pinned/{pinned-baseline,copilot-desc}-r{1,2,3}.{json,log}`.
