@@ -3,7 +3,7 @@
   "prompt": "Find where the CodingAgent class is defined. Tell me the file path and line number.",
   "rubric": {
     "expectedOutputPatterns": ["CodingAgent", "agent\\.ts"],
-    "expectedSymbols": ["CodingAgent"],
+    "expectedFilesRead": ["agent.ts"],
     "maxToolCalls": 10
   }
 }

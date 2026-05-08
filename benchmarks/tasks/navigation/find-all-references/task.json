@@ -6,7 +6,6 @@
       "buildProjectIndex",
       "(?:src/index|src/cli/benchmark-run|src/serve/agent-bridge)"
     ],
-    "expectedSymbols": ["buildProjectIndex"],
     "maxToolCalls": 10
   }
 }

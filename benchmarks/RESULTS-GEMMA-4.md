@@ -747,10 +747,10 @@ These are **directional results, not strict comparisons.** Three asymmetries to 
 Three coordinated fixes on `fix/search-code-map-disambiguation-and-rubrics`:
 
 1. **`search_code_map` disambiguation** (issue #184). Each match now carries a one-line JSDoc summary (truncated at 100 chars) under the symbol display line. When results span both a class/interface/type AND a standalone function (the "noun vs. verb" shape — `Foo` class plus `createFoo()` factory), the tool prepends an ambiguity hint pointing at `read_symbol` for confirmation. The hint stays quiet for class-with-its-methods (a structurally expected pairing, not a disambiguation problem).
-2. **Rubric fix: `navigation/find-symbol-definition`.** Replaced the `expectedFilesRead: ["agent.ts"]` requirement with `expectedSymbols: ["CodingAgent"]`. The agent doesn't have to crack open the file when `search_code_map` already gave the answer — punishing it for being efficient was exactly backwards for this lane.
-3. **Rubric fix: `navigation/find-all-references`.** Tightened the prompt ("excluding the file where it is defined") and replaced the broken `project-index` substring (which a correct caller-list shouldn't contain) with a regex that matches one of the actual caller paths.
+2. **Runner fix: `search_code_map` pattern tracking.** The runner now registers `search_code_map({pattern})` calls against both `expectedSymbols` and (via `getSymbol` resolution) `expectedFilesRead`. This was the load-bearing fix — without it, an agent that answered `find-symbol-definition` correctly via a single `search_code_map` call would still fail the rubric because no graph-tool call was registered.
+3. **Rubric fix: `navigation/find-all-references`.** Tightened the prompt ("excluding the file where it is defined"), replaced the broken `project-index` substring (which a correct caller-list shouldn't contain) with a regex that matches one of the actual caller paths, and dropped `expectedSymbols` so the rubric doesn't structurally exclude file-search-only ablation runs that have no graph tools.
 
-A fourth fix, in the runner: `search_code_map` calls now register their `pattern` argument as a queried symbol. Without this, `expectedSymbols` rubrics under-counted graph-tool work — the same bug that masked a correct answer on `find-symbol-definition` even after the rubric was changed.
+The original `find-symbol-definition` rubric (`expectedFilesRead: ["agent.ts"]`) was kept as-is. With the runner fix in place, `search_code_map({pattern:"CodingAgent"})` now resolves the symbol and registers `agent.ts` as read — so the rubric is satisfiable both with graph tools (the efficient path) and without them (grep-then-read). An earlier draft of this PR swapped the rubric to `expectedSymbols`, but that broke the file-search-only profile (which has no tool that takes a `name`/`pattern` argument). Reverting to `expectedFilesRead` keeps both profiles gradeable.
 
 ## Headline (n=3 mean)
 
@@ -769,8 +769,8 @@ Targeted wins (all flip to 3/3, the strongest possible signal):
 | Task | baseline n=3 | after-fixes n=3 |
 | --- | --- | --- |
 | `navigation/find-tool-registration` (issue #184) | 0/3 | **3/3** |
-| `navigation/find-symbol-definition` (rubric + runner fix) | 0/3 | **3/3** |
-| `navigation/find-all-references` (rubric fix) | 1/3 | **3/3** |
+| `navigation/find-symbol-definition` (runner fix) | 0/3 | **3/3** |
+| `navigation/find-all-references` (rubric + runner fix) | 1/3 | **3/3** |
 
 Other movements ≥1 pass:
 
@@ -796,9 +796,8 @@ Navigation is the cleanest read: every navigation task now passes ≥2/3, and th
 ## What this confirms
 
 1. **Issue #184 was the right diagnosis.** The disambiguation hint + JSDoc summaries closed the `find-tool-registration` regression cleanly, exactly the way the issue predicted. No other navigation task lost ground from the new tool output.
-2. **The rubric fixes recovered real wins that were already there.** `find-symbol-definition` was solving correctly via `search_code_map`; the previous rubric simply didn't credit the answer. After both rubric and runner fixes, it's 3/3.
-3. **The runner symbol-tracking fix matters independently.** Even with the corrected rubric, `find-symbol-definition` would still have failed counting `expectedSymbols` because the runner ignored `pattern` from `search_code_map` calls. This kind of harness blind spot will silently mask future product wins; worth a quick audit of other rubric fields against actual tool-call inputs.
-4. **Cross-agent gap narrows on the targeted tasks.** From Experiment 3, both clean cross-agent signals (`find-tool-registration`, `find-symbol-definition`) were minicode-specific failures. Both now resolve. A re-run of the cross-agent comparison post-merge would tighten the gap to opencode meaningfully.
+2. **The runner fix recovered real wins that were already there.** `find-symbol-definition` was solving correctly via `search_code_map`; the harness simply didn't register the call against `expectedFilesRead` because `pattern` wasn't in the symbol-tracking fallback chain. With that fixed, the original rubric is satisfiable in both ablation profiles. This kind of harness blind spot silently masks future product wins; worth a quick audit of other rubric fields against actual tool-call inputs.
+3. **Cross-agent gap narrows on the targeted tasks.** From Experiment 3, both clean cross-agent signals (`find-tool-registration`, `find-symbol-definition`) were minicode-specific failures. Both now resolve. A re-run of the cross-agent comparison post-merge would tighten the gap to opencode meaningfully.
 
 ## Reproducibility
 

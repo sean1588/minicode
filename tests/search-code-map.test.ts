@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 
 import { buildProjectIndex } from "../src/indexer/project-index.js";
-import { createSearchCodeMapTool } from "../src/tools/search-code-map.js";
+import {
+  buildAmbiguityHint,
+  createSearchCodeMapTool,
+  summarizeDocComment,
+} from "../src/tools/search-code-map.js";
+import type { IndexedSymbol } from "../src/indexer/types.js";
 
 test("search_code_map finds symbols by substring", async () => {
   const root = path.resolve(import.meta.dirname, "..");
@@ -185,4 +190,75 @@ test("search_code_map does NOT prepend the ambiguity hint for class-with-its-met
   // class + methods is a structurally expected pairing, not a noun/verb
   // disambiguation problem. The hint should stay quiet here.
   assert.doesNotMatch(result, /results span multiple symbol kinds/);
+});
+
+// ─── Direct helper unit tests ──────────────────────────────────────────
+
+test("summarizeDocComment returns empty string for missing input", () => {
+  assert.equal(summarizeDocComment(undefined), "");
+  assert.equal(summarizeDocComment(""), "");
+  assert.equal(summarizeDocComment("   \n  \n"), "");
+});
+
+test("summarizeDocComment strips JSDoc markers and returns first non-empty line", () => {
+  const input = "/**\n * First sentence here.\n * More detail.\n */";
+  assert.equal(summarizeDocComment(input), "First sentence here.");
+});
+
+test("summarizeDocComment splits on \\r-only line separators (TS compiler shape)", () => {
+  // The TS compiler stores docComment with `\r` line separators on some
+  // platforms — without explicit `\r` handling the whole comment becomes
+  // a single line and the truncation chops mid-paragraph rather than at
+  // the first description sentence.
+  const input = "First sentence.\rSecond sentence.\rThird sentence.";
+  assert.equal(summarizeDocComment(input), "First sentence.");
+});
+
+test("summarizeDocComment truncates long first lines with ellipsis", () => {
+  const longLine = "a".repeat(150);
+  const result = summarizeDocComment(longLine);
+  assert.equal(result.length, 100);
+  assert.ok(result.endsWith("..."));
+});
+
+function makeSymbol(kind: IndexedSymbol["kind"], name = "X"): IndexedSymbol {
+  return {
+    name,
+    qualifiedName: name,
+    kind,
+    filePath: "x.ts",
+    startLine: 1,
+    endLine: 1,
+    exported: true,
+  } as IndexedSymbol;
+}
+
+test("buildAmbiguityHint stays quiet when all matches share one kind", () => {
+  const matches = [makeSymbol("function"), makeSymbol("function")];
+  assert.equal(buildAmbiguityHint(matches), "");
+});
+
+test("buildAmbiguityHint stays quiet for class-with-its-methods", () => {
+  const matches = [makeSymbol("class"), makeSymbol("method"), makeSymbol("method")];
+  assert.equal(buildAmbiguityHint(matches), "");
+});
+
+test("buildAmbiguityHint fires for class + standalone function (noun-vs-verb)", () => {
+  const matches = [makeSymbol("class"), makeSymbol("function")];
+  const hint = buildAmbiguityHint(matches);
+  assert.match(hint, /results span multiple symbol kinds/);
+  assert.match(hint, /read_symbol/);
+});
+
+test("buildAmbiguityHint fires for interface + standalone function", () => {
+  const matches = [makeSymbol("interface"), makeSymbol("function")];
+  assert.match(buildAmbiguityHint(matches), /results span multiple symbol kinds/);
+});
+
+test("buildAmbiguityHint stays quiet when only methods accompany the noun (no standalone function)", () => {
+  // Documents the deliberate trade-off: cross-class method collisions
+  // are under-flagged to avoid noisy false positives on the more
+  // common class-with-its-own-methods shape.
+  const matches = [makeSymbol("class"), makeSymbol("method")];
+  assert.equal(buildAmbiguityHint(matches), "");
 });

@@ -71,6 +71,13 @@ export function buildAmbiguityHint(matches: ReadonlyArray<IndexedSymbol>): strin
   // `Foo.method` is a member of `Foo`. The real confusion is between a
   // type-name and a same-base-name standalone function (`Widget` class
   // vs. `createWidget()` factory).
+  //
+  // Trade-off: this deliberately under-flags the rarer cross-class case
+  // (`class Widget` in one file plus an unrelated `widget()` method on
+  // some other class). Adding `method` to the verb set would close that
+  // gap but would also make the hint fire on every class-with-its-own-
+  // methods search, which is by far the more common shape — false
+  // positives there would be louder than the missed cross-class case.
   const hasStandaloneVerb = kinds.has("function");
   if (!hasNoun || !hasStandaloneVerb) {
     return "";
