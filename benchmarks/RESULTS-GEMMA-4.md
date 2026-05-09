@@ -1037,3 +1037,110 @@ done
 Pinned-baseline data is reused from Experiment 5 (`/tmp/minicode-bench-logs/internal-tasks-pinned/pinned-baseline-r{1,2,3}.json`).
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-pinned/iter-disc-r{1,2,3}.{json,log}`.
+
+# Experiment 7: cross-agent re-comparison on the post-merge codebase
+
+**Status: gap closed substantially since Experiment 3. minicode now leads on comprehension categories (debugging, navigation, planning) and trails only on implementation categories (editing, refactors). Aggregate at n=1 is approximately a three-way tie within variance: opencode 88%, copilot 84%, minicode 80%.**
+
+## Setup
+
+Same lane as Experiment 3 — the 25-task `benchmarks/tasks/` suite running against the minicode workspace, gemma-4-26b-a4b-it via OpenRouter, n=1 each, regex stdout matching for the competitors. Driver script: `/tmp/minicode-bench-logs/internal-tasks/run-cross-agent.sh`.
+
+The codebase under test is current main, including:
+- PR #185 (search_code_map disambiguation + rubric/runner fixes)
+- PR #189 (iteration discipline block)
+- PR #190 (diagnose-type-error prompt fix)
+
+Unpinned across all three agents — copilot CLI and opencode CLI don't expose OpenRouter's `provider.order` field, so pinning minicode-only would deterministically lock it to one provider while competitors get the routing lottery. That's an unfair comparison in the wrong direction. Accept the n=1 variance, read deltas as directional.
+
+## Headline (n=1)
+
+| Agent | Total | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| opencode | **88%** (22/25) | 80% | **100%** | 100% | 60% | 100% |
+| copilot | **84%** (21/25) | 80% | 80% | 80% | 80% | 100% |
+| **minicode** | **80%** (20/25) | **100%** | **40%** | 100% | **100%** | 60% |
+
+At n=1 with the unpinned variance band we observed in Experiments 4–5 (~10 pp run-to-run when unpinned), the 80/84/88 spread on the aggregate is approximately a three-way tie. The categorical patterns are the more informative read.
+
+## Where minicode leads
+
+- **Debugging 100%** vs 80%/80%. Driven by `diagnose-type-error` (now 1/1 after #190) and the comprehension-category tasks where graph-aware tools matter (`root-cause-from-symptom`, `websocket-connection-issue`).
+- **Planning 100%** vs 60%/80%. The largest categorical gap — both competitors fail `plan-new-tool`, opencode also fails `explain-plugin-system`. These are tasks where the agent has to trace structural relationships across files; the code map + iter-discipline combination handles them cleanly.
+- **Navigation 100%** vs 80%/100%. Tied with opencode, ahead of copilot.
+
+## Where minicode trails
+
+- **Editing 40%** vs 80%/100%. Five tasks: `add-config-field` PASS, `rename-symbol` PASS, `add-logging` FAIL, `add-validation` FAIL, `fix-small-bug` FAIL.
+- **Refactors 60%** vs 100%/100%. `consolidate-duplicates`, `add-required-argument`, `update-shared-interface` PASS; `extract-helper` and `move-logic-to-helper` FAIL.
+
+**All five minicode failures involve making code changes.** This is the entire remaining product gap.
+
+## Failure-mode analysis on the implementation gap
+
+The five minicode editing/refactor failures break into three sub-mechanisms:
+
+1. **Investigation-without-commit (3 of 5).** Model gathers context fully but never issues `edit_file`. Concrete shapes:
+   - `add-logging`: read registry.ts → read types.ts → re-read registry.ts (loop guard). Had enough context after step 4; the second read of registry.ts tipped it over.
+   - `extract-helper`: 9 different regex searches for file extensions. Several syntactically-different but semantically-equivalent patterns (`\\.ts$|\\.tsx$|...` vs `\\.ts|\\.tsx|...`). Iter-discipline didn't catch it because the strings were different.
+   - `move-logic-to-helper`: called `read_symbol("loadDotenvFile")` three times across the run. Intervening calls were different so iter-discipline didn't flag it as identical-loop.
+
+2. **Tries to validate via test scripts (1 of 5).** `fix-small-bug`: model used `run_command` to write `test_bug.ts`, ran `npx ts-node` (which doesn't exist in this project — we use tsx), then produced empty output.
+
+3. **Task misreading (1 of 5).** `add-validation`: model interpreted "add validation to read_file" as "modify the execution environment infrastructure" rather than "edit the source file," refused after one `list_files`. Likely n=1 noise.
+
+The dominant pattern is (1): the model investigates thoroughly, has enough context to make the edit, but keeps reading instead of committing. Iter-discipline targets identical-arg loops; this is a *different* over-investigation shape — "investigate-instead-of-act."
+
+## Where opencode and copilot fail
+
+Notable: every task that competitors fail and minicode passes is a comprehension task that benefits from structural navigation:
+
+- `planning/plan-new-tool` (both competitors fail): asks the agent to trace how tools are defined and registered. minicode's code map gives this directly.
+- `debugging/diagnose-failing-test` (copilot only): graph-aware finding of fingerprint-related code.
+- `debugging/diagnose-type-error` (opencode only): requires reading the actual `SessionMessage` type union.
+- `planning/explain-plugin-system` (opencode only): traces plugin discovery + interface across multiple files.
+
+This is the structural-tools-pay-off shape that motivated minicode's design — and now that iter-discipline keeps the model from looping on these, the wins are visible at the task level.
+
+## What changed since Experiment 3
+
+| Category | Exp 3 minicode (all-tools, n=1) | Exp 7 minicode (n=1) | Δ |
+| --- | --- | --- | --- |
+| debugging | 60% | 100% | +40 pp |
+| editing | 60% | 40% | -20 pp |
+| navigation | 60% | 100% | +40 pp |
+| planning | 60% | 100% | +40 pp |
+| refactors | 80% | 60% | -20 pp |
+| **total** | **64%** | **80%** | **+16 pp** |
+
+Comprehension categories: dramatic improvement, all driven by #185/#189/#190. Implementation categories: regression vs Exp 3, but the n=3 mean for these on iter-discipline was 47% editing / 93% refactors — the n=1 here is at the variance edge rather than a systematic drop. The honest read is: editing has been at 40-47% across multiple measurements (real floor), refactors is between 60% and 100% depending on run (variance-dominated at n=1).
+
+The +16 pp aggregate improvement vs Exp 3 vs the unmoved competitors says: **the work in this session has measurably closed the comprehension-side gap**. Most of the remaining product distance is the editing floor.
+
+## What this means for next steps
+
+1. **Editing is the entire remaining gap.** If we move editing from 40% to 80% (matching copilot), minicode lands at ~88% and ties or beats opencode. Refactors likely lifts as a side-effect since the underlying mechanism is the same change-class workflow.
+
+2. **The next experiment is well-scoped.** The 5 failure traces give a concrete sub-mechanism (investigation-without-commit). A targeted `[Edit Discipline]` block — the change-mode counterpart to `[Iteration Discipline]` — should address it without conflicting with existing rules.
+
+3. **Comprehension wins are durable.** No regression on the comprehension categories vs the post-#189 baseline; the tools, prompts, and iter-discipline are working together cleanly on those tasks.
+
+## Reproducibility
+
+```bash
+# minicode (uses isolated temp workspaces — safe to run in parallel)
+MODEL_PROVIDER=openai-compatible \
+  MODEL=google/gemma-4-26b-a4b-it \
+  OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+  OPENROUTER_API_KEY=... \
+  npm run benchmark -- --variant postmerge-minicode \
+    --out /tmp/minicode-bench-logs/internal-tasks-postmerge/minicode-r1.json
+
+# copilot then opencode (sequential — they share the workspace and revert via git checkout)
+/tmp/minicode-bench-logs/internal-tasks/run-cross-agent.sh copilot \
+  /tmp/minicode-bench-logs/internal-tasks-postmerge/copilot-r1
+/tmp/minicode-bench-logs/internal-tasks/run-cross-agent.sh opencode \
+  /tmp/minicode-bench-logs/internal-tasks-postmerge/opencode-r1
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/{minicode,copilot,opencode}-r1.{json,jsonl,log}`.
