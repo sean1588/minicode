@@ -165,6 +165,13 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
         ]
       : ["- Use search to locate relevant code, then read_file to inspect it."]),
     "",
+    "[Iteration Discipline]",
+    "Looping on tool calls is the most common cause of task failure. To avoid it:",
+    "- Stop investigating as soon as you have enough to answer or act. Do not be exhaustive.",
+    "- If you have made 3 or more similar read/search calls without making forward progress, STOP and either commit to the best answer you can support with what you have, or acknowledge what you cannot determine.",
+    "- Do not repeat a tool call with identical or near-identical arguments. If the result was useful, move on. If it was not, change your approach (different pattern, different path, different tool) rather than retrying.",
+    "- Target: gather context in 3–5 read/search calls, then answer or edit.",
+    "",
     "[Termination Policy]",
     "- When the user asks you to do something (edit code, search, run commands, etc.), you MUST use the appropriate tools first. Do not conclude until you have actually performed the work.",
     "- When the task is complete, respond with a concise summary of what you changed.",
