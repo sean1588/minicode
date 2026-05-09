@@ -1,6 +1,6 @@
 {
   "title": "Diagnose a TypeScript type error",
-  "prompt": "If you got a TypeScript error 'Property toolCalls does not exist on type SessionMessage', how would you fix it? Explain the type union and the correct way to access toolCalls.",
+  "prompt": "I'm seeing this TypeScript error in this codebase: 'Property toolCalls does not exist on type SessionMessage'. Explain the type union and the correct way to access toolCalls.",
   "rubric": {
     "expectedOutputPatterns": ["AssistantMessage", "toolCalls", "role"],
     "expectedFilesRead": ["types.ts"],
