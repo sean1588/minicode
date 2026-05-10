@@ -22,8 +22,17 @@ function expectString(input: Record<string, unknown>, key: string): string {
 }
 
 export interface EditFileHooks {
+  /**
+   * Called after a successful edit. If the hook returns a non-empty string,
+   * it is appended to the tool's success message — used to surface post-edit
+   * diagnostics (e.g. type-check errors) so the model can fix bad edits on
+   * the next turn.
+   */
   afterEdit?:
-    | ((filePath: string, content: string) => void | Promise<void>)
+    | ((
+        filePath: string,
+        content: string,
+      ) => void | string | Promise<void | string>)
     | undefined;
 }
 
@@ -72,11 +81,15 @@ export function createEditFileTool(
 
       await writeFile(filePath, updated, "utf8");
 
+      let suffix = "";
       if (hooks?.afterEdit) {
-        await hooks.afterEdit(filePath, updated);
+        const result = await hooks.afterEdit(filePath, updated);
+        if (typeof result === "string" && result.length > 0) {
+          suffix = `\n\n${result}`;
+        }
       }
 
-      return `Updated "${requestedPath}" successfully.`;
+      return `Updated "${requestedPath}" successfully.${suffix}`;
     },
   };
 }

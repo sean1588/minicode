@@ -1330,3 +1330,85 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/trim-r{1,2,3}.{json,log}`.
+
+# Experiment 10: post-edit diagnostic feedback (opencode-style LSP echo)
+
+**Status: mechanism works (verified end-to-end), aggregate +6.7 pp at n=3, but editing — the only category the mechanism can touch — was flat. Net signal at this n: probably null but downside is bounded. Shipped on the basis that the mechanism is sound and the activation rate is the limiting factor, not the design.**
+
+## Change
+
+After a successful `edit_file`, run `tsc --noEmit --incremental -p <nearest tsconfig>` against the workspace, filter the parsed diagnostics to errors in the touched file, and append an opencode-style block to the tool's result string when there's anything to report:
+
+```
+Updated "src/indexer/code-map.ts" successfully.
+
+<diagnostics file="src/indexer/code-map.ts">
+ERROR [123:7] Block-scoped variable 'totalCount' used before its declaration.
+ERROR [123:7] Variable 'totalCount' is used before being assigned.
+</diagnostics>
+```
+
+The model sees this on the next turn and can correct the bad edit before continuing.
+
+Implementation lives at `src/tools/post-edit-diagnostics.ts` (app layer — depends on workspace tsconfig). The SDK's `EditFileHooks.afterEdit` was widened to allow returning a string that gets appended to the success message. `tsc` is resolved via `require.resolve("typescript/bin/tsc")` so it works in temp workspaces the benchmark runner creates (no `node_modules`). Runs are serialized per-tsconfig to avoid `.tsbuildinfo` races; cache lives under `~/.minicode/cache/<workspace-hash>/diagnostics/`. Timeout 15s, graceful degrade to no-diagnostic on any failure. Gated off with `MINICODE_DISABLE_POST_EDIT_DIAGNOSTICS=1`.
+
+Mirrors opencode's pattern (`packages/opencode/src/tool/edit.ts:192-197`), which calls into the language server after every edit and emits a `<diagnostics file="...">` block when errors are present. opencode uses LSP for full-fidelity diagnostics; we run `tsc` because we don't have an LSP layer.
+
+## Results (n=3, unpinned)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| trim baseline (Exp 9, n=3 unpinned) | 80.0% | 73.3% | 86.7% | 100% | 86.7% | 53.3% |
+| **diagnostic n=3 (this PR)** | **86.7%** | 93.3% | **86.7%** | 100% | 80.0% | 73.3% |
+| Δ | +6.7 | +20 | **flat** | flat | -6.7 | +20 |
+
+Per-run: 76, 88, 96. The 20 pp run-to-run swing is the standard unpinned variance band — typical of provider routing lottery on refactor-heavy categories.
+
+## Mechanism evidence vs. aggregate signal
+
+The diagnostic is **mechanistically valid** but **rarely activated** on this benchmark:
+
+- **75 task-runs · 9 total `edit_file` calls** (0.12 edits/task). Most tasks are comprehension; few mutate files.
+- **3 of 9 edits triggered a diagnostic block** — all on `editing/fix-small-bug`. The other 6 edits produced clean output (no errors).
+- In runs r1 and r2 the model's first edit had a TS error (`totalCount` used-before-declaration); the model then issued a second `edit_file` that was clean, and the task passed. That's the loop we wanted to enable.
+- In run r3 the task passed on the first edit (no diagnostic surfaced). Same passing outcome, no diagnostic dependency.
+
+The aggregate +6.7 pp lives in categories where the diagnostic **can't fire** (debugging, refactors — most of those tasks never call `edit_file`). So the headline is provider variance, not the change.
+
+Editing — the one category the diagnostic mechanism touches — is **flat at 86.7%** vs the trim baseline's 86.7%. The model already had editing working at this rate before the diagnostic.
+
+## Why ship it anyway
+
+- **No measured regression.** No task failed because of a diagnostic block (verified across all 10 failing tasks in n=3). The model never got confused by the appended block.
+- **Cost is bounded and gated.** Only fires on `edit_file` for `.ts/.tsx/.js/.jsx/.mts/.cts` files, only when a tsconfig is reachable. ~2-4s per fire. Roughly 3 fires per 25-task run on this lane. Disable knob is `MINICODE_DISABLE_POST_EDIT_DIAGNOSTICS=1`.
+- **Mechanism is right** by the heuristic. Surfacing existing system feedback to the model is a nudge that helps failing edits, not a restriction. Frontier models will benefit too — they already know how to read TS errors.
+- **Activation rate is the bottleneck, not the design.** The benchmark suite has few edits per task. On a real codebase or a more edit-heavy benchmark, the rate of diagnostic-triggered self-correction would be higher.
+
+## Why this isn't a clean win
+
+Honest framing per the variance-rules-out heuristic:
+
+- The diagnostic only ever runs on `edit_file`'s success path. It cannot have caused changes in dbg/refactor outcomes on tasks that never edit a file. Those wins are routing variance.
+- Editing is the only category where the diagnostic could have moved the needle, and editing is flat.
+- A clean signal would require either (a) pinned n=3 to remove variance, (b) tasks where the model's first edit is more likely to be broken (bigger surface area), or (c) a metric narrower than pass/fail (e.g. "edits-per-passing-task").
+
+## Caveats
+
+- **Per-task cold `tsc`.** The benchmark runner copies each task into a fresh tempdir without `node_modules`, so the `.tsbuildinfo` cache is empty per task. Cold tsc is ~4s; warm (subsequent edits in the same task) is ~2s. On a real session against a single workspace the warm path dominates.
+- **TS-only.** Other plugins (Python, etc.) would need their own diagnostic shim.
+- **Whole-project check per edit.** We don't isolate to the touched file's reverse-dependency set. Catches more errors but pays the full project cost.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant diagnostic-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/diagnostic-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/diagnostic-r{1,2,3}.{json,log}`.
