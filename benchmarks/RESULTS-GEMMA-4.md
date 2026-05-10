@@ -1412,3 +1412,92 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/diagnostic-r{1,2,3}.{json,log}`.
+
+# Experiment 11: `grep` fallback ERE fix (infrastructure bug, not a model nudge)
+
+**Status: refactors recovered +26.7 pp by fixing a one-character bug. `refactors/extract-helper` went from 0/6 across the previous two experiments to 3/3 here. Not a "design win" — a long-standing latent infrastructure bug that the trace inspection finally surfaced.**
+
+## What happened
+
+Investigating why `refactors/extract-helper` keeps tripping loop-guard, I dumped the actual tool sequence:
+
+```
+1. search { pattern: "\\.(ts|tsx|js|jsx)$" }       → No matches
+2. search { pattern: "\\.ts$|\\.tsx$|\\.js$|\\.jsx$" }   → No matches
+3. search { pattern: "endsWith\\([...]\\.(ts|tsx|js|jsx)[...]" } → No matches
+4. search { pattern: "\\.ts|tsx|js|jsx" }          → No matches
+5. list_files .                                    → ok
+6. search { pattern: "\\.ts|\\.tsx|\\.js|\\.jsx" } → No matches
+... loop ...
+```
+
+The model was writing valid ERE regexes and getting zero matches for every one. That's not a model failure — those patterns absolutely match real code in this workspace. Tracing the search tool revealed:
+
+- `packages/agent-sdk/src/tools/search.ts` shells out to `rg` (ripgrep). If `rg` exits with `ENOENT` (not installed), it falls back to `grep -RIn ...`.
+- This benchmark machine does **not** have `rg` installed (`which rg` returns nothing).
+- Plain `grep` defaults to **Basic Regex (BRE)**, where `(`, `)`, and `|` are *literal characters*, not grouping/alternation. So `\.(ts|tsx|js|jsx)$` interpreted as BRE asks for the *literal* string `.(ts|tsx|js|jsx)` at end of line — which is never there.
+- Every alternation-style regex silently turned into a zero-hit search. Model retried. Loop-guard tripped after ~3 fingerprint-matching variants.
+
+Reproduction with the exact fallback args:
+
+```bash
+grep -RIn ... '\.(ts|tsx|js|jsx)$' .       → 0 matches (exit 1)
+grep -RIn -E ... '\.(ts|tsx|js|jsx)$' .    → many matches
+```
+
+This had been silently destroying alternation-heavy searches across **every benchmark run we'd ever done on this machine**.
+
+## Change
+
+One char on the grep fallback args:
+
+```diff
+- const grepArgs = ["-RIn", ...grepExcludeArgs(), "-m", "50", pattern, relativeTarget];
++ const grepArgs = ["-ERIn", ...grepExcludeArgs(), "-m", "50", pattern, relativeTarget];
+```
+
+Plus a regression test (`search interprets alternation as ERE regardless of rg vs. grep fallback`) so this can't quietly come back.
+
+## Results (n=3, unpinned)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| trim (Exp 9 baseline) | 80.0% | 73.3% | 86.7% | 100% | 86.7% | 53.3% |
+| diagnostic (Exp 10) | 86.7% | 93.3% | 86.7% | 100% | 80.0% | 73.3% |
+| **grep-ERE (this)** | **85.3%** | 93.3% | 73.3% | 100% | 80.0% | **80.0%** |
+
+Per-run: 88, 84, 84. The refactor jump is the headline. `extract-helper` went from 0/3 in trim and 0/3 in diagnostic to **3/3** here.
+
+Editing dipped to 73.3% — that's `editing/add-validation` task-misread variance (the model interprets the task as "modify execution environment infrastructure" instead of "add input validation"). Unrelated to this change; same failure mode shows up across pinned and unpinned runs.
+
+## What this finding means for prior experiments
+
+Almost every benchmark in this doc was run on this same machine without `rg`. So all of our previous numbers — including the iter-discipline +10.7 pp, the cascade +33.3 pp, the trim baseline — were measured against a partially-broken search tool. The bug doesn't invalidate those experiments (they were all comparative against the same broken baseline), but it does mean **our absolute floor on small-model refactor tasks was artificially low**. The "53-60% refactor floor" that motivated Experiment 8's cascade port was partially this bug.
+
+Concrete implication: **we should be more skeptical of "this is a model floor" conclusions.** A repeating loop-guard trip can mean (a) over-investigation, (b) edit-loop whitespace mismatch, (c) semantically-equivalent searches — *or* (d) the search tool silently lying. The trace-inspection heuristic caught it this time; in retrospect we should check tool outputs (not just call counts) for "zero results when results should obviously exist" earlier.
+
+## Why this isn't a fair "experiment win"
+
+Strictly speaking, this isn't a designed change with a hypothesis. It's a bug fix. The +26.7 pp on refactors should be read as "removing a regression that had been polluting the numbers all along," not "we found a new way to help small models." That's why the writeup is framed as Experiment 11 but flagged as infrastructure.
+
+The same fix would make refactor numbers look better in pinned runs too (the iter-discipline 93% refactors number was also affected — it was just less affected because Novita-pinned models happened to converge faster on this specific task).
+
+## Caveats
+
+- The fix only matters on machines without `rg`. If `rg` is installed, the ripgrep code path runs and was always correct.
+- We should probably add a startup log noting `rg` is missing so users notice. Out of scope for this PR.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant grep-ere-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/grep-ere-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/grep-ere-r{1,2,3}.{json,log}`.

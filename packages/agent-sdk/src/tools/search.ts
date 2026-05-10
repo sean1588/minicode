@@ -214,9 +214,13 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
         }
       }
 
-      // Minimal fallback for systems without rg installed.
+      // Minimal fallback for systems without rg installed. Use `-E` so
+      // alternation (`|`) and grouping (`()`) are interpreted as in
+      // ripgrep — plain grep defaults to BRE where those are literal
+      // characters, which silently turns every alternation-style regex
+      // into a zero-hit search and traps the model in retry loops.
       const grepArgs = [
-        "-RIn",
+        "-ERIn",
         ...grepExcludeArgs(),
         "-m",
         "50",

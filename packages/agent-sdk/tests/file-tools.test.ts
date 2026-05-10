@@ -236,6 +236,27 @@ test("search finds matches inside gitignored files", async () => {
   assert.ok(result.includes("generated.txt"));
 });
 
+test("search interprets alternation as ERE regardless of rg vs. grep fallback", async () => {
+  // On systems without ripgrep, the tool falls back to plain `grep`,
+  // which uses BRE by default — making `|` and `()` literal characters
+  // and silently returning zero matches for any alternation regex.
+  // That trapped small models in retry loops (e.g. `\.(ts|tsx)$`
+  // matching nothing across n=33 refactors/extract-helper runs). The
+  // fallback must use ERE so semantics match rg.
+  const workspaceRoot = await createTempWorkspace();
+  await writeFile(path.join(workspaceRoot, "a.ts"), "line one\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "b.tsx"), "line two\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "names.txt"), "alpha.ts\nbeta.tsx\ngamma.md\n", "utf8");
+
+  const searchTool = createSearchTool(createTestAgentConfig(workspaceRoot));
+  const result = await searchTool.execute({ pattern: "\\.(ts|tsx)$" });
+
+  assert.ok(
+    result.includes("alpha.ts") && result.includes("beta.tsx"),
+    `Expected alternation regex to match both ts and tsx, got: ${result}`,
+  );
+});
+
 
 // ─── Honest tool outputs (closes #176) ────────────────────────
 
