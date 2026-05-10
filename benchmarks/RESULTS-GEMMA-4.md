@@ -1144,3 +1144,114 @@ MODEL_PROVIDER=openai-compatible \
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/{minicode,copilot,opencode}-r1.{json,jsonl,log}`.
+
+# Experiment 8: opencode investigation + fuzzy edit-replacer cascade
+
+**Status: targeted win on editing (+33.3 pp), small aggregate gain (+2.0 pp at n=6). The cascade does what it was designed to do; the regressions on refactors are in failure paths the cascade doesn't touch and most plausibly trace to the longer tool description adding cognitive load. Follow-up to trim that description is queued.**
+
+## Investigation summary
+
+Ran a focused subagent against `sst/opencode` (open source, beat us 88% to 80% on Experiment 7's cross-agent run, hit 100% on editing where we hit 40%). Three transferable techniques surfaced, ranked by likely leverage on the editing-floor problem:
+
+1. **9-replacer fuzzy edit-fallback chain** (highest leverage) — opencode's `edit` tool runs `oldString` through a cascade of progressively-fuzzier replacers and accepts the first that yields a unique match. Their source explicitly credits cline + gemini-cli as upstream. This is now table-stakes for edit tools targeting non-frontier models.
+2. **Post-edit LSP/lint diagnostics appended to tool result** — converts "edit-then-claim-success-and-stop" into "edit-then-fix" without prompt-side discipline.
+3. **"Did you mean..." on read failures** — substring-search the parent directory when a read fails, surface candidates instead of abandoning.
+
+This experiment ports (1). The other two are queued as follow-ups.
+
+## Change shipped (`experiment/edit-replacer-cascade`)
+
+New file `packages/agent-sdk/src/tools/edit-file-replacers.ts` (~450 LOC) with the 9-replacer cascade:
+
+- `SimpleReplacer` — exact match (preserves prior behaviour as the default tier)
+- `LineTrimmedReplacer` — per-line trim
+- `BlockAnchorReplacer` — first+last line anchors, fuzzy middle via Levenshtein (3+ line blocks)
+- `WhitespaceNormalizedReplacer` — collapse all whitespace runs to single spaces
+- `IndentationFlexibleReplacer` — strip common leading indent
+- `EscapeNormalizedReplacer` — handle `\n`/`\t` literals as escapes
+- `TrimmedBoundaryReplacer` — trim leading/trailing whitespace from find
+- `ContextAwareReplacer` — anchor + 50% line-overlap (relaxed alternative)
+- `MultiOccurrenceReplacer` — used when replaceAll is requested
+
+The orchestrator (`replaceWithCascade`) iterates each tier, yields candidates, and accepts the first that occurs exactly once in the file. Throws with a descriptive error if no tier finds a match or all matches are ambiguous. Attribution preserved at the top of the file.
+
+`edit_file.ts` calls `replaceWithCascade` instead of its prior strict `indexOf` loop. Tool description updated to signal the fuzzy matching to the model.
+
+## Methodology
+
+n=6 on the internal-tasks lane, gemma-4-26b-a4b-it via OpenRouter, unpinned. Higher n than usual because n=3 showed mixed results (refactors swung 20% → 80% across runs) that needed disambiguation.
+
+## Headline (n=6 cascade vs. n=3 iter-discipline)
+
+| Cell | mean / 25 | pass rate | range |
+| --- | --- | --- | --- |
+| iter-discipline n=3 (Exp 6 pinned) | 20.00 | 80.0% | 76–84% |
+| **cascade n=6 (unpinned)** | **20.50** | **82.0%** | 72–92% |
+| Δ | +0.50 | **+2.0 pp** | |
+
+Per-run: 80, 72, 80, 80, 88, 92. Variance band wider than iter-disc (unpinned vs. pinned), with a noticeable upward trend across runs that's consistent with OpenRouter routing changes over time rather than the cascade improving.
+
+## Per-category (n=6 cascade vs. n=3 iter-disc)
+
+| Category | iter-disc | cascade | Δ |
+| --- | --- | --- | --- |
+| **editing** | 46.7% | **80.0%** | **+33.3 pp** |
+| **debugging** | 73.3% | **93.3%** | **+20.0 pp** |
+| navigation | 100% | 100% | 0 pp |
+| planning | 86.7% | 76.7% | -10.0 pp |
+| refactors | 93.3% | 60.0% | **-33.3 pp** |
+
+Editing and debugging move strongly. Navigation holds. Planning and refactors regress.
+
+## Per-task (n=6 cascade)
+
+Editing wins concentrate on tasks the cascade was designed for — tasks that previously errored on whitespace mismatches in `edit_file` calls:
+
+- `editing/fix-small-bug`: **5/6** (was 0/3 in iter-disc) — clean win
+- `editing/add-validation`: **4/6** (was 1/3) — clean win
+- `editing/add-logging`: 3/6 (was 0/3) — modest win
+
+Refactor regressions concentrate on tasks where the model never reaches `edit_file`:
+
+- `refactors/extract-helper`: 1/6 (was 2/3) — failures are all 30+ tool-call search-spam in investigation phase
+- `refactors/consolidate-duplicates`: 3/6 (was 3/3) — failures are list_files spam, never an edit attempt
+- `refactors/move-logic-to-helper`: 3/6 (was 3/3) — same shape
+
+Crucially, **none of the failing refactor tasks call `edit_file`**. The cascade only changes behaviour inside `edit_file`. Mechanism rules out the cascade as the cause of those regressions.
+
+## Most plausible cause of the off-target regressions
+
+The cascade-port also lengthened the `edit_file` tool description from one line to a 3-line paragraph documenting the fuzzy-matching behaviour. Refactor tasks are the longest-running, most context-heavy tasks on this lane, and the small model may be most sensitive to system-prompt size on those. The refactor and planning regressions are consistent with "longer prompt slightly degrades cognitive bandwidth on hard tasks" — though this is hypothesis, not proven.
+
+A follow-up will trim the tool description back closer to the original brevity while keeping the cascade implementation. That's the cheap fix to test.
+
+## Token economy
+
+| Metric | iter-disc | cascade | Δ |
+| --- | --- | --- | --- |
+| Tokens / task | 54.6K | 68.0K | +24.5% |
+| Duration / task | 30.5s | 15.5s | -49% |
+
+Tokens went up, duration went down. The duration drop is suspicious; possibly an artifact of OpenRouter routing to faster providers on these unpinned runs.
+
+## What this means
+
+1. **Editing floor problem is mostly addressable.** The cascade hits it directly. +33.3 pp on the n=6 mean for the targeted category, with a verifiable mechanism in the traces (tasks that previously errored on whitespace now successfully call `edit_file`).
+2. **The aggregate gain is small but positive** (+2.0 pp). The wins on editing and debugging mostly cancel the regressions on planning and refactors. Whether the net is meaningfully positive at n=6 is borderline — but the per-category and per-task signals are clean.
+3. **Tool-description length appears to matter for small models on hard tasks.** Worth trimming as a follow-up. Specifically: keep the cascade implementation, revert most of the description prose.
+4. **Two more opencode techniques queued**: post-edit diagnostic feedback and "did you mean" on read failures. Both should be additive.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3 4 5 6; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant cascade-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/cascade-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/cascade-r{1..6}.{json,log}`.

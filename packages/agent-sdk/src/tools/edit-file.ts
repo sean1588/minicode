@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 
 import type { ToolDefinition } from "../agent/types.js";
 import { resolveWorkspacePath } from "../safety/guardrails.js";
+import { replaceWithCascade } from "./edit-file-replacers.js";
 import { expectNonEmptyString } from "./helpers.js";
 
 /**
@@ -20,24 +21,6 @@ function expectString(input: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function countOccurrences(haystack: string, needle: string): number {
-  if (needle.length === 0) {
-    return 0;
-  }
-
-  let count = 0;
-  let index = 0;
-  while (true) {
-    const found = haystack.indexOf(needle, index);
-    if (found === -1) {
-      break;
-    }
-    count += 1;
-    index = found + needle.length;
-  }
-  return count;
-}
-
 export interface EditFileHooks {
   afterEdit?:
     | ((filePath: string, content: string) => void | Promise<void>)
@@ -51,7 +34,10 @@ export function createEditFileTool(
   return {
     name: "edit_file",
     description:
-      "Replace exactly one instance of old_string with new_string in a file.",
+      "Replace exactly one instance of old_string with new_string in a file. " +
+      "Whitespace, indentation, and line-end escaping are matched flexibly via a cascade " +
+      "of fuzzy strategies — you don't need to copy the surrounding indentation perfectly, " +
+      "but the structural content of old_string must appear in the file.",
     inputSchema: {
       type: "object",
       properties: {
@@ -61,7 +47,8 @@ export function createEditFileTool(
         },
         old_string: {
           type: "string",
-          description: "Exact text to replace (must match once).",
+          description:
+            "Text to replace. Whitespace and indentation are matched flexibly; the structural content must be present in the file.",
         },
         new_string: {
           type: "string",
@@ -78,20 +65,15 @@ export function createEditFileTool(
 
       const filePath = resolveWorkspacePath(requestedPath, options.workspaceRoot);
       const current = await readFile(filePath, "utf8");
-      const occurrences = countOccurrences(current, oldString);
 
-      if (occurrences === 0) {
-        throw new Error(
-          `old_string was not found in "${requestedPath}".`,
-        );
-      }
-      if (occurrences > 1) {
-        throw new Error(
-          `old_string matched ${occurrences} times in "${requestedPath}". It must be unique.`,
-        );
+      let updated: string;
+      try {
+        updated = replaceWithCascade(current, oldString, newString);
+      } catch (error) {
+        const detail = (error as Error).message;
+        throw new Error(`${detail} (file: "${requestedPath}")`);
       }
 
-      const updated = current.replace(oldString, newString);
       await writeFile(filePath, updated, "utf8");
 
       if (hooks?.afterEdit) {

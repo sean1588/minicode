@@ -43,7 +43,7 @@ test("edit_file fails when old_string is not unique", async () => {
         old_string: "repeat",
         new_string: "once",
       }),
-    /matched 3 times/,
+    /multiple matches/i,
   );
 
   const unchanged = await readFile(filePath, "utf8");
