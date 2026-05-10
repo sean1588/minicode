@@ -82,11 +82,75 @@ test("edit_file fails when old_string is not unique", async () => {
         old_string: "repeat",
         new_string: "once",
       }),
-    /matched 3 times/,
+    /multiple matches/i,
   );
 
   const unchanged = await readFile(filePath, "utf8");
   assert.equal(unchanged, "repeat repeat repeat");
+});
+
+test("edit_file fuzzy-matches old_string with wrong indentation", async () => {
+  // Real-world failure shape: small models often miscopy the surrounding
+  // indentation on multi-line snippets. The cascade should recover.
+  const workspaceRoot = await createTempWorkspace();
+  const filePath = path.join(workspaceRoot, "sample.ts");
+  const original = `function foo() {
+    if (x) {
+        console.log("yes");
+    }
+}
+`;
+  await writeFile(filePath, original, "utf8");
+
+  const editTool = createEditFileTool(createTestAgentConfig(workspaceRoot));
+  // Model emits the inner block with NO leading indentation:
+  await editTool.execute({
+    path: "sample.ts",
+    old_string: `if (x) {
+    console.log("yes");
+}`,
+    new_string: `if (x) {
+    console.log("YES");
+}`,
+  });
+
+  const updated = await readFile(filePath, "utf8");
+  assert.match(updated, /console\.log\("YES"\)/);
+});
+
+test("edit_file fuzzy-matches old_string with backslash-escaped newlines", async () => {
+  // Another real shape: model emits "\\n" (literal backslash-n) instead
+  // of an actual newline. Escape-normalized replacer should handle it.
+  const workspaceRoot = await createTempWorkspace();
+  const filePath = path.join(workspaceRoot, "sample.ts");
+  await writeFile(filePath, "const a = 1;\nconst b = 2;\n", "utf8");
+
+  const editTool = createEditFileTool(createTestAgentConfig(workspaceRoot));
+  await editTool.execute({
+    path: "sample.ts",
+    old_string: "const a = 1;\\nconst b = 2;",
+    new_string: "const a = 10;\nconst b = 20;",
+  });
+
+  const updated = await readFile(filePath, "utf8");
+  assert.match(updated, /const a = 10;/);
+  assert.match(updated, /const b = 20;/);
+});
+
+test("edit_file fuzzy-matches old_string with extra trailing whitespace", async () => {
+  const workspaceRoot = await createTempWorkspace();
+  const filePath = path.join(workspaceRoot, "sample.txt");
+  await writeFile(filePath, "alpha beta gamma", "utf8");
+
+  const editTool = createEditFileTool(createTestAgentConfig(workspaceRoot));
+  await editTool.execute({
+    path: "sample.txt",
+    old_string: "alpha beta gamma   ",
+    new_string: "alpha BETA gamma",
+  });
+
+  const updated = await readFile(filePath, "utf8");
+  assert.equal(updated, "alpha BETA gamma");
 });
 
 test("edit_file calls afterEdit hook", async () => {
