@@ -34,10 +34,7 @@ export function createEditFileTool(
   return {
     name: "edit_file",
     description:
-      "Replace exactly one instance of old_string with new_string in a file. " +
-      "Whitespace, indentation, and line-end escaping are matched flexibly via a cascade " +
-      "of fuzzy strategies — you don't need to copy the surrounding indentation perfectly, " +
-      "but the structural content of old_string must appear in the file.",
+      "Replace exactly one instance of old_string with new_string in a file.",
     inputSchema: {
       type: "object",
       properties: {
@@ -47,8 +44,7 @@ export function createEditFileTool(
         },
         old_string: {
           type: "string",
-          description:
-            "Text to replace. Whitespace and indentation are matched flexibly; the structural content must be present in the file.",
+          description: "Text to replace (must match the file uniquely).",
         },
         new_string: {
           type: "string",
