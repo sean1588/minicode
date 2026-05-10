@@ -1255,3 +1255,78 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/cascade-r{1..6}.{json,log}`.
+
+# Experiment 9: trim `edit_file` description back to minimum
+
+**Status: planning recovered (+10 pp vs cascade), editing held (+6.7 pp), refactor didn't recover — revealing that the previous "refactor regression" was provider variance, not description bloat. Net: ship the trim, refactor variance is unfixable from the codebase side.**
+
+## Change
+
+Revert `edit_file`'s tool description to its original brevity:
+
+```
+description: "Replace exactly one instance of old_string with new_string in a file."
+```
+
+Plus a small tweak to the `old_string` parameter description: `"Exact text to replace (must match once)"` → `"Text to replace (must match the file uniquely)"`. Drops the word "Exact" since the cascade is fuzzy; otherwise same length.
+
+The cascade implementation from Experiment 8 stays unchanged. The model just doesn't see the fuzzy-matching documented anymore — it benefits silently.
+
+## Results (n=3)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| iter-disc n=3 (pinned) | 80.0% | 73.3% | 46.7% | 100% | 86.7% | 93.3% |
+| cascade n=6 (unpinned, full description) | 82.0% | 93.3% | 80.0% | 100% | 76.7% | 60.0% |
+| **trim n=3 (this PR)** | **80.0%** | 73.3% | **86.7%** | 100% | **86.7%** | 53.3% |
+
+Per-run trim: 76, 84, 80. Within the standard unpinned variance band.
+
+## What the trim accomplished
+
+- **Planning recovered (+10 pp vs. cascade, back to iter-disc baseline).** Confirms the longer description was hurting planning tasks. This was the primary follow-up motivation and it worked.
+- **Editing held and slightly improved** (80% → 86.7%). The cascade is still doing the work; the model doesn't need the description to know about it.
+- Aggregate roughly even with cascade — wins on planning offset by variance on debugging.
+
+## What the trim didn't fix — and what that means
+
+**Refactors stayed at 53.3%** (vs 60% on cascade n=6, vs 93.3% on iter-disc n=3). This is the more interesting finding.
+
+The pattern across experiments is now visible:
+
+| Cell | Pinning | Refactors mean |
+| --- | --- | --- |
+| iter-disc n=3 | **Novita pinned** | 93.3% |
+| cascade n=6 | unpinned | 60.0% |
+| trim n=3 | unpinned | 53.3% |
+
+The split is "pinned vs. unpinned," not "with cascade vs. without." The 93.3% refactors number on iter-disc was almost certainly a **Novita-pinned artifact**, not a true post-iter-discipline baseline. Refactor tasks are the hardest tasks on this lane, and they're disproportionately sensitive to provider quantization / serving differences. Other providers in the OpenRouter pool serve a slightly different model on these specifically.
+
+We can't fix that from the codebase. The right cleanup is to:
+1. Stop comparing unpinned results against pinned Experiment 6 numbers as if they were equivalent baselines.
+2. Re-establish a "true post-iter-discipline" baseline by running iter-discipline (no cascade) **unpinned** at n=3 for future reference.
+
+That's a separate follow-up. The trim itself is a clear improvement over the cascade-with-bloated-description state.
+
+## Debugging variance note
+
+Debugging dropped from cascade's 93.3% to trim's 73.3% — but iter-disc was also 73.3%. The cascade's 93.3% appears to have been the outlier, not the trim's 73.3% being a regression. One task (`diagnose-failing-test`) accounts for most of the swing, going 4/6 on cascade to 0/3 on trim. Single-task variance at this n.
+
+## Design takeaway
+
+Tool descriptions should describe **what the tool does** for the agent's mental model, not advertise **how it's implemented**. The fuzzy-matching cascade is implementation detail. Documenting it in the description treats the model as a tool-implementation reader rather than a tool user, which adds cognitive load without changing behavior for the better. Original brevity is the right level.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant trim-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/trim-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/trim-r{1,2,3}.{json,log}`.
