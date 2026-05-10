@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   ToolRegistry,
   createReadFileTool,
@@ -14,6 +16,7 @@ import { createGetDependenciesTool } from "./get-dependencies.js";
 import { createReadSymbolTool } from "./read-symbol.js";
 import { createFindPathTool } from "./find-path.js";
 import { createSearchCodeMapTool } from "./search-code-map.js";
+import { buildPostEditDiagnostic } from "./post-edit-diagnostics.js";
 
 export { ToolRegistry };
 
@@ -48,8 +51,14 @@ export function createToolRegistry(
     ? {
         afterWrite: (relPath: string, content: string) =>
           reindexBestEffort(projectIndex, relPath, content),
-        afterEdit: (relPath: string, content: string) =>
-          reindexBestEffort(projectIndex, relPath, content),
+        afterEdit: async (
+          absPath: string,
+          content: string,
+        ): Promise<string | undefined> => {
+          const relPath = path.relative(config.workspaceRoot, absPath);
+          await reindexBestEffort(projectIndex, relPath, content);
+          return await buildPostEditDiagnostic(absPath, config.workspaceRoot);
+        },
         afterCommand: async () => {
           await projectIndex.refreshFromWorkspace();
         },
