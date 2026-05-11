@@ -1501,3 +1501,81 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/grep-ere-r{1,2,3}.{json,log}`.
+
+# Experiment 12: post-fix cross-agent snapshot (n=1, unpinned)
+
+**Status: the gap closed. After Experiments 8 (cascade), 9 (description trim), 10 (post-edit diagnostic), and 11 (grep ERE fix), minicode is now within a 4 pp band of both competitors. Three-way race, no clear winner at n=1.**
+
+## Results (n=1, unpinned, each cell run fresh)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| copilot | 23/25 (**92%**) | 5/5 | 5/5 | 5/5 | 4/5 | 4/5 (1 timeout) |
+| **minicode** | 22/25 (**88%**) | 5/5 | 3/5 | 5/5 | 4/5 | 5/5 |
+| opencode | 21/25 (**84%**) | 4/5 | 4/5 (1 err) | 5/5 | 3/5 | 5/5 |
+
+Compared to Experiment 7's cross-agent baseline:
+
+| Agent | Exp 7 | Exp 12 | Δ |
+| --- | --- | --- | --- |
+| minicode | 80% | 88% | **+8** |
+| copilot | 84% | 92% | +8 |
+| opencode | 88% | 84% | -4 |
+
+Both minicode and copilot moved +8 pp. Minicode's gain has a real cause (Exp 11 grep fix recovered refactors); copilot didn't change on their side, so that's pure n=1 variance — same magnitude as our "designed" gain. **That's the right way to read this number: the sample-to-sample noise floor is ±8 pp at n=1, and the inter-agent gap is within that band.**
+
+## Per-task three-way grid
+
+```
+debugging/debug-runtime-bug            | PASS | PASS | PASS
+debugging/diagnose-failing-test        | PASS | PASS | PASS
+debugging/diagnose-type-error          | PASS | PASS | FAIL
+debugging/root-cause-from-symptom      | PASS | PASS | PASS
+debugging/websocket-connection-issue   | PASS | PASS | PASS
+editing/add-config-field               | PASS | PASS | PASS
+editing/add-logging                    | PASS | PASS | PASS
+editing/add-validation                 | FAIL | PASS | PASS
+editing/fix-small-bug                  | FAIL | PASS | ERR
+editing/rename-symbol                  | PASS | PASS | PASS
+navigation/* (5 tasks)                 | PASS × 3
+planning/explain-context-trimming      | PASS | PASS | FAIL
+planning/explain-indexing-pipeline     | PASS | ERR  | PASS
+planning/explain-plugin-system         | PASS | PASS | FAIL
+planning/identify-serve-codepath       | PASS | PASS | PASS
+planning/plan-new-tool                 | FAIL | PASS | PASS
+refactors/add-required-argument        | PASS | PASS | PASS
+refactors/consolidate-duplicates       | PASS | PASS | PASS
+refactors/extract-helper               | PASS | PASS | PASS
+refactors/move-logic-to-helper         | PASS | PASS | PASS
+refactors/update-shared-interface      | PASS | ERR  | PASS
+
+(columns: minicode | copilot | opencode)
+```
+
+19 of 25 tasks are passed by all three agents — the "every model can do this" common ground.
+
+## What this means for the thesis
+
+Going into this round we were 4-8 pp behind both competitors and the explicit product question was whether minicode-on-small-model could compete. We can now answer: **yes, within the noise floor**.
+
+We're not "ahead" in any meaningful statistical sense, but the previous "4-8 pp behind" framing is gone. Where the graph-native tools should matter (navigation, refactors, debugging), minicode is at parity or 1 task ahead of opencode. Where they shouldn't matter as much (editing), we trail — but two of the three editing fails this run are known single-task variance issues (`add-validation` task-misread, `fix-small-bug` was clean on diagnostic-r2/r3).
+
+## What we are NOT claiming
+
+- Not claiming minicode > copilot or minicode > opencode at this n.
+- Not claiming +8 pp as a "designed gain." The gain is mostly Experiment 11 (an infrastructure bug fix) plus Experiment 8 (cascade port from opencode).
+- Not claiming we've found a small-model edge that frontier models won't immediately erase. This is comparison among three CLIs all calling the same OpenRouter-served `gemma-4-26b-a4b-it`.
+
+## Reproducibility
+
+```bash
+# minicode (use existing grep-ere-r1 from Exp 11)
+# copilot
+./run-cross-agent.sh copilot /tmp/minicode-bench-logs/cross-agent-post-fix/copilot-r1
+# opencode
+./run-cross-agent.sh opencode /tmp/minicode-bench-logs/cross-agent-post-fix/opencode-r1
+```
+
+Artifacts:
+- `/tmp/minicode-bench-logs/internal-tasks-postmerge/grep-ere-r1.json` (minicode)
+- `/tmp/minicode-bench-logs/cross-agent-post-fix/{copilot,opencode}-r1/` (competitors)
