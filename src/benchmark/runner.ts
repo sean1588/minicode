@@ -6,7 +6,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -35,6 +35,25 @@ const COPY_SKIP_NAMES = new Set([
   "build",
   "coverage",
 ]);
+
+/**
+ * Narrow symlinks (relative to the source workspace) injected into the
+ * isolated workspace after the bulk copy. Goal: make `tsc --noEmit`
+ * resolve types for the post-edit diagnostic, *without* enabling the
+ * full test runner.
+ *
+ * - `node_modules/@types` lets tsc resolve `@types/node` etc. (the
+ *   typescript binary itself runs from the source workspace and finds
+ *   its lib files relative to its own install location, so we don't
+ *   need to symlink it into the temp tree.)
+ *
+ * We intentionally do NOT symlink `node_modules/.bin` or general deps,
+ * so commands like `npm test` fail fast with "tsc: not found" rather
+ * than running the full pretest+test suite and burning per-task
+ * tool-call budget on infrastructure noise. See benchmarks/RESULTS for
+ * the symlink scope conversation.
+ */
+const SYMLINK_FROM_SOURCE: ReadonlyArray<string> = ["node_modules/@types"];
 
 export interface RunnerOptions {
   /** Model client to use. */
@@ -97,6 +116,32 @@ function shouldCopyPath(src: string): boolean {
   return !COPY_SKIP_NAMES.has(name);
 }
 
+async function linkSharedDirs(
+  sourceRoot: string,
+  workspaceRoot: string,
+): Promise<void> {
+  for (const rel of SYMLINK_FROM_SOURCE) {
+    const sourcePath = path.join(sourceRoot, rel);
+    try {
+      const s = await stat(sourcePath);
+      if (!s.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const linkPath = path.join(workspaceRoot, rel);
+    // Ensure parent dir exists — e.g. `node_modules/@types` requires
+    // `node_modules/` to be created first (we don't bulk-copy it).
+    await mkdir(path.dirname(linkPath), { recursive: true });
+    try {
+      await symlink(sourcePath, linkPath, "dir");
+    } catch {
+      // Best-effort: a parent path may not exist or the link target
+      // already does. Skip silently — tools that need these resolve
+      // to a useful error if missing.
+    }
+  }
+}
+
 async function prepareTaskWorkspace(
   task: BenchmarkTask,
   options: RunnerOptions,
@@ -116,6 +161,8 @@ async function prepareTaskWorkspace(
     recursive: true,
     filter: shouldCopyPath,
   });
+
+  await linkSharedDirs(sourceWorkspaceRoot, isolatedWorkspaceRoot);
 
   return {
     sourceWorkspaceRoot,
