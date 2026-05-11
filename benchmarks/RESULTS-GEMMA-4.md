@@ -1579,3 +1579,97 @@ We're not "ahead" in any meaningful statistical sense, but the previous "4-8 pp 
 Artifacts:
 - `/tmp/minicode-bench-logs/internal-tasks-postmerge/grep-ere-r1.json` (minicode)
 - `/tmp/minicode-bench-logs/cross-agent-post-fix/{copilot,opencode}-r1/` (competitors)
+
+# Experiment 13: narrow `node_modules/@types` symlink + calm-routing baseline
+
+**Status: methodology fix landed (PR #197). The post-edit diagnostic from Experiment 10 was effectively a no-op on the benchmark suite this whole time — the temp workspace had no `node_modules`, so `tsc` failed silently on every edit. n=3 with the fix landed at 84/88/84 (mean 85.3%). Macro number is flat vs. grep-ERE baseline; mechanism now actually fires.**
+
+## The bug Experiment 10's diagnostic had been quietly hitting
+
+Tracing the 3 minicode-only failures from Experiment 12's cross-agent snapshot, I dumped the actual `edit_file` output for `editing/fix-small-bug`. The model had made a structurally invalid edit (deleted the `totalCount` declaration but still referenced it in two places). Two TS18004 errors. The diagnostic block from Experiment 10's `<diagnostics>` mechanism should have surfaced them. The output was just "Updated successfully" — no block.
+
+Reproduced locally: `tsc --noEmit` in the temp workspace fails immediately with `error TS2688: Cannot find type definition file for 'node'.` and exits with code 2. The diagnostic helper's parser doesn't match that generic line (no `file(line,col)` prefix), so it silently returns no diagnostics.
+
+The cause is that the benchmark runner had `node_modules` in `COPY_SKIP_NAMES`:
+
+```ts
+const COPY_SKIP_NAMES = new Set([".git", "node_modules", "dist", "build", "coverage"]);
+```
+
+So every benchmark temp workspace was missing dependencies. `tsc` can't resolve `@types/node`. `npm test` can't find tooling. The few times Experiment 10's diagnostic appeared to fire (on `diagnostic-r1`'s fix-small-bug), the model had run `npm install` earlier in the task, which made tsc workable from then on. Otherwise: silent no-op.
+
+## Fix (PR #197)
+
+Symlink only `node_modules/@types` into each temp workspace after the bulk copy:
+
+```ts
+const SYMLINK_FROM_SOURCE: ReadonlyArray<string> = ["node_modules/@types"];
+```
+
+Why narrow:
+- `node_modules/@types` is enough for `tsc` to resolve `@types/node` and other type packages.
+- The `typescript` binary itself runs from the source workspace (via `require.resolve("typescript/bin/tsc")`) and finds its lib files relative to its own install location — so we don't need to symlink it into the temp tree.
+- We deliberately do NOT symlink `node_modules/.bin` or general deps. `npm test` etc. still fail fast (~1-2s, "tsc: not found"), so the model doesn't burn per-task tool-call budget on full test-suite runs.
+
+A first pass symlinked the entire `node_modules` directory; that fixed tsc but turned `npm test` into a real 30s+ command burning ~50KB of test output and wiping per-task budget. The narrow scope gives tsc what it needs without enabling the test runner.
+
+Verified end-to-end in a fresh temp workspace: broken edit to `code-map.ts` surfaces a `<diagnostics file="...">` block with the expected TS18004 errors. Without the symlink the helper returns undefined silently.
+
+## Results (n=3, unpinned, calm routing)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| trim baseline (Exp 9) | 80.0% | 73.3% | 86.7% | 100% | 86.7% | 53.3% |
+| grep-ERE (Exp 11) | 85.3% | 93.3% | 73.3% | 100% | 80.0% | 80.0% |
+| **fresh n=3 (this)** | **85.3%** | **100%** | 80.0% | 100% | 80.0% | 66.7% |
+
+Per-run: 84, 88, 84. Variance band tightened to ±4 pp (provider routing was calm — average 1 provider-side failure per run, vs. 3-11/run on the prior bad evening).
+
+**Debugging hit a clean 5/5 in every run** for the first time. Probably composite — better routing today plus the grep-ERE fix making content searches actually return results.
+
+**Editing dipped to 80%** (vs. 86.7% on trim) — that single point is mostly `editing/add-validation` task-misread and `editing/fix-small-bug` once tripping on a provider issue. Same shape across all prior runs; not a regression caused by this change.
+
+**Refactors at 66.7%** (vs. 80% on grep-ERE n=3) — within the variance band. `extract-helper` and `consolidate-duplicates` still loop intermittently despite the grep fix; we no longer believe this is the search-bug issue (Sub-shape C re-opened in the failure taxonomy).
+
+## Diagnostic activation now that it actually fires
+
+Across n=3:
+- 14 total `edit_file` calls
+- 2 surfaced a `<diagnostics>` block (both on `editing/add-validation`, run 1)
+- 0 of those surfacings led to the task passing — the model loop-guarded trying to verify the edit
+
+The diagnostic now fires correctly when there are real TS errors. The model doesn't always use it productively. Looking at `add-validation` run 1: the model wrote a test file, ran the (failing) test suite multiple times, made the edit, saw the diagnostic block, then exhausted tool calls re-reading the file to verify. That's an over-investigation pattern (Sub-shape A again), not a diagnostic-doesn't-fire problem.
+
+## What this means for Experiment 10's framing
+
+Experiment 10 shipped the post-edit diagnostic with the framing "mechanism works, activation rate is the limiting factor." That framing was *more* correct than we knew: the activation rate observed (~3 surfaces in n=3) was an upper bound dominated by the few tasks where the model accidentally bootstrapped node_modules itself. Real activation across n=3 here is similar magnitude (2 surfaces) — so the original conclusion holds, just for a different reason than we thought.
+
+Net: the diagnostic continues to be a feature we can defend for real-world users (who have node_modules in their workspace) while honestly reporting that its impact on this benchmark lane is bounded by activation rate, not by mechanism.
+
+## What we know with confidence after Experiments 11+13
+
+- **Search tool now matches ripgrep semantics** on machines without rg. The "0 hits on alternation regex" silent failure is gone.
+- **Benchmark workspaces now resemble real ones** enough for tsc to type-check, without enabling the full test runner.
+- **Post-edit diagnostic fires** when an edit introduces a parseable TS error in the touched file.
+- **None of these moved the aggregate number** at n=3 unpinned in the 80-90% band. The product story remains: minicode is competitive with copilot and opencode on small models within variance.
+
+## Open failure modes after this cleanup
+
+- `consolidate-duplicates` (3 failures across n=3) and `extract-helper` (2/3) on refactors — both loop-guard trips on semantically-similar searches. Same Sub-shape C signature, but the grep fix doesn't address it; the model writes 5+ variants of the same intent and the loop-guard catches a fingerprint match before convergence.
+- `add-validation` (2/3) — single-task task-misread, distinct pattern.
+- Provider-side failures (`<|tool_call>` markup leakage, empty responses) — ~1/run on a calm day, more on a bad routing day. Out of our control.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant fresh-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/fresh-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/fresh-r{1,2,3}.{json,log}`.
