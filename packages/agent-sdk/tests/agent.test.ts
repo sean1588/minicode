@@ -517,6 +517,69 @@ test("agent passes cacheableSystem: true by default and accumulates cachedInputT
   assert.equal(result.usage?.inputTokens, 210);
 });
 
+test("agent uses static prompt when enableDynamicPrompt is absent from config", async () => {
+  // Regression test for PR #138's incomplete fix. The CLI's loadAgentConfig
+  // explicitly sets enableDynamicPrompt: false, but external SDK consumers
+  // and the benchmark script were leaving the field undefined. Previously
+  // the agent used `!== false` semantics for the dynamic check, which
+  // routed `undefined` to `true` — so any consumer relying on the
+  // documented default (off) silently got dynamic prompts on.
+  //
+  // After fix: an absent field must route to static prompts (built once,
+  // reused across steps), matching what the CLI/serve callers already do.
+  const buildSystemPromptCalls: number[] = [];
+  let callIndex = 0;
+
+  const stepResponses = [
+    {
+      text: "Step 1",
+      toolCalls: [{ id: "t1", name: "echo_tool", input: { value: "a" } }],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 100, outputTokens: 10 },
+    },
+    {
+      text: "Step 2",
+      toolCalls: [{ id: "t2", name: "echo_tool", input: { value: "b" } }],
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 100, outputTokens: 10 },
+    },
+    {
+      text: "Final",
+      toolCalls: [],
+      stopReason: "end_turn" as const,
+      usage: { inputTokens: 100, outputTokens: 10 },
+    },
+  ];
+
+  const client: ModelClient = {
+    async chat() {
+      const next = stepResponses[callIndex++];
+      if (!next) throw new Error("ran out of queued responses");
+      return next;
+    },
+  };
+
+  // createTestAgentConfig deliberately does NOT set enableDynamicPrompt,
+  // mirroring the benchmark + external-consumer code path.
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: client,
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+    buildSystemPrompt: () => {
+      buildSystemPromptCalls.push(callIndex);
+      return "STATIC PROMPT";
+    },
+  });
+
+  await agent.runTurn("Hello");
+
+  assert.equal(
+    buildSystemPromptCalls.length,
+    1,
+    "absent enableDynamicPrompt should default to static — buildSystemPrompt must run exactly once across multiple steps, not on every turn",
+  );
+});
+
 test("agent passes cacheableSystem: false when enableDynamicPrompt is enabled", async () => {
   const cacheableSystemFlags: Array<boolean | undefined> = [];
   const client: ModelClient = {

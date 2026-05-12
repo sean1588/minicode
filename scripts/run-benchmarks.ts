@@ -180,6 +180,12 @@ export function buildConfig(options: BuildBenchmarkConfigOptions = {}): AgentCon
     maxToolOutputChars: getNumberSetting(getShellOverride("MAX_TOOL_OUTPUT_CHARS"), fileConfig.maxToolOutputChars, 8000),
     openAiBaseUrl,
     ...(openAiApiKey ? { openAiApiKey } : {}),
+    // Explicit match to the loadAgentConfig default so benchmark runs see
+    // the same static-system-prompt behavior that real CLI/serve users
+    // get. Omitting this routes through the SDK fallback in agent.ts and,
+    // depending on its semantics, may flip behavior unintentionally — see
+    // PR #138 follow-up for the original issue.
+    enableDynamicPrompt: false,
   };
 }
 
