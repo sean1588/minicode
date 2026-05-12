@@ -462,6 +462,69 @@ function parseOpenAICompatibleToolArguments(
   return {};
 }
 
+/**
+ * Some upstream OpenAI-compatible providers (Novita observed most often)
+ * fail to extract tool calls from gemma's internal channel format and
+ * leak the raw markup into the `content` field instead — e.g.
+ *
+ *   <|tool_call>call:search{pattern:<|"|>typescriptPlugin<|"|>}<tool_call|>
+ *
+ * Without recovery, the agent sees zero tool calls and exits the turn,
+ * which surfaces as "model returned no tool calls" failures (~1/run on
+ * calm routing, several/run on bad days). When the structured tool_calls
+ * field is empty but content matches this exact format, we extract the
+ * call and convert it to a synthetic structured tool call.
+ *
+ * Strict, anchored matching — must start with `<|tool_call>` or `call:`
+ * and end with `<tool_call|>`. Channel markers do not appear in normal
+ * model text, so false-positive risk is low. Returns null if the input
+ * does not match.
+ */
+function tryRecoverLeakedToolCall(content: string): ToolCall | null {
+  const trimmed = content.trim();
+  if (trimmed.length === 0) return null;
+
+  const stripped = trimmed.startsWith("<|tool_call>")
+    ? trimmed.slice("<|tool_call>".length)
+    : trimmed;
+
+  const shellMatch = stripped.match(/^call:(\w+)\{([\s\S]*)\}<tool_call\|>\s*$/);
+  if (!shellMatch) return null;
+  const [, name, argsBody] = shellMatch;
+  if (!name || argsBody === undefined) return null;
+
+  const argRegex = /(\w+):<\|"\|>([\s\S]*?)<\|"\|>(?:,|$)/g;
+  const input: Record<string, unknown> = {};
+  let matched = false;
+  let m: RegExpExecArray | null;
+  while ((m = argRegex.exec(argsBody)) !== null) {
+    const key = m[1];
+    const value = m[2];
+    if (key === undefined || value === undefined) continue;
+    input[key] = value;
+    matched = true;
+  }
+  if (!matched) return null;
+
+  return {
+    id: "leaked-tool-call",
+    name,
+    input,
+  };
+}
+
+function applyLeakedToolCallRecovery(response: ModelResponse): ModelResponse {
+  if (response.toolCalls.length > 0) return response;
+  const recovered = tryRecoverLeakedToolCall(response.text);
+  if (!recovered) return response;
+  return {
+    ...response,
+    text: "",
+    toolCalls: [recovered],
+    stopReason: "tool_use",
+  };
+}
+
 function parseOpenAICompatibleResponse(
   response: OpenAICompatibleCompletionResponse,
 ): ModelResponse {
@@ -490,7 +553,7 @@ function parseOpenAICompatibleResponse(
 
   const cachedTokens = response.usage?.prompt_tokens_details?.cached_tokens;
 
-  return {
+  return applyLeakedToolCallRecovery({
     text: (message.content ?? "").trim(),
     toolCalls,
     stopReason,
@@ -501,7 +564,7 @@ function parseOpenAICompatibleResponse(
         ? { cachedInputTokens: cachedTokens }
         : {}),
     },
-  };
+  });
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -771,7 +834,7 @@ async function parseOpenAIStream(
           ? "tool_use"
           : "end_turn";
 
-  return {
+  return applyLeakedToolCallRecovery({
     text: content.trim(),
     toolCalls,
     stopReason,
@@ -782,7 +845,7 @@ async function parseOpenAIStream(
         ? { cachedInputTokens: usage.cached_tokens }
         : {}),
     },
-  };
+  });
 }
 
 export class OpenAICompatibleModelClient implements ModelClient {
