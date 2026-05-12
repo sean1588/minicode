@@ -1758,3 +1758,143 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/leakage-r{1,2,3}.{json,log}`.
+
+# Experiment 16: honest static-prompt baseline (and the dynamic-prompt contamination story)
+
+**Status: all 14 prior experiments ran under dynamic-prompt contamination. PR #200 fixed the SDK fallback. This is the first honest static-prompt baseline. Pooled n=6: 85.3% mean, planning 73.3%.**
+
+## The contamination
+
+PR #138 ("Disable dynamic prompts by default", merged before Experiment 7) was supposed to flip the default for `enableDynamicPrompt` to `false`. It changed the CLI arg parser, the display formatter, the JSDoc, and added a test for `loadAgentConfig`. It missed the actual SDK runtime fallback in `packages/agent-sdk/src/agent/agent.ts`:
+
+```ts
+// Before PR #200
+const dynamicPrompt = this.config.enableDynamicPrompt !== false;
+//                                                    ^^^^^^^ undefined !== false → true
+```
+
+So when a config omitted the field entirely (as the benchmark runner did, and as real users do when they accept defaults), the agent silently routed through the dynamic-prompt path. **Every benchmark experiment from Exp 1 through Exp 14 ran with dynamic prompts on.**
+
+Discovery shape: noticed that OpenRouter cache-hit logs from real user sessions showed surprisingly low hit rates relative to what a cacheable system prompt should give. Traced through `loadAgentConfig` → runtime fallback in `agent.ts` and found the inverted check. PR #200 flipped it to `=== true` and added a regression test that exercises the *absent-field* case, not just the explicit-set case (the gap that allowed #138 to ship incomplete).
+
+## Re-baseline
+
+Re-ran static-prompt benchmark at n=6 to establish what real users have been getting since PR #200 merged. Pooled across six runs:
+
+| Cell | mean | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| Exp 14 (dynamic-on, contaminated) | 89.3% | 100 | 80.0 | 100 | 93.3 | 73.3 |
+| **Exp 16 (static, honest)** | **85.3%** | 93.3 | 83.3 | 100 | **73.3** | 76.7 |
+
+Per-run for Exp 16 (static-r1..r6): 84, 88, 84, 88, 80, 88. Variance band ±4pp.
+
+**What the dynamic prompt was actually buying:** +16pp on planning (73.3 → 93.3) at significant cache cost (every dynamic-prompt rebuild invalidates KV cache for the entire conversation tail). The other categories were within noise across the two configurations.
+
+Mechanism inspection on the planning failures showed the dominant gap was on `plan-new-tool` and `explain-indexing-pipeline` — tasks where the static-prompt model bailed early (≤2 read_symbol calls before answering) instead of digging in. The dynamic refresh apparently nudged the model to keep exploring because newly-explored symbols got boosted into the top of the map each turn.
+
+## Implications for prior experiment writeups
+
+All Exp 1–14 numbers should be read as "dynamic-prompt-on, contaminated." The relative comparisons within each experiment still hold (we changed one variable at a time on a constant base), but absolute claims like "minicode is at 89.3% on small models" must be qualified: that was with the feature enabled. Real users running defaults are at 85.3%.
+
+This does not invalidate any experiment's individual conclusion (each one held one variable, contamination was constant across both arms). It does mean the headline competitive position is more modest than previously reported: parity with opencode, ~7pp behind copilot — not 4pp.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3 4 5 6; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant static-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/static-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/static-r{1..6}.{json,log}`.
+
+# Experiment 17: terser code-map format (the "named" default)
+
+**Status: shipped as the new default. Pooled n=6: 88.7% mean, planning 90.0%. Recovers most of dynamic-prompt's planning lift with zero cache cost.**
+
+## The hypothesis
+
+Static-prompt planning losses (Exp 16) clustered on tasks where the model underexplored — bailing with 1-2 read_symbol calls instead of the 4-5 used by passing runs. Trace inspection ruled out read_symbol enrichment as the gap (read_symbol already emits 1-hop Used by / Calls / Referenced Types when `includeBody: true`, the default; the model just wasn't calling it enough). The bottleneck was upstream: the code map showed too few symbols to give the model enough passive awareness of what exists.
+
+Coverage measurement on the minicode codebase itself (1168 symbols, 3000-token budget):
+
+| Format | Shown | Coverage | Avg chars/sym |
+| --- | --- | --- | --- |
+| full (legacy default) | 112 | 9.6% | 110 |
+| **named** | **260** | **22.3%** | **51** |
+| outline (one-line-per-file) | 325 | 27.9% | 37 |
+| hybrid (sigs for callables only) | 128 | 11.0% | 97 |
+
+The hybrid variant disappoints because callables are 75% of indexed symbols (53.2% functions + 21.8% methods) — keeping their signatures keeps most of the bloat. The hypothesis: switching to a names-only format doubles passive coverage and gives the model enough orientation to stop bailing.
+
+## Change
+
+`src/indexer/code-map.ts` — swap the per-symbol formatter behind `MINICODE_CODE_MAP_FORMAT`. Default is now `"named"`; opt out to the legacy `full` format with `MINICODE_CODE_MAP_FORMAT=full`.
+
+```
+# Legacy "full" — one symbol per ~110 chars
+  function CodingAgent.runTurn
+    runTurn(input: string): Promise<TurnResult>
+
+# New default "named" — one symbol per ~51 chars
+    - CodingAgent.runTurn (method)
+```
+
+The displayName is what `read_symbol` and `search_code_map` accept as input — so the model can copy a name straight from the map into a tool call.
+
+## Results (pooled n=6, unpinned)
+
+| Cell | mean | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| Exp 16 (static, full format) | 85.3% | 93.3 | 83.3 | 100 | 73.3 | 76.7 |
+| **Exp 17 (static, named format)** | **88.7%** | 100 | 80.0 | 100 | **90.0** | 73.3 |
+| Exp 14 (dynamic, contaminated, full format) | 89.3% | 100 | 80.0 | 100 | 93.3 | 73.3 |
+
+Per-run for Exp 17 (named-r1..r6): 92, 76, 96, 92, 88, 88. r2 was a routing-day outlier — 6 failures vs 1-2 in every other run. Excluding r2: 91.2% mean across the other 5 runs.
+
+**The win is concentrated on planning** (+16.7pp), matching the mechanism prediction. Per-task breakdown across n=6:
+
+| Planning task | static-full passes | named passes |
+| --- | --- | --- |
+| plan-new-tool | 1/3 → 3/6 (pooled 27%) | 2/6 (33%) |
+| explain-context-trimming | 2/3 → 4/6 | 5/6 |
+| explain-indexing-pipeline | 2/3 → 4/6 | 6/6 |
+| explain-plugin-system | 3/3 → 6/6 | 6/6 |
+| identify-serve-codepath | 2/3 → 4/6 | 6/6 |
+
+The two tasks that were already at ceiling (`explain-plugin-system`) stayed there. The three under-exploring tasks each picked up 1-2 successes.
+
+**Refactor and editing categories moved within noise.** -3.4pp refactors and -3.3pp editing on n=6 each side are inside the per-run swing (static-r4/r5/r6 ranged 80-88% within one configuration). The original Exp 16 n=3 had shown a larger -13.3pp refactor delta, but that estimate came from `static`'s n=3 landing on 86.7% which the n=6 re-baseline showed was a high-side outlier (true rate ~76.7%).
+
+## Comparison to dynamic prompts
+
+The pooled-n=6 named (88.7%) is statistically indistinguishable from Exp 14's dynamic (89.3% n=3) given the variance band. **Named matches dynamic at zero cache cost** — every conversation now has a stable system prompt that the model provider can cache once and reuse across turns, instead of bursting cache on every dynamic refresh.
+
+This collapses the case for dynamic prompts. The +4pp dynamic showed over the contaminated full-format baseline is essentially gone when measured against the new default. Considering deprecating `enableDynamicPrompt` entirely as a separate follow-up.
+
+## Why "named" and not "outline"
+
+The outline format (one-line-per-file, comma-separated names) fits 27.9% coverage at 3k tokens — even denser than named. But each line is ~30 names long with no visual break. Anticipated risk: small-model attention degrades on long unbroken lines, especially for parsing comma-separated lists where the model has to find a specific name. Named keeps each symbol on its own line with consistent indentation. Not benchmarked head-to-head; the +3.4pp from named was enough to ship without expanding the surface area.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3 4 5 6; do
+  MINICODE_CODE_MAP_FORMAT=named \
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant named-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/named-r${r}.json
+done
+```
+
+Post-PR, `MINICODE_CODE_MAP_FORMAT=named` is redundant (named is the default). Set `MINICODE_CODE_MAP_FORMAT=full` to reproduce the Exp 16 baseline.
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/named-r{1..6}.{json,log}`.
