@@ -450,7 +450,12 @@ export class CodingAgent {
       // with the latest focus set so the code map dynamically adapts.
       // By default this stays false, so we build once and cache to keep the
       // prompt prefix stable across turns and improve KV cache hit rates.
-      const dynamicPrompt = this.config.enableDynamicPrompt !== false;
+      // NB: explicit `=== true` so that an absent field (undefined) routes
+      // to false, matching the documented default. PR #138 flipped the CLI
+      // loader's parseBoolean fallback to false but missed this line, which
+      // left every SDK consumer that didn't explicitly set the field
+      // running with dynamic prompts on.
+      const dynamicPrompt = this.config.enableDynamicPrompt === true;
       let systemPrompt: string;
       if (dynamicPrompt || !this.cachedSystemPrompt) {
         const codeMap = this.getCodeMap?.(dynamicPrompt ? this.getFocusSet() : undefined);
