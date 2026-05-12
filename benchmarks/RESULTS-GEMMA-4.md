@@ -1673,3 +1673,88 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/fresh-r{1,2,3}.{json,log}`.
+
+# Experiment 14: defensive recovery of leaked gemma tool-call markup
+
+**Status: mechanism verified by unit tests, runtime path not exercised on this n=3 (routing didn't produce any leakages). Aggregate landed at 89.3% mean — top of variance band — but can't be attributed to the change. Shipped as defensive correctness for real-world users on bad-routing windows.**
+
+## The failure mode
+
+Some upstream OpenAI-compatible providers (Novita observed most often) fail to extract gemma's internal channel-format tool calls and leak the raw markup into the `content` field with empty `tool_calls`:
+
+```
+content: '<|tool_call>call:search{pattern:<|"|>typescriptPlugin<|"|>}<tool_call|>'
+tool_calls: []
+```
+
+Cataloged across all archived benchmark runs: **17 instances across 9 different result files**, all single-call, with two consistent shapes:
+
+- `<|tool_call>call:NAME{...}<tool_call|>` (full channel markup)
+- `call:NAME{...}<tool_call|>` (opening marker stripped by partial provider parsing)
+
+Argument format is consistent: `KEY:<|"|>VALUE<|"|>` separated by `,`, with multi-line values supported (observed in an `edit_file` leakage with newline-containing `new_string` / `old_string` values). `<|tool_call>`, `<|"|>`, and `<tool_call|>` are gemma channel tokens that should never appear in normal model text.
+
+Pre-fix, these leakages surfaced as "model returned no tool calls" failures (~1/run on calm routing, several/run on bad evenings) because the agent loop saw empty `toolCalls` and exited the turn.
+
+## Change
+
+`packages/agent-sdk/src/model/client.ts` — add a defensive recovery step at the end of both `parseOpenAICompatibleResponse` (non-streaming) and the streaming aggregator. When structured `tool_calls` is empty AND `content` matches the strict anchored leakage pattern, extract the call into a synthetic `ToolCall` with id `"leaked-tool-call"` and clear the text:
+
+```ts
+function tryRecoverLeakedToolCall(content: string): ToolCall | null {
+  // strip optional <|tool_call> prefix
+  // match anchored: ^call:(\w+)\{(.*)\}<tool_call\|>\s*$
+  // parse args: (\w+):<|"|>(.*?)<|"|>(?:,|$)
+}
+
+function applyLeakedToolCallRecovery(response: ModelResponse): ModelResponse {
+  if (response.toolCalls.length > 0) return response;
+  const recovered = tryRecoverLeakedToolCall(response.text);
+  if (!recovered) return response;
+  return { ...response, text: "", toolCalls: [recovered], stopReason: "tool_use" };
+}
+```
+
+Three unit tests:
+1. Single-arg leakage (`search { pattern: "typescriptPlugin" }`) → recovered
+2. Multi-arg multi-line leakage (`edit_file` with newline-containing values) → recovered
+3. Regular text that mentions the literal pattern in prose → passes through untouched
+
+The third test is the false-positive guard. Channel-marker presence (`<|"|>`) plus the strict anchor (must end with `<tool_call|>` at end-of-string) makes accidental triggering extremely unlikely.
+
+## Results (n=3, unpinned)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| fresh (Exp 13) | 85.3% | 100 | 80.0 | 100 | 80.0 | 66.7 |
+| **leakage (this)** | **89.3%** | 100 | 80.0 | 100 | 93.3 | 73.3 |
+
+Per-run: 92, 92, 84. Variance band ±4 pp. The 89.3% mean is at the top of the band but cannot honestly be attributed to the change — **across all 75 task results, zero leakages occurred** in this n=3, so the recovery mechanism had no opportunity to fire. The lift is most plausibly upstream-routing fluctuation (e.g. fewer Novita routes today than on Exp 13).
+
+## Why ship anyway
+
+- **Mechanism verified** via unit tests against real leakage patterns from archived traces.
+- **No regression observed** — aggregate beats prior baselines by 4 pp, within variance band.
+- **Real-world value is the point.** Users hitting bad-routing windows where Novita gets multiple consecutive routes will silently see tool calls disappear; this catches them.
+- **False-positive risk is bounded** by strict anchor + channel-marker requirement + the third unit test.
+
+This is the same shape as the post-edit diagnostic (Exp 10): mechanism works, activation rate on this benchmark is bounded by upstream conditions, the feature ships defensively for real users.
+
+## What this closes in the failure taxonomy
+
+The "Malformed tool-call leakage" category in `project_failure_mode_taxonomy.md` is now **defensively addressed**. We didn't fix the upstream provider parsing, but we recover when it happens. Future occurrences should appear in traces as successful tool calls with id `"leaked-tool-call"` instead of as "model returned no response" failures.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant leakage-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/leakage-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/leakage-r{1,2,3}.{json,log}`.

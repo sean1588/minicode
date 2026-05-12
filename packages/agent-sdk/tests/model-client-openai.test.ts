@@ -424,3 +424,129 @@ test("createModelClient returns openai-compatible client", () => {
   const client = createModelClient(config);
   assert.ok(client instanceof OpenAICompatibleModelClient);
 });
+
+test("openai-compatible client recovers leaked gemma tool-call markup", async () => {
+  // Some upstream providers (Novita observed most often) fail to extract
+  // gemma's internal channel-format tool calls from the model output and
+  // leak the raw markup into `content` with an empty `tool_calls` array.
+  // The parser should detect this and recover a structured call.
+  const leaked =
+    '<|tool_call>call:search{pattern:<|"|>typescriptPlugin<|"|>}<tool_call|>';
+
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: leaked, tool_calls: [] },
+          },
+        ],
+        usage: { prompt_tokens: 12, completion_tokens: 8 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+
+  const response = await client.chat({
+    model: "google/gemma-4-26b-a4b-it",
+    system: "",
+    messages: [{ role: "user", content: "find typescriptPlugin" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.stopReason, "tool_use");
+  assert.equal(response.text, "");
+  assert.equal(response.toolCalls.length, 1);
+  assert.equal(response.toolCalls[0]?.name, "search");
+  assert.deepEqual(response.toolCalls[0]?.input, { pattern: "typescriptPlugin" });
+});
+
+test("openai-compatible client recovers multi-arg leaked tool-call markup", async () => {
+  // Multi-arg leakage with multi-line values — the edit_file shape seen in
+  // copilot-desc-r3's editing/add-logging trace.
+  const leaked = [
+    "call:edit_file{new_string:<|\"|>line a\nline b<|\"|>",
+    ",old_string:<|\"|>old line a\nold line b<|\"|>",
+    ",path:<|\"|>src/foo.ts<|\"|>}<tool_call|>",
+  ].join("");
+
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: leaked, tool_calls: [] },
+          },
+        ],
+        usage: { prompt_tokens: 20, completion_tokens: 30 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+
+  const response = await client.chat({
+    model: "google/gemma-4-26b-a4b-it",
+    system: "",
+    messages: [{ role: "user", content: "edit foo.ts" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.toolCalls.length, 1);
+  assert.equal(response.toolCalls[0]?.name, "edit_file");
+  assert.deepEqual(response.toolCalls[0]?.input, {
+    new_string: "line a\nline b",
+    old_string: "old line a\nold line b",
+    path: "src/foo.ts",
+  });
+});
+
+test("openai-compatible client does not mistake regular text for a leaked tool call", async () => {
+  // Strict anchor check: text that mentions tool-call syntax but isn't
+  // a leak should pass through untouched.
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content:
+                'To call the tool, the model would emit something like `call:search{pattern:"x"}`.',
+              tool_calls: [],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 5, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+
+  const response = await client.chat({
+    model: "google/gemma-4-26b-a4b-it",
+    system: "",
+    messages: [{ role: "user", content: "explain tool calls" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.stopReason, "end_turn");
+  assert.equal(response.toolCalls.length, 0);
+  assert.match(response.text, /To call the tool/);
+});
