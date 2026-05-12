@@ -48,9 +48,9 @@ test("buildProjectIndex indexes a Python workspace", async () => {
   assert.ok(index.getSymbol("baz"));
 
   const codeMap = index.getCodeMap();
-  assert.ok(codeMap.text.includes("class Foo"));
-  assert.ok(codeMap.text.includes("def bar"));
-  assert.ok(codeMap.text.includes("def baz"));
+  assert.ok(codeMap.text.includes("Foo (class)"));
+  assert.ok(codeMap.text.includes("bar"));
+  assert.ok(codeMap.text.includes("baz"));
 });
 
 test("verify-index-python fixture exercises the indexing pipeline", async () => {

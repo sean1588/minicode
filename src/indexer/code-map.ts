@@ -19,6 +19,22 @@ function formatSymbol(
   return `${indent}${symbol.kind} ${getSymbolDisplayName(symbol)}\n${indent}  ${symbol.signature}`;
 }
 
+// Terser per-line format: "{indent}- {displayName} ({kind})". Roughly halves
+// the chars/symbol cost vs the legacy full-signature format, doubling
+// coverage at the same token budget. Default since Experiment 17 (May 2026)
+// — pooled n=6 benchmark showed +3.4pp overall and +16.7pp planning vs the
+// full format, matching the dynamic-prompt baseline with zero cache cost.
+// Opt out with MINICODE_CODE_MAP_FORMAT=full.
+function formatSymbolNamed(symbol: IndexedSymbol, indent: string): string {
+  return `${indent}- ${getSymbolDisplayName(symbol)} (${symbol.kind})`;
+}
+
+function selectFormatter(): typeof formatSymbol {
+  return process.env.MINICODE_CODE_MAP_FORMAT === "full"
+    ? formatSymbol
+    : formatSymbolNamed;
+}
+
 function isEntryPointFile(filePath: string): boolean {
   const name = filePath.replace(/\\/g, "/");
   return /(?:^|\/)index\.[jt]sx?$/.test(name);
@@ -122,6 +138,7 @@ export function generateCodeMap(
   );
 
   const lines: string[] = ["# Project Code Map", ""];
+  const formatter = selectFormatter();
   const adjacency = dependencyEdges
     ? buildAdjacencyMaps(dependencyEdges)
     : { byFrom: new Map<string, DependencyEdge[]>(), byTo: new Map<string, DependencyEdge[]>() };
@@ -172,7 +189,7 @@ export function generateCodeMap(
         currentClass = null;
       }
 
-      const block = formatSymbol(symbol, indent, isMethod);
+      const block = formatter(symbol, indent, isMethod);
       const blockTokens = estimateTokens(block);
 
       if (totalTokens + blockTokens > tokenBudget) {

@@ -219,12 +219,29 @@ test("Code map handles empty symbols map", () => {
   assert.ok(result.text.length < 100);
 });
 
+test("Code map honors MINICODE_CODE_MAP_FORMAT=full opt-out", () => {
+  const symbols = typescriptPlugin.indexFile("sample.ts", SAMPLE_TS);
+  const byFile = new Map([["sample.ts", symbols]]);
+
+  const prev = process.env.MINICODE_CODE_MAP_FORMAT;
+  process.env.MINICODE_CODE_MAP_FORMAT = "full";
+  try {
+    const result = generateCodeMap(byFile);
+    // Full format prefixes each non-method symbol with the bare kind keyword
+    // (e.g. "class CodingAgent") and emits a separate signature line.
+    assert.ok(result.text.includes("class CodingAgent"), "full format prefixes class keyword");
+  } finally {
+    if (prev === undefined) delete process.env.MINICODE_CODE_MAP_FORMAT;
+    else process.env.MINICODE_CODE_MAP_FORMAT = prev;
+  }
+});
+
 test("Code map nests methods under class", () => {
   const symbols = typescriptPlugin.indexFile("sample.ts", SAMPLE_TS);
   const byFile = new Map([["sample.ts", symbols]]);
   const result = generateCodeMap(byFile);
 
-  assert.ok(result.text.includes("class CodingAgent"));
+  assert.ok(result.text.includes("CodingAgent (class)"));
   assert.ok(result.text.includes("runTurn"));
   const runTurnLine = result.text.split("\n").find((l: string) => l.includes("runTurn"));
   assert.ok(runTurnLine?.startsWith("    "), "method should be indented under class");
@@ -257,8 +274,18 @@ test("reindexFile updates symbols and code map after file change", async () => {
     "signature should reflect updated params",
   );
 
-  const codeMap = index.getCodeMap();
-  assert.ok(codeMap.text.includes("title?: string"), "code map should reflect new signature");
+  // Verify the code map is regenerated after reindex. The default named
+  // format doesn't include signatures, so we opt into the full format
+  // here to assert the signature change flows through.
+  const prev = process.env.MINICODE_CODE_MAP_FORMAT;
+  process.env.MINICODE_CODE_MAP_FORMAT = "full";
+  try {
+    const codeMap = index.getCodeMap();
+    assert.ok(codeMap.text.includes("title?: string"), "code map should reflect new signature");
+  } finally {
+    if (prev === undefined) delete process.env.MINICODE_CODE_MAP_FORMAT;
+    else process.env.MINICODE_CODE_MAP_FORMAT = prev;
+  }
 });
 
 test("buildProjectIndex preserves colliding top-level symbols with distinct display names", async () => {
@@ -297,8 +324,8 @@ export class Employee {
   assert.equal(employeeInterface!.kind, "interface");
 
   const codeMap = index.getCodeMap();
-  assert.ok(codeMap.text.includes("interface Employee (interface)"));
-  assert.ok(codeMap.text.includes("class Employee (class)"));
+  assert.ok(codeMap.text.includes("Employee (interface)"));
+  assert.ok(codeMap.text.includes("Employee (class)"));
 
   const resolved = index.getSymbol("Employee");
   assert.ok(resolved, "bare lookup should still resolve one of the colliding symbols");
