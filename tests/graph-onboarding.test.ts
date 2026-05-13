@@ -28,10 +28,20 @@ test('built HTML contains #cy graph container', () => {
   const html = readFileSync(join(distWeb, 'index.html'), 'utf-8');
   assert.ok(html.includes('id="cy"'), 'HTML should contain the #cy graph container');
   assert.ok(html.includes('id="graph-pane"'), 'HTML should contain the #graph-pane wrapper');
+  assert.ok(html.includes('href="/favicon.svg"'), 'HTML should link the app favicon');
+  assert.ok(html.includes('href="/favicon.ico"'), 'HTML should link the fallback ICO favicon');
   assert.ok(html.includes('Search symbols or files...'), 'HTML should expose mixed symbol/file search');
   assert.ok(html.includes('id="graph-refresh"'), 'HTML should expose a graph refresh button');
   assert.ok(html.includes('id="file-preview-modal"'), 'HTML should contain the file preview modal shell');
   assert.ok(html.includes('id="file-preview-code"'), 'HTML should contain the file preview code surface');
+});
+
+test('web build copies the favicon asset', () => {
+  const favicon = readFileSync(join(distWeb, 'favicon.svg'), 'utf-8');
+  const fallbackFavicon = readFileSync(join(distWeb, 'favicon.ico'));
+  assert.ok(favicon.includes('<svg'), 'favicon should be an SVG asset');
+  assert.ok(favicon.includes('#38bdf8'), 'favicon should use the minicode graph accent');
+  assert.ok(fallbackFavicon.length > 0, 'fallback favicon should be copied');
 });
 
 test('onboarding hint includes user-facing guidance text in built JS', () => {
