@@ -1898,3 +1898,180 @@ done
 Post-PR, `MINICODE_CODE_MAP_FORMAT=named` is redundant (named is the default). Set `MINICODE_CODE_MAP_FORMAT=full` to reproduce the Exp 16 baseline.
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/named-r{1..6}.{json,log}`.
+
+# Experiment 18: cross-agent re-comparison at honest defaults
+
+**Status: minicode is at parity with copilot and ahead of opencode at the honest, post-contamination snapshot. Same relative position as Exp 12, with a much stronger sample base on the minicode side (n=6 pooled vs n=1).**
+
+## Why re-run
+
+The Exp 12 cross-agent snapshot ran while minicode was silently using dynamic prompts (the PR #138 / #200 contamination story documented in Exp 16). Headline numbers reported there were under the contaminated configuration. Following PR #200 (real dynamic-prompt fix) and PR #201 (named-format default, Exp 17), the natural question is: where does the *honest* minicode sit relative to copilot and opencode?
+
+## Results
+
+| Cell | sample | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **minicode (named default)** | n=6 pooled | **88.7%** | 100 | 80.0 | 100 | 90.0 | 73.3 |
+| copilot | n=1 | 88.0% | 60 | 100 | 100 | 80 | 100 |
+| opencode | n=1 | 80.0% | 60 | 100 | 100 | 40 | 100 |
+
+The minicode side uses the pooled named-r1..r6 from Exp 17 (much tighter variance than n=1). Copilot and opencode are single runs from 2026-05-12 using the same `run-cross-agent.sh` driver and the same `gemma-4-26b-a4b-it` model over OpenRouter.
+
+## Routing-day signal
+
+Both competitors dropped ~4 pp from their Exp 12 baselines (copilot 92 → 88, opencode 84 → 80), in the same direction and same magnitude. Heuristic #5 (variance is mostly upstream-provider routing) suggests today was a slightly worse routing day for everyone — *not* that copilot and opencode independently regressed.
+
+A "calm-day" adjustment puts the apples-to-apples comparison closer to:
+
+| | Calm-day estimate | minicode (pooled) |
+| --- | --- | --- |
+| copilot | ~91-92% | 88.7% (-3 pp) |
+| opencode | ~83-84% | 88.7% (+5 pp) |
+
+Either way, the qualitative story holds: **minicode matches copilot within noise and is several points ahead of opencode**. This is the same gap Exp 12 showed — but now the minicode number is from a clean, statistically tighter measurement instead of a contaminated single run.
+
+## Per-task three-way grid
+
+```
+                                           minicode(n=6)  copilot  opencode
+debugging/debug-runtime-bug                6/6            PASS     PASS
+debugging/diagnose-failing-test            6/6            ERR      FAIL
+debugging/diagnose-type-error              6/6            PASS     PASS
+debugging/root-cause-from-symptom          6/6            FAIL     PASS
+debugging/websocket-connection-issue       6/6            PASS     FAIL
+editing/add-config-field                   6/6            PASS     PASS
+editing/add-logging                        5/6            PASS     PASS
+editing/add-validation                     2/6            PASS     PASS
+editing/fix-small-bug                      5/6            PASS     PASS
+editing/rename-symbol                      6/6            PASS     PASS
+navigation/* (5 tasks)                     6/6 × 5        PASS × 5 PASS × 5
+planning/explain-context-trimming          5/6            PASS     FAIL
+planning/explain-indexing-pipeline         6/6            PASS     PASS
+planning/explain-plugin-system             6/6            PASS     FAIL
+planning/identify-serve-codepath           6/6            PASS     PASS
+planning/plan-new-tool                     4/6            FAIL     FAIL
+refactors/add-required-argument            5/6            PASS     PASS
+refactors/consolidate-duplicates           5/6            PASS     PASS
+refactors/extract-helper                   2/6            PASS     PASS
+refactors/move-logic-to-helper             5/6            PASS     PASS
+refactors/update-shared-interface          5/6            PASS     PASS
+```
+
+## Where each agent's strengths cluster
+
+- **minicode wins decisively on debugging** (5/5 tasks at 6/6 vs copilot's 3/5 and opencode's 3/5 today). All 5 debugging tasks ask "find the bug in this codebase" — exactly where graph navigation pays off. Both competitors missed `root-cause-from-symptom` or `diagnose-failing-test` or `websocket-connection-issue` — tasks where the model has to traverse a chain of references back to the source.
+
+- **minicode wins on planning** (+10 pp vs copilot, +50 pp vs opencode). Five-of-six on most planning tasks, with `plan-new-tool` the only soft spot (4/6 — but copilot and opencode both FAIL it). The named-format coverage win shows here.
+
+- **Editing and refactors are minicode's relative weaknesses** (-20 pp and -27 pp vs both). These tasks have the shape "I already know which function to change, just change it" — the symbol-graph machinery is overhead, not advantage. Both `editing/add-validation` (2/6) and `refactors/extract-helper` (2/6) have known mechanism issues (rubric-sensitivity and loop-guard sub-shape C respectively); neither has been fixed in this branch.
+
+## What this means for the thesis
+
+The case the benchmark work was built to prove — *minicode-on-small-model is competitive with the default agents users would reach for* — now holds with much more rigor than Exp 12 demonstrated:
+
+- Same competitive position (parity copilot, ahead opencode)
+- On the minicode side, the measurement is now n=6 pooled across two sets of three runs spread over two days
+- On the minicode side, the configuration matches what real users actually get (default config, no dynamic prompts, named-format code map)
+
+The honest answer to "where does minicode-on-small-model sit?" is now: **at the front of the pack on debugging and planning, behind on editing and refactors, overall within the variance band of copilot.** That's a real, defensible answer — not a single-run snapshot whose first decimal point depends on which provider OpenRouter routed each call to.
+
+## What we are NOT claiming
+
+- Not claiming a statistically significant minicode > copilot win at this sample size.
+- Not claiming the planning lift seen here proves named-format alone is responsible — the +16.7 pp planning result is from Exp 17's same-day pooled measurement (named vs full), which is the right comparison for attributing the lift.
+- Not claiming any of this generalizes beyond the 25 internal tasks. These were hand-crafted against the minicode codebase; they are explicitly *designed* to surface where graph tools should help. A different repo or task set may show a different distribution.
+
+## Reproducibility
+
+```bash
+./run-cross-agent.sh copilot  /tmp/minicode-bench-logs/cross-agent-post-named/copilot-r1
+./run-cross-agent.sh opencode /tmp/minicode-bench-logs/cross-agent-post-named/opencode-r1
+```
+
+Driver at `/tmp/minicode-bench-logs/internal-tasks/run-cross-agent.sh`. Minicode side is the existing Exp 17 pooled artifacts (`named-r1..r6.json`).
+
+Artifacts: `/tmp/minicode-bench-logs/cross-agent-post-named/{copilot,opencode}-r1/{results.jsonl,*.log}`.
+
+# Experiment 19: gemma-4-26b-a4b ts-bench baseline at current defaults
+
+**Status: 80% on the ts-bench v1 top-25 lane (n=1). At parity with copilot's 80% on the same model and 4 pp behind opencode's 84%. Consistent with the thesis: when blank-workspace tasks neutralize the graph-tool advantage, harness quality dominates, and opencode's harness has a small edge.**
+
+## Why this lane is in scope
+
+ts-bench is the harness-quality lane (see this doc's top thesis section). Exercism-style exercises start from a near-blank workspace; the structural tools that differentiate minicode are exercised on average less than once per task. **If minicode loses badly here, no amount of graph tooling closes the gap for users running local-sized models**, because the harness foundation is already losing before graph tooling starts to pay off.
+
+A `gemma-4-26b-a4b-it` row was previously missing from `benchmarks/ts-bench/RESULTS.md`. This experiment establishes it.
+
+## Results
+
+| Agent | Model | Run | Success | Agent ok | Test ok | Avg dur |
+| --- | --- | --- | --- | --- | --- | --- |
+| **minicode** | `google/gemma-4-26b-a4b-it` | 2026-05-13 | **80%** (20/25) | 23/25 | 20/25 | 62s |
+| copilot | `google/gemma-4-26b-a4b-it` | 2026-05-06 | 80% (20/25) | 21/25 | 21/25 | — |
+| opencode | `openrouter/google/gemma-4-26b-a4b-it` | 2026-05-06 | 84% (21/25) | 23/25 | 21/25 | — |
+
+The "agent ok" column is `the agent returned without erroring out`; "test ok" is `the resulting code passes the exercise's test suite`. Of the 25 tasks today, minicode's agent completed 23 (rejected 2 to a 300s timeout) and 20 of those 23 passed the test suite.
+
+## Per-task today
+
+```
+PASS  accumulate          PASS  diamond
+PASS  acronym             PASS  difference-of-squares
+PASS  all-your-base       PASS  diffie-hellman
+PASS  allergies           FAIL  alphametics       (test fail; agent finished in 3s)
+PASS  anagram             FAIL  beer-song         (test fail; agent finished in 70s)
+PASS  armstrong-numbers   FAIL  binary-search-tree (test fail; agent finished in 25s)
+PASS  atbash-cipher       FAIL  bowling           (agent timeout, 300s)
+PASS  bank-account        FAIL  connect           (agent timeout, 300s)
+PASS  binary-search
+PASS  bob
+PASS  circular-buffer
+PASS  clock
+PASS  collatz-conjecture
+PASS  complex-numbers
+PASS  crypto-square
+PASS  custom-set
+PASS  darts
+```
+
+The two `connect` and `bowling` failures are characteristic of the gemma-4-26b-a4b harness-quality issue: model fails to converge within the per-task wall-clock and the runner exits. The three test-fails reflect the harder logic exercises where the model returned plausible-looking code that doesn't satisfy edge cases.
+
+## Historical context
+
+Eight prior minicode runs on the same model/lane sit in `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-*.json` from 2026-05-05 through 2026-05-07 (the original baseline session). Range: **48% to 84%**, mean ~74%. Today's 80% lands in the upper-middle of that distribution.
+
+The wide historical range (36 pp) reflects three things compounding: (a) provider routing variance (still the dominant noise term), (b) per-task model variance on Exercism logic exercises (the model genuinely flakes on the harder ones), and (c) the 300s per-task agent timeout creating cliff effects where one extra slow turn flips success → ERR. **n=1 on ts-bench is not a tight measurement.** A real conclusion needs at least n=3, ideally n=6 like the internal-task lane.
+
+That said, today's 80% is *not lower* than the historical mean and matches the prior 5 runs that landed at 76-84%. PR #200 + #201 didn't visibly hurt ts-bench performance, which is what we'd hope: the harness improvements that helped on graph-heavy tasks aren't expected to do much on the blank-workspace lane, but they shouldn't regress it either.
+
+## Reading the cross-agent gap
+
+On ts-bench: opencode 84% > minicode 80% = copilot 80%.
+
+This is qualitatively different from the internal-task picture (Exp 18: minicode 88.7% ≥ copilot 88%, both > opencode 80%). The two surfaces are measuring different things:
+
+- **Internal tasks** measure "agent navigates a real codebase to answer/edit." Symbol tools, code map, dependency graph all matter. Minicode's value prop fires.
+- **ts-bench** measures "agent produces correct code in a blank workspace." Graph tools sit idle (specialized tools used <1/task per the thesis). What matters is the harness — system prompt, tool descriptions, edit/test loop, error recovery, loop discipline.
+
+The fact that opencode's harness has a 4 pp edge on ts-bench is *not* news; the original baseline session established this. The fact that minicode is *competitive* (not 20 pp behind) is what makes the internal-tasks story believable. If we were 50% on ts-bench, no amount of graph-tool win on the internal tasks would translate to real users, because the foundation under those tools would be broken.
+
+## What we are NOT claiming
+
+- Not claiming the named-format change moved this number — at n=1 with a 36 pp historical range, we can't attribute today's 80% to anything specific. The right framing is "did not regress, lands in the upper half of historical distribution."
+- Not claiming minicode is at parity with opencode on ts-bench broadly — single-run snapshots could swing either way next time. n=3+ would be needed for that claim. opencode's 84% itself is from a single 2026-05-06 run.
+- Not claiming this matters for a frontier-model user — `gemma-4-26b-a4b` is in the local-class envelope; the comparable opencode + Claude Sonnet 4.6 (96%) and minicode + Claude Sonnet 4.6 (100%, per `benchmarks/ts-bench/RESULTS.md`) sit in a different competitive picture.
+
+## Reproducibility
+
+```bash
+TS_BENCH_MODEL=google/gemma-4-26b-a4b-it \
+TS_BENCH_PROVIDER=openrouter \
+./scripts/run-ts-bench.sh
+```
+
+The wrapper auto-clones ts-bench to `/tmp/ts-bench`, patches it to register minicode as an agent, and runs the v1 top-25 lane. Output JSON lands in `/tmp/ts-bench/results/benchmark-minicode-*.json`.
+
+Artifacts:
+- Today: `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-2026-05-13T01-21-08.json`
+- Driver log: `/tmp/minicode-bench-logs/ts-bench-gemma-r1.log`
+- Historical n=8: `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-2026-05-{05,06,07}*.json`
