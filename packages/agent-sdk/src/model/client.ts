@@ -893,7 +893,8 @@ export class OpenAICompatibleModelClient implements ModelClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "HTTP-Referer": "https://minicode.seanholung.com",
-      "X-Title": "minicode",
+      "X-OpenRouter-Title": "minicode",
+      "X-OpenRouter-Categories": "cli-agent,programming-app",
     };
     const apiKey = this.apiKey?.trim();
     if (apiKey && apiKey.length > 0) {

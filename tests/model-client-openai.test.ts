@@ -89,7 +89,7 @@ test("openai-compatible client sends tool schemas and parses tool calls", async 
   assert.equal(tools[0]?.type, "function");
 });
 
-test("openai-compatible client sends correct app URL in HTTP-Referer header", async () => {
+test("openai-compatible client sends OpenRouter app attribution headers", async () => {
   let capturedHeaders: Record<string, string> = {};
 
   const fetchImpl: typeof fetch = async (_input, init) => {
@@ -127,7 +127,8 @@ test("openai-compatible client sends correct app URL in HTTP-Referer header", as
     "https://minicode.seanholung.com",
     "HTTP-Referer should point to minicode.seanholung.com",
   );
-  assert.equal(capturedHeaders["X-Title"], "minicode");
+  assert.equal(capturedHeaders["X-OpenRouter-Title"], "minicode");
+  assert.equal(capturedHeaders["X-OpenRouter-Categories"], "cli-agent,programming-app");
 });
 
 test("openai-compatible client repairs missing tool results before sending", async () => {

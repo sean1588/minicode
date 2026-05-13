@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "description": "A coding agent for mini models",
+  "homepage": "https://minicode.seanholung.com",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

@@ -22,8 +22,10 @@ await build({
   sourcemap: false,
 });
 
-// Copy static assets (HTML, CSS)
+// Copy static assets (HTML, CSS, favicon)
 cpSync("src/web/index.html", path.join(outDir, "index.html"));
 cpSync("src/web/style.css", path.join(outDir, "style.css"));
+cpSync("src/web/favicon.svg", path.join(outDir, "favicon.svg"));
+cpSync("src/web/favicon.ico", path.join(outDir, "favicon.ico"));
 
 console.log("Web build complete → dist/src/web/");
