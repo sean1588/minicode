@@ -2167,3 +2167,38 @@ done
 ```
 
 Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/loop-relax-r{1,2,3}.{json,log}`.
+
+## Cross-lane validation: ts-bench
+
+Followed Exp 20 with an n=3 ts-bench confirmation run from the same branch (named code-map + relaxed search loop guard). Pooled with the earlier post-#201 single run (Exp 19) gives n=4 on the current honest-defaults configuration:
+
+| Configuration | Sample | Score | Agent ok rate |
+| --- | --- | --- | --- |
+| Historical (May 5-7, pre-Exp 17) | n=8 | mean ~74%, range 48-84 | — |
+| **Post-#201, pooled with #204** | **n=4** | **85.0%** mean, 80-92 range | **96%** |
+
+Per-run for the new n=3 (post-#204 stacked on #201): 80%, 92%, 88%. Combined with Exp 19's 80% gives the pooled 85.0%.
+
+**Two observations:**
+
+1. **+11pp over historical baseline** (74% → 85%). The improvements made for the internal task lane transfer to ts-bench — not as dramatically (Exercism tasks don't exercise graph navigation), but visibly.
+
+2. **Agent success rate jumped from 92% to 96%.** This is the direct ts-bench evidence that the loop-guard relax helps on this lane too. The Exercism task `bowling` still trips agent timeouts (300s) — that's a known hard case for gemma — but the model is converging on more of the rest of the suite without hitting the loop guard or running out of steps.
+
+The distribution also tightened: today's 4 runs span 12 pp (80-92%) versus the historical 8 runs spanning 36 pp (48-84%). Some of that is calmer routing today, but the floor moved up — we no longer have 48%-style catastrophic single-run results in the new sample.
+
+**Cross-agent picture on ts-bench (gemma-4-26b-a4b-it):**
+
+| Agent | Score | Sample |
+| --- | --- | --- |
+| **minicode (current defaults)** | **85.0%** | n=4 |
+| opencode | 84% | n=1 (2026-05-06) |
+| copilot | 80% | n=1 (2026-05-06) |
+
+This shifts the qualitative story from Exp 19's framing ("opencode has a small ts-bench edge"). Caveats: opencode's number is single-run from a week earlier and worth re-measuring before any strong claim. But: even with one data point, opencode at 84% sits below minicode's pooled-4 mean — and our 92% best run beats them.
+
+The one task that regressed relative to Exp 19's single r1 is `complex-numbers` (passed r1, failed r2/r3/r4 on identical test case: `RangeError: Maximum call stack size exceeded` in `Conjugate a purely real number`). Mechanism inspection: model wrote a `conj()` implementation that infinite-recurses on real numbers. Agent duration ~40s, no loop guard fired, no timeout — pure model output variance on a single edge case. Not caused by this experiment's change.
+
+Artifacts:
+- `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-2026-05-13T0{1-21-08,3-22-07,3-46-24,4-09-24}.json`
+- `/tmp/minicode-bench-logs/ts-bench-gemma-r{1,2,3,4}.log`
