@@ -23,14 +23,39 @@ test("truncateToolOutput never truncates read_file even over maxChars", () => {
   assert.equal(out, big);
 });
 
-test("truncateToolOutput run_command keeps tail with self-identifying footer", () => {
+test("truncateToolOutput run_command keeps both head and tail with self-identifying footer", () => {
   const lines = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n");
   const out = truncateToolOutput("run_command", lines, 200);
-  // Tail is preserved (errors/results live there).
+  // Tail is preserved (errors/results live there for normal failures).
   assert.match(out, /line 200$/);
+  // Head is ALSO preserved — for runaway outputs (infinite loops etc),
+  // the diagnostic pattern lives at the start. A tail-only split hides
+  // it. See the failure-mode analysis from the 2026-05-13 CCBench
+  // investigation: gemini-3-flash's Lox interpreter wrote an infinite
+  // loop, the program emitted 4.3 MB of integers, and a tail-heavy
+  // truncation showed the model only "more integers" — never the start.
+  assert.match(out, /^line 1\n/);
   // Footer identifies the layer and the tool.
   assert.match(out, /agent-level truncation/);
   assert.match(out, /run_command/);
+});
+
+test("truncateToolOutput run_command flags pathologically large omissions", () => {
+  // Output that's >10× the budget gets an extra hint that runaway
+  // output is a likely cause. The model should be steered to examine
+  // the head, not just trust the tail.
+  const huge = "x".repeat(50_000);
+  const out = truncateToolOutput("run_command", huge, 1000);
+  assert.match(out, /runaway output|infinite loop|recursion|excessive logging/);
+});
+
+test("truncateToolOutput run_command does NOT flag normal-sized omissions", () => {
+  // Output only slightly over the budget gets the plain truncation
+  // footer — no runaway hint, since "small overrun" is the common case
+  // (a normal command with a long-but-bounded output).
+  const modest = "y".repeat(1500);
+  const out = truncateToolOutput("run_command", modest, 1000);
+  assert.doesNotMatch(out, /runaway output/);
 });
 
 test("truncateToolOutput search keeps head with line count and remediation hint", () => {
