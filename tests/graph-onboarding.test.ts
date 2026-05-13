@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const distWeb = join(import.meta.dirname, '..', 'dist', 'src', 'web');
+const graphSource = join(import.meta.dirname, '..', 'src', 'web', 'graph.ts');
 
 test('built CSS contains graph-onboarding styles', () => {
   const css = readFileSync(join(distWeb, 'style.css'), 'utf-8');
@@ -95,6 +96,24 @@ test('built JS auto-opens symbol details for agent activity and graph search sel
   assert.ok(
     js.includes('await showDetail(node, detailEl)'),
     'JS should populate the symbol detail panel when focus requests it',
+  );
+});
+
+test('symbol selection keeps the current graph viewport instead of fitting the canvas', () => {
+  const source = readFileSync(graphSource, 'utf-8');
+  const showDetailStart = source.indexOf('async function showDetail');
+  const loadSourceStart = source.indexOf('async function loadSource');
+  assert.ok(showDetailStart >= 0, 'graph source should define showDetail');
+  assert.ok(loadSourceStart > showDetailStart, 'graph source should define loadSource after showDetail');
+
+  const showDetailBody = source.slice(showDetailStart, loadSourceStart);
+  assert.ok(
+    showDetailBody.includes('syncDetailPanelLayout();'),
+    'showDetail should resize Cytoscape without changing pan/zoom',
+  );
+  assert.ok(
+    !showDetailBody.includes('syncDetailPanelLayout({ fit: true })'),
+    'showDetail should not fit the graph when a symbol is selected',
   );
 });
 
