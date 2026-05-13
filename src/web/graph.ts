@@ -1248,9 +1248,9 @@ async function showDetail(node: CyCollection, detailEl: HTMLElement): Promise<vo
 
   detailEl.innerHTML = '<div class="resize-handle"></div>' + html;
   detailEl.classList.remove('hidden');
-  // Shrink the cytoscape canvas to make room for the panel and re-fit so
-  // any nodes the panel just covered get repacked into the visible area.
-  syncDetailPanelLayout({ fit: true });
+  // Shrink the Cytoscape canvas to make room for the panel without changing
+  // the user's current pan/zoom. Selection should not implicitly reset view.
+  syncDetailPanelLayout();
 
   // Setup resize handle drag
   const handle = detailEl.querySelector('.resize-handle') as HTMLElement;
