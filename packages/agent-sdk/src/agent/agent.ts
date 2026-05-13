@@ -72,6 +72,20 @@ function isStateSensitiveFingerprint(fingerprint: string): boolean {
   return STATE_SENSITIVE_TOOLS.has(toolName);
 }
 
+/**
+ * How many identical tool-call fingerprints in the rolling window before
+ * the loop guard fires. Default is 3 — three literal repeats with no
+ * variation is a strong "model is stuck" signal for most tools. `search`
+ * gets a higher threshold (4) because regex-fishing legitimately emits
+ * many pattern variants and occasionally revisits one; a stricter
+ * threshold misclassifies real exploration as a loop (Sub-shape C in the
+ * failure taxonomy — see refactors/extract-helper traces).
+ */
+function getRepeatThreshold(toolName: string): number {
+  if (toolName === "search") return 4;
+  return 3;
+}
+
 function clearStateSensitiveFingerprints(fingerprints: string[]): void {
   for (let index = fingerprints.length - 1; index >= 0; index -= 1) {
     if (isStateSensitiveFingerprint(fingerprints[index]!)) {
@@ -621,7 +635,7 @@ export class CodingAgent {
         const repeatedCalls = recentToolCallFingerprints.filter(
           (value) => value === fingerprint,
         ).length;
-        if (repeatedCalls >= 3) {
+        if (repeatedCalls >= getRepeatThreshold(toolCall.name)) {
           const loopMessage =
             "Stopped due to repeated identical tool calls. Please refine the prompt or provide additional constraints.";
           for (const skippedToolCall of response.toolCalls.slice(toolCallIndex)) {

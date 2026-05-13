@@ -2075,3 +2075,130 @@ Artifacts:
 - Today: `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-2026-05-13T01-21-08.json`
 - Driver log: `/tmp/minicode-bench-logs/ts-bench-gemma-r1.log`
 - Historical n=8: `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-2026-05-{05,06,07}*.json`
+
+# Experiment 20: relax loop guard threshold for `search`
+
+**Status: shipped. Per-tool repeat threshold — `search` gets 4, all other tools keep 3. Pooled n=3: 92.0% mean (+3.3 pp over Exp 17 n=6 baseline), refactors 100% (+26.7 pp). One run scored 25/25 — a first for this benchmark lane.**
+
+## The failure mechanism
+
+Trace inspection of `refactors/extract-helper` across n=6 (Exp 17 named-r1..r6) showed 4 of 6 runs tripped the loop guard with the same shape: the model emitted ~10 search calls trying variations of `.ts/.tsx/.js/.jsx` patterns, occasionally revisiting an earlier exact pattern, and the loop guard's `≥3 identical fingerprints in window-of-6` rule fired before convergence.
+
+Example trace from named-r2:
+
+```
+0: \.(ts|tsx|js|jsx)$
+1: \.ts\b|\.tsx\b|\.js\b|\.jsx\b
+2: \.ts\b|\.tsx\b|\.js\b|\.jsx\b     ← duplicate of 1
+3: endsWith('\.ts')|endsWith('\.tsx')|...
+4: \.ts|\.tsx|\.js|\.jsx
+5: \.ts$|\.tsx$|\.js$|\.jsx$
+6: \.ts| \.tsx| \.js| \.jsx
+7: endsWith\.ts|\.ts$|\.tsx$|\.js$|\.jsx$
+8: \.ts$|\.tsx$|\.js$|\.jsx$         ← duplicate of 5
+9: \.ts| \.tsx| \.js| \.jsx          ← duplicate of 6
+                                     [11th call hits the guard]
+```
+
+8 distinct patterns out of 10 calls — genuine exploration. But three accidental literal-repeats in the rolling window triggered the guard. The mechanism was correct (model *is* spinning), but the threshold was too strict for `search` specifically: regex-fishing emits many variants and occasional revisits are noise, not "stuck."
+
+Other tools don't have this property — repeats of `read_file`, `read_symbol`, `run_command`, etc. with identical args are pointless by construction. They should keep threshold 3.
+
+## Change
+
+`packages/agent-sdk/src/agent/agent.ts`:
+
+```ts
+function getRepeatThreshold(toolName: string): number {
+  if (toolName === "search") return 4;
+  return 3;
+}
+
+// at the call site (existing rolling-window check):
+if (repeatedCalls >= getRepeatThreshold(toolCall.name)) { /* trip guard */ }
+```
+
+Plus one regression test (`agent.test.ts`) verifying 3 identical search calls execute and the 4th would trip the guard.
+
+## Results (n=3, unpinned)
+
+| Cell | aggregate | dbg | edit | nav | plan | refac |
+| --- | --- | --- | --- | --- | --- | --- |
+| Exp 17 named (n=6 baseline) | 88.7% | 100 | 80.0 | 100 | 90.0 | 73.3 |
+| **Exp 20 loop-relax (this)** | **92.0%** | 100 | 80.0 | 100 | 80.0 | **100** |
+
+Per-run for Exp 20: 92%, 84%, **100%** (25/25). The 25/25 single-run is a first for this benchmark lane across all 19 prior experiments.
+
+**Refactors: +26.7 pp, all 5 tasks at 100% across 3 runs.** extract-helper specifically went FAIL/FAIL/FAIL → PASS/PASS/PASS with 12, 17, 14 tool calls respectively — the model takes more attempts but now converges where it previously hit the wall.
+
+## On the planning "regression"
+
+Planning shows 90% → 80% on the table. This is **not** a real regression from the change. Failure-by-failure decomposition:
+
+| Run | Planning fails | Cause |
+| --- | --- | --- |
+| loop-relax-r1 | `plan-new-tool` | underexploration (same as Exp 17 baseline; 4/6 there) |
+| loop-relax-r2 | `plan-new-tool` + `identify-serve-codepath` | underexploration + **empty-response failure** ("model returned no response or tool calls") |
+| loop-relax-r3 | (none — 25/25) | — |
+
+`identify-serve-codepath` was 6/6 in Exp 17 and the loop-relax-r2 failure is the empty-response failure mode (provider-side, heuristic #5), not a loop-guard issue. Tool sequence in that run was clean — no search loops, just an empty turn at the end. The other planning failures are the same `plan-new-tool` shape that's persisted across many experiments. **Per-task plan-new-tool pass rate is unchanged** (67% in both arms).
+
+So planning's -10pp on the aggregate table is normalization noise (2 fails / 3 runs vs 3 fails / 6 runs) plus one provider-routing artifact, not a mechanism regression.
+
+## What this closes
+
+The Sub-shape C "semantically-equivalent searches" failure mode in `project_failure_mode_taxonomy.md` had been listed as a known hard case after Exp 11's grep ERE fix didn't fully address it. This change resolves it for the typical pattern-fishing shape. Future occurrences should be rare — the model now gets 4 literal repeats before the guard fires, which is consistent with "genuinely stuck" rather than "exploring with imperfect memory."
+
+## Risk
+
+The trade-off is: with threshold 4, a model that *is* genuinely stuck on search takes one extra call to detect. With `loopDetectionWindow=6` and a 50-step `maxSteps` ceiling, the upper bound on wasted search calls is still bounded — and the `maxSteps` guard catches anything the loop guard misses. Net safety surface unchanged.
+
+## Reproducibility
+
+```bash
+for r in 1 2 3; do
+  MODEL_PROVIDER=openai-compatible \
+    MODEL=google/gemma-4-26b-a4b-it \
+    OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_API_KEY=... \
+    npm run benchmark -- --variant loop-relax-r${r} \
+      --out /tmp/minicode-bench-logs/internal-tasks-postmerge/loop-relax-r${r}.json
+done
+```
+
+Artifacts: `/tmp/minicode-bench-logs/internal-tasks-postmerge/loop-relax-r{1,2,3}.{json,log}`.
+
+## Cross-lane validation: ts-bench
+
+Followed Exp 20 with an n=3 ts-bench confirmation run from the same branch (named code-map + relaxed search loop guard). Pooled with the earlier post-#201 single run (Exp 19) gives n=4 on the current honest-defaults configuration:
+
+| Configuration | Sample | Score | Agent ok rate |
+| --- | --- | --- | --- |
+| Historical (May 5-7, pre-Exp 17) | n=8 | mean ~74%, range 48-84 | — |
+| **Post-#201, pooled with #204** | **n=4** | **85.0%** mean, 80-92 range | **96%** |
+
+Per-run for the new n=3 (post-#204 stacked on #201): 80%, 92%, 88%. Combined with Exp 19's 80% gives the pooled 85.0%.
+
+**Two observations:**
+
+1. **+11pp over historical baseline** (74% → 85%). The improvements made for the internal task lane transfer to ts-bench — not as dramatically (Exercism tasks don't exercise graph navigation), but visibly.
+
+2. **Agent success rate jumped from 92% to 96%.** This is the direct ts-bench evidence that the loop-guard relax helps on this lane too. The Exercism task `bowling` still trips agent timeouts (300s) — that's a known hard case for gemma — but the model is converging on more of the rest of the suite without hitting the loop guard or running out of steps.
+
+The distribution also tightened: today's 4 runs span 12 pp (80-92%) versus the historical 8 runs spanning 36 pp (48-84%). Some of that is calmer routing today, but the floor moved up — we no longer have 48%-style catastrophic single-run results in the new sample.
+
+**Cross-agent picture on ts-bench (gemma-4-26b-a4b-it):**
+
+| Agent | Score | Sample |
+| --- | --- | --- |
+| **minicode (current defaults)** | **85.0%** | n=4 |
+| opencode | 84% | n=1 (2026-05-06) |
+| copilot | 80% | n=1 (2026-05-06) |
+
+This shifts the qualitative story from Exp 19's framing ("opencode has a small ts-bench edge"). Caveats: opencode's number is single-run from a week earlier and worth re-measuring before any strong claim. But: even with one data point, opencode at 84% sits below minicode's pooled-4 mean — and our 92% best run beats them.
+
+The one task that regressed relative to Exp 19's single r1 is `complex-numbers` (passed r1, failed r2/r3/r4 on identical test case: `RangeError: Maximum call stack size exceeded` in `Conjugate a purely real number`). Mechanism inspection: model wrote a `conj()` implementation that infinite-recurses on real numbers. Agent duration ~40s, no loop guard fired, no timeout — pure model output variance on a single edge case. Not caused by this experiment's change.
+
+Artifacts:
+- `/tmp/ts-bench/results/benchmark-minicode-google-gemma-4-26b-a4b-it-2026-05-13T0{1-21-08,3-22-07,3-46-24,4-09-24}.json`
+- `/tmp/minicode-bench-logs/ts-bench-gemma-r{1,2,3,4}.log`

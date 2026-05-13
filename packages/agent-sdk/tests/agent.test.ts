@@ -112,6 +112,58 @@ test("agent stops on repeated identical tool calls", async () => {
   assert.match(text, /repeated identical tool calls/);
 });
 
+test("agent tolerates 3 identical search calls before tripping loop guard", async () => {
+  // search has a relaxed threshold of 4 (vs 3 for other tools) — regex
+  // exploration legitimately emits pattern variants and may revisit one
+  // before converging. Verify the agent gets to the 4th repeat before
+  // tripping, and that the underlying tool actually executed 3 times.
+  let searchCallCount = 0;
+  const searchTool: ToolDefinition = {
+    name: "search",
+    description: "Search the workspace",
+    inputSchema: {
+      type: "object",
+      properties: { pattern: { type: "string" } },
+      required: ["pattern"],
+    },
+    execute: async () => {
+      searchCallCount += 1;
+      return "no matches";
+    },
+  };
+
+  class RepeatingSearchClient implements ModelClient {
+    private callIndex = 0;
+    async chat(): Promise<ModelResponse> {
+      this.callIndex += 1;
+      // Emit one identical search call per turn so the loop guard sees a
+      // fingerprint repeat each step rather than batching them together.
+      return {
+        text: "searching",
+        toolCalls: [
+          { id: `tool-${this.callIndex}`, name: "search", input: { pattern: "x" } },
+        ],
+        stopReason: "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    }
+  }
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new RepeatingSearchClient(),
+    toolRegistry: new ToolRegistry([searchTool]),
+  });
+
+  const { text } = await agent.runTurn("Do something");
+  assert.match(text, /repeated identical tool calls/);
+  assert.equal(
+    searchCallCount,
+    3,
+    "search should execute 3 times before the 4th repeat trips the guard",
+  );
+});
+
 test("agent returns usage totals across steps", async () => {
   const responses: ModelResponse[] = [
     {

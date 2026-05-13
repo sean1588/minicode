@@ -10,7 +10,7 @@ This file records the current benchmark numbers we have gathered for `minicode` 
 | 2026-04-29 | minicode | OpenRouter | `z-ai/glm-4.6` | `100k` | `120s` | `0%` | `0/25` | `55.7s` | All tasks stopped on repeated identical tool calls before source edits |
 | 2026-04-29 | minicode | OpenRouter | `google/gemini-3-flash-preview` | `32k` | `60s` | `88%` | `22/25` | `39.3s` | Failed: `accumulate`, `all-your-base`, `diamond` |
 | 2026-04-29 | minicode | OpenRouter | `openai/gpt-5` | `100k` | `60s` | `92%` | `23/25` | `93.7s` | Failed: `alphametics` (`300s` task timeout), `bowling` (`60s` model-start timeout) |
-| 2026-05-13 | minicode | OpenRouter | `google/gemma-4-26b-a4b-it` | `100k` | `120s` | `80%` | `20/25` | `61.8s` | Post-Exp 17 (named code-map default). Agent ok 23/25 (timeouts on `bowling`, `connect`); test ok 20/23. n=1; see `RESULTS-GEMMA-4.md` Exp 19 for historical n=8 range (48-84%, mean ~74%). |
+| 2026-05-13 | minicode | OpenRouter | `google/gemma-4-26b-a4b-it` | `100k` | `120s` | `85%` pooled (best 92%) | `85/100` | `56.0s` | Post-Exp 20 (named code-map + relaxed search loop guard). Pooled n=4: per-run 80/80/92/88. Agent success 96/100 (was 92% pre-#204). Best single run 92% (`23/25`) beats all prior gemma-4-26b runs except a tie at 84%. See `RESULTS-GEMMA-4.md` Exp 19 (initial n=1) and Exp 20 cross-lane subsection (pooled n=4) for full context. |
 
 The Gemini and GPT-5 runs were captured before the benchmark hardening landed. The Claude Sonnet 4.6 run uses the current default benchmark profile:
 
