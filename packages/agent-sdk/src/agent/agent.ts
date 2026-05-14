@@ -112,7 +112,10 @@ const PROGRESS_THINKING_MAX = 200;
  * Content-aware truncation for tool outputs.
  * Different tools benefit from different truncation strategies:
  * - read_file: No truncation — the model needs exact text for edits
- * - run_command: Keep tail (errors/results are at the end)
+ * - run_command: Keep head + tail (50/50). Errors live at the end of
+ *   normal failures, but pathological cases (infinite loops, runaway
+ *   recursion, excessive logging) reveal themselves at the start. A
+ *   tail-heavy split hides the diagnostic bytes for the runaway case.
  * - search: Keep head with a match count footer
  * - default: Keep head (existing behavior)
  */
@@ -133,12 +136,22 @@ export function truncateToolOutput(
   const totalLen = output.length;
 
   if (toolName === "run_command") {
-    // Keep tail — errors and results are usually at the end
-    const tailChars = Math.floor(maxChars * 0.8);
-    const headChars = maxChars - tailChars;
+    // Balanced head + tail. See doc comment above for the runaway-output
+    // rationale: with a tail-heavy split, an infinite-loop trace gets
+    // truncated such that both the visible head AND tail are inside the
+    // loop pattern, so the model can't see the start that would reveal
+    // the bug. 50/50 surfaces enough of both ends to spot either errors
+    // at the tail OR pathological patterns at the head.
+    const headChars = Math.floor(maxChars / 2);
+    const tailChars = maxChars - headChars;
     const head = output.slice(0, headChars);
     const tail = output.slice(totalLen - tailChars);
-    return `${head}\n\n[... agent-level truncation: ${totalLen - headChars - tailChars} chars omitted from middle of run_command output to keep head + tail.]\n\n${tail}`;
+    const omitted = totalLen - headChars - tailChars;
+    const ratioHint =
+      omitted > 10 * maxChars
+        ? " The omitted region is unusually large — suspect runaway output (infinite loop, recursion, excessive logging) and examine the head, not just the tail."
+        : "";
+    return `${head}\n\n[... agent-level truncation: ${omitted} chars omitted from middle of run_command output to keep head + tail.${ratioHint}]\n\n${tail}`;
   }
 
   if (toolName === "search") {

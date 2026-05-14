@@ -178,6 +178,8 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
     "- If you cannot complete the task, explain what is blocking you.",
     "- Do not respond with empty text. Always provide a summary or explanation.",
     "- Do not continue exploring once the task is done.",
+    "- If the task involves implementing features against an existing test suite (test files in the workspace, package.json test scripts, Makefile test targets, etc.), run the tests before declaring complete. Treat \"tests passed\" as requiring an explicit success signal — non-error output, placeholder logs, or program output that merely \"looks plausible\" are NOT confirmation of success.",
+    "- When you see an agent-level truncation marker in tool output (e.g. \"... agent-level truncation: N chars omitted ...\"), the elided region may hide failure signals. If the omitted count is large relative to what's shown, suspect a problem in the program (infinite loop, runaway logging) and examine the head of the output, not just the tail.",
     "",
     "[Safety Rules]",
     "- Never modify files outside the workspace directory.",

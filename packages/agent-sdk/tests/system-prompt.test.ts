@@ -67,6 +67,27 @@ test("system prompt includes safety rules", () => {
   assert.ok(prompt.includes("Never modify files outside the workspace"));
 });
 
+test("system prompt nudges test verification before declaring complete", () => {
+  // Mechanism-grounded nudge added after the 2026-05-13 CCBench
+  // investigation showed gemini-3-flash's dominant failure mode was
+  // declaring "I have implemented..." without running tests, OR
+  // running tests but misreading huge/repetitive output as success.
+  const config = createTestAgentConfig("/tmp");
+  const prompt = buildSystemPrompt({ config, tools: [] });
+  assert.ok(
+    /run the tests before declaring complete/i.test(prompt),
+    "should instruct the model to run tests before declaring complete",
+  );
+  assert.ok(
+    /explicit success signal/i.test(prompt),
+    "should warn that non-error output is not the same as test pass",
+  );
+  assert.ok(
+    /agent-level truncation marker/i.test(prompt),
+    "should warn that truncated output may hide failure signals",
+  );
+});
+
 test("system prompt includes specialized tool guidance when present", () => {
   const config = createTestAgentConfig("/tmp");
   const tools = [
