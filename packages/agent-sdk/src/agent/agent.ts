@@ -399,6 +399,7 @@ export class CodingAgent {
       inputTokens: number;
       outputTokens: number;
       cachedInputTokens?: number;
+      reasoningTokens?: number;
     };
     streamed?: boolean;
   }> {
@@ -412,6 +413,7 @@ export class CodingAgent {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalCachedInputTokens = 0;
+    let totalReasoningTokens = 0;
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {
       ensureStepWithinLimit(step, this.config.maxSteps);
@@ -538,6 +540,7 @@ export class CodingAgent {
       totalInputTokens += response.usage.inputTokens;
       totalOutputTokens += response.usage.outputTokens;
       totalCachedInputTokens += response.usage.cachedInputTokens ?? 0;
+      totalReasoningTokens += response.usage.reasoningTokens ?? 0;
 
       if (this.verbose) {
         this.verboseLog(`\n${VERBOSE_SEP}`);
@@ -577,6 +580,9 @@ export class CodingAgent {
             ...(totalCachedInputTokens > 0
               ? { cachedInputTokens: totalCachedInputTokens }
               : {}),
+            ...(totalReasoningTokens > 0
+              ? { reasoningTokens: totalReasoningTokens }
+              : {}),
           },
           streamed,
         };
@@ -600,6 +606,9 @@ export class CodingAgent {
             outputTokens: totalOutputTokens,
             ...(totalCachedInputTokens > 0
               ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+            ...(totalReasoningTokens > 0
+              ? { reasoningTokens: totalReasoningTokens }
               : {}),
           },
           streamed,
@@ -670,6 +679,9 @@ export class CodingAgent {
             outputTokens: totalOutputTokens,
             ...(totalCachedInputTokens > 0
               ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+            ...(totalReasoningTokens > 0
+              ? { reasoningTokens: totalReasoningTokens }
               : {}),
           },
             streamed: false,
@@ -771,6 +783,9 @@ export class CodingAgent {
             outputTokens: totalOutputTokens,
             ...(totalCachedInputTokens > 0
               ? { cachedInputTokens: totalCachedInputTokens }
+              : {}),
+            ...(totalReasoningTokens > 0
+              ? { reasoningTokens: totalReasoningTokens }
               : {}),
           },
       streamed: false,

@@ -123,6 +123,14 @@ export interface ModelResponse {
      * provider-specific shape.
      */
     cachedInputTokens?: number;
+    /**
+     * Reasoning ("thinking") tokens reported by reasoning-capable models.
+     * For OpenAI-compatible providers these are nested under
+     * `completion_tokens_details.reasoning_tokens` and ARE included in
+     * the total `completion_tokens`, so they count against `max_tokens`.
+     * Surfaced here so traces can show whether reasoning is firing.
+     */
+    reasoningTokens?: number;
   };
 }
 

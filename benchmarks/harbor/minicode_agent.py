@@ -51,6 +51,7 @@ class MinicodeAgent(BaseInstalledAgent):
         command_timeout_ms: int | None = None,
         model_timeout_seconds: int | None = None,
         max_tool_output_chars: int | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -70,6 +71,7 @@ class MinicodeAgent(BaseInstalledAgent):
             "COMMAND_TIMEOUT_MS": command_timeout_ms,
             "MODEL_TIMEOUT_SECONDS": model_timeout_seconds,
             "MAX_TOOL_OUTPUT_CHARS": max_tool_output_chars,
+            "MAX_TOKENS": max_tokens,
         }
 
     def version(self) -> str | None:
@@ -254,6 +256,7 @@ class MinicodeAgent(BaseInstalledAgent):
             ("MINICODE_BENCHMARK_COMMAND_TIMEOUT_MS", "COMMAND_TIMEOUT_MS"),
             ("MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS", "MODEL_TIMEOUT_SECONDS"),
             ("MINICODE_BENCHMARK_MAX_TOOL_OUTPUT_CHARS", "MAX_TOOL_OUTPUT_CHARS"),
+            ("MINICODE_BENCHMARK_MAX_TOKENS", "MAX_TOKENS"),
             ("MINICODE_BENCHMARK_REASONING_EFFORT", "REASONING_EFFORT"),
             ("MINICODE_BENCHMARK_ENABLE_DYNAMIC_PROMPT", "ENABLE_DYNAMIC_PROMPT"),
             ("MINICODE_BENCHMARK_KEEP_RECENT_MESSAGES", "KEEP_RECENT_MESSAGES"),

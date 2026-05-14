@@ -414,6 +414,71 @@ test("openai-compatible client omits cachedInputTokens when zero or absent", asy
   );
 });
 
+test("openai-compatible client surfaces reasoning_tokens via completion_tokens_details", async () => {
+  // Reasoning-capable models (Gemini-3, OpenAI o-series) report their
+  // thinking budget under completion_tokens_details.reasoning_tokens.
+  // These count against max_tokens, so callers need visibility into
+  // them when tuning the budget — without this signal, a model that
+  // burns its cap on reasoning looks indistinguishable from one that
+  // never reasoned at all.
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "hi" } }],
+        usage: {
+          prompt_tokens: 40,
+          completion_tokens: 535,
+          completion_tokens_details: { reasoning_tokens: 339 },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.usage.outputTokens, 535);
+  assert.equal(response.usage.reasoningTokens, 339);
+});
+
+test("openai-compatible client omits reasoningTokens when zero or absent", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "hi" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(
+    response.usage.reasoningTokens,
+    undefined,
+    "absent reasoning_tokens should not surface as 0 or noise",
+  );
+});
+
 test("createModelClient returns openai-compatible client", () => {
   const config = {
     ...createTestAgentConfig("/tmp"),
