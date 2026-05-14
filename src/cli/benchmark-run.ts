@@ -41,6 +41,8 @@ export interface BenchmarkRunResult {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
   } | null;
   durationMs: number;
   startedAt: string;
@@ -132,6 +134,8 @@ interface BenchmarkAttemptResult {
   usage?: {
     inputTokens: number;
     outputTokens: number;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
   };
   streamed?: boolean;
   messages: SessionMessage[];

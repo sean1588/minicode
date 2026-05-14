@@ -333,6 +333,15 @@ interface OpenAICompatibleCompletionResponse {
     prompt_tokens_details?: {
       cached_tokens?: number;
     };
+    /**
+     * Reasoning-token stats from reasoning-capable models (OpenAI o-series,
+     * Gemini via OpenRouter, etc.). Reasoning tokens are included in
+     * `completion_tokens` and count against `max_tokens`, so surfacing
+     * them helps explain why max_tokens budgets get tight on hard tasks.
+     */
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
 }
 
@@ -552,6 +561,8 @@ function parseOpenAICompatibleResponse(
           : "end_turn";
 
   const cachedTokens = response.usage?.prompt_tokens_details?.cached_tokens;
+  const reasoningTokens =
+    response.usage?.completion_tokens_details?.reasoning_tokens;
 
   return applyLeakedToolCallRecovery({
     text: (message.content ?? "").trim(),
@@ -562,6 +573,9 @@ function parseOpenAICompatibleResponse(
       outputTokens: response.usage?.completion_tokens ?? 0,
       ...(cachedTokens !== undefined && cachedTokens > 0
         ? { cachedInputTokens: cachedTokens }
+        : {}),
+      ...(reasoningTokens !== undefined && reasoningTokens > 0
+        ? { reasoningTokens }
         : {}),
     },
   });
@@ -746,6 +760,9 @@ interface OpenAIStreamChunk {
     prompt_tokens_details?: {
       cached_tokens?: number;
     };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
 }
 
@@ -757,7 +774,12 @@ async function parseOpenAIStream(
   let buffer = "";
   let content = "";
   const toolCallsAcc: Array<{ id: string; name: string; arguments: string }> = [];
-  const usage = { prompt_tokens: 0, completion_tokens: 0, cached_tokens: 0 };
+  const usage = {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    cached_tokens: 0,
+    reasoning_tokens: 0,
+  };
   let finishReason: string | null = null;
 
   const processLines = (lines: string[]) => {
@@ -796,6 +818,8 @@ async function parseOpenAIStream(
           usage.completion_tokens = chunk.usage.completion_tokens ?? 0;
           usage.cached_tokens =
             chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
+          usage.reasoning_tokens =
+            chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
         }
       } catch {
         // skip malformed chunks
@@ -843,6 +867,9 @@ async function parseOpenAIStream(
       outputTokens: usage.completion_tokens,
       ...(usage.cached_tokens > 0
         ? { cachedInputTokens: usage.cached_tokens }
+        : {}),
+      ...(usage.reasoning_tokens > 0
+        ? { reasoningTokens: usage.reasoning_tokens }
         : {}),
     },
   });

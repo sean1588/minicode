@@ -3,7 +3,7 @@
   "model": "google/gemini-3-flash-preview",
   "openAiBaseUrl": "https://openrouter.ai/api/v1",
   "maxSteps": 50,
-  "maxTokens": 4096,
+  "maxTokens": 32000,
   "modelTimeoutSeconds": 120,
   "maxContextTokens": 100000,
   "commandTimeoutMs": 30000,
