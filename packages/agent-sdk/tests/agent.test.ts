@@ -181,7 +181,6 @@ test("agent tolerates 3 identical search calls before tripping loop guard", asyn
   // before converging. Verify the agent executes the underlying tool 3
   // times before the 4th repeat triggers the soft guard (skip + nudge),
   // and that the nudge surfaces as the suppressed call's tool result.
-  let searchCallCount = 0;
   const searchTool: ToolDefinition = {
     name: "search",
     description: "Search the workspace",
@@ -190,10 +189,7 @@ test("agent tolerates 3 identical search calls before tripping loop guard", asyn
       properties: { pattern: { type: "string" } },
       required: ["pattern"],
     },
-    execute: async () => {
-      searchCallCount += 1;
-      return "no matches";
-    },
+    execute: async () => "no matches",
   };
 
   class RepeatingSearchClient implements ModelClient {
