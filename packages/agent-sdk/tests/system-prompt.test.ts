@@ -67,6 +67,32 @@ test("system prompt includes safety rules", () => {
   assert.ok(prompt.includes("Never modify files outside the workspace"));
 });
 
+test("iteration discipline matches investigation depth to task type", () => {
+  // Reframed after CCBench showed the prior "Target: gather context in
+  // 3-5 read/search calls, then answer or edit" target was driving
+  // premature completion on tasks that genuinely require iterate-test-fix
+  // cycles. The anti-looping rules above are kept — those are universal
+  // good advice — but the hard call-count target was harmful for any
+  // task that involves a test suite.
+  const config = createTestAgentConfig("/tmp");
+  const prompt = buildSystemPrompt({ config, tools: [] });
+  assert.match(
+    prompt,
+    /Match investigation depth to task type/,
+    "should frame iteration depth by task type instead of a fixed call-count target",
+  );
+  assert.match(
+    prompt,
+    /iterate-test-fix cycles/,
+    "should set the expectation that iterative tasks involve multiple test runs",
+  );
+  assert.doesNotMatch(
+    prompt,
+    /Target:?\s*gather context in 3.5/i,
+    "the harmful '3-5 calls then answer' target should be removed",
+  );
+});
+
 test("system prompt nudges test verification before declaring complete", () => {
   // Mechanism-grounded nudge added after the 2026-05-13 CCBench
   // investigation showed gemini-3-flash's dominant failure mode was

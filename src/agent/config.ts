@@ -347,7 +347,7 @@ export async function loadAgentConfig(
     ),
     maxTokens: parseNumber(
       env.MAX_TOKENS,
-      4096,
+      16000,
     ),
     modelTimeoutSeconds: parseNumber(
       env.MODEL_TIMEOUT_SECONDS,

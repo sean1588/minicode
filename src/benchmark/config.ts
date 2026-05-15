@@ -246,7 +246,7 @@ export async function buildBenchmarkAgentConfig(
     ),
     maxTokens: parseNumber(
       resolvedEnv.values.MAX_TOKENS ?? fileConfig.maxTokens,
-      4096,
+      16000,
     ),
     modelTimeoutSeconds: parseNumber(
       resolvedEnv.values.MODEL_TIMEOUT_SECONDS ?? fileConfig.modelTimeoutSeconds,

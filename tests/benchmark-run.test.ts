@@ -13,9 +13,39 @@ import type { SessionMessage } from "@sean.holung/minicode-sdk";
 test("benchmark system prompt suffix clearly disables approval-seeking behavior", () => {
   const suffix = getBenchmarkSystemPromptSuffix();
 
-  assert.match(suffix, /non-interactive benchmark harness/i);
+  assert.match(suffix, /non-interactive harness/i);
   assert.match(suffix, /already approved/i);
   assert.match(suffix, /do not ask for confirmation/i);
+});
+
+test("benchmark system prompt suffix overrides iteration discipline for long-form tasks", () => {
+  // Added after observing on CCBench that the base [Iteration Discipline]
+  // "3-5 calls then commit" guidance was driving premature completion on
+  // benchmark tasks that genuinely require 30+ iterate-test-fix cycles.
+  // Both gemini-3-flash and haiku-4.5 declared "I have implemented" before
+  // verifying their changes against the canonical test suite.
+  const suffix = getBenchmarkSystemPromptSuffix();
+
+  assert.match(
+    suffix,
+    /persistent iteration|30\+ tool-call/i,
+    "should set the expectation that persistent iteration is normal",
+  );
+  assert.match(
+    suffix,
+    /canonical test runner/i,
+    "should direct the model to the canonical test runner, not ad-hoc tests",
+  );
+  assert.match(
+    suffix,
+    /full existing test suite/i,
+    "should require running the full suite to catch regressions",
+  );
+  assert.match(
+    suffix,
+    /explicit green signal/i,
+    "should require an observed pass signal, not self-assessed completion",
+  );
 });
 
 test("benchmark system prompt suffix omits runtime budget knobs", () => {
