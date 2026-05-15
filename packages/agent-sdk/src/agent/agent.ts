@@ -94,6 +94,34 @@ function clearStateSensitiveFingerprints(fingerprints: string[]): void {
   }
 }
 
+function clearFingerprint(fingerprints: string[], target: string): void {
+  for (let index = fingerprints.length - 1; index >= 0; index -= 1) {
+    if (fingerprints[index] === target) {
+      fingerprints.splice(index, 1);
+    }
+  }
+}
+
+/**
+ * Maximum number of loop-guard fires per turn before the agent hard-stops.
+ * A single fire surfaces a nudge to the model and continues — the model
+ * usually adjusts. Three fires across one turn signal the model isn't
+ * finding a productive path, so the safety valve kicks in.
+ */
+const MAX_LOOP_GUARD_FIRES_PER_TURN = 3;
+
+const LOOP_GUARD_HARD_STOP_MESSAGE =
+  "Stopped due to repeated identical tool calls. The model triggered the loop guard 3 times in this turn without finding a productive path forward.";
+
+function loopGuardNudge(repeatedCalls: number, fireNumber: number): string {
+  return (
+    `[loop guard: suppressed an identical call after ${repeatedCalls} repeats in a small window. ` +
+    `Try a different approach — read a different file or region, search for a more specific pattern, ` +
+    `run a command to inspect state, or use find_references / get_dependencies / read_symbol to navigate by structure. ` +
+    `This is loop-guard fire ${fireNumber}/${MAX_LOOP_GUARD_FIRES_PER_TURN} for this turn; after the ${MAX_LOOP_GUARD_FIRES_PER_TURN}th the turn will hard-stop.]`
+  );
+}
+
 /**
  * Extract the symbol name from a tool call input if the tool is symbol-aware.
  */
@@ -414,6 +442,7 @@ export class CodingAgent {
     let totalOutputTokens = 0;
     let totalCachedInputTokens = 0;
     let totalReasoningTokens = 0;
+    let loopGuardFires = 0;
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {
       ensureStepWithinLimit(step, this.config.maxSteps);
@@ -658,34 +687,57 @@ export class CodingAgent {
           (value) => value === fingerprint,
         ).length;
         if (repeatedCalls >= getRepeatThreshold(toolCall.name)) {
-          const loopMessage =
-            "Stopped due to repeated identical tool calls. Please refine the prompt or provide additional constraints.";
-          for (const skippedToolCall of response.toolCalls.slice(toolCallIndex)) {
+          loopGuardFires += 1;
+          if (loopGuardFires >= MAX_LOOP_GUARD_FIRES_PER_TURN) {
+            // Safety valve: the model has triggered the guard three times
+            // in this turn without redirecting. Skip the offending call,
+            // hard-terminate the turn, and surface the stop reason.
             this.session.addMessage({
               role: "tool",
-              toolCallId: skippedToolCall.id,
-              toolName: skippedToolCall.name,
-              content: `Tool skipped: ${loopMessage}`,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              content: `Tool skipped: ${LOOP_GUARD_HARD_STOP_MESSAGE}`,
             });
+            for (const skippedToolCall of response.toolCalls.slice(toolCallIndex + 1)) {
+              this.session.addMessage({
+                role: "tool",
+                toolCallId: skippedToolCall.id,
+                toolName: skippedToolCall.name,
+                content: `Tool skipped: ${LOOP_GUARD_HARD_STOP_MESSAGE}`,
+              });
+            }
+            this.session.addMessage({
+              role: "assistant",
+              content: LOOP_GUARD_HARD_STOP_MESSAGE,
+            });
+            return {
+              text: LOOP_GUARD_HARD_STOP_MESSAGE,
+              usage: {
+                inputTokens: totalInputTokens,
+                outputTokens: totalOutputTokens,
+                ...(totalCachedInputTokens > 0
+                  ? { cachedInputTokens: totalCachedInputTokens }
+                  : {}),
+                ...(totalReasoningTokens > 0
+                  ? { reasoningTokens: totalReasoningTokens }
+                  : {}),
+              },
+              streamed: false,
+            };
           }
+
+          // Soft path: skip this single call, inject an actionable nudge
+          // as its tool result, clear this fingerprint from the window
+          // (so the next unrelated call doesn't re-trip), and continue
+          // processing remaining calls in the batch.
           this.session.addMessage({
-            role: "assistant",
-            content: loopMessage,
+            role: "tool",
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: loopGuardNudge(repeatedCalls, loopGuardFires),
           });
-          return {
-            text: loopMessage,
-            usage: {
-            inputTokens: totalInputTokens,
-            outputTokens: totalOutputTokens,
-            ...(totalCachedInputTokens > 0
-              ? { cachedInputTokens: totalCachedInputTokens }
-              : {}),
-            ...(totalReasoningTokens > 0
-              ? { reasoningTokens: totalReasoningTokens }
-              : {}),
-          },
-            streamed: false,
-          };
+          clearFingerprint(recentToolCallFingerprints, fingerprint);
+          continue;
         }
 
         // Track symbol focus from symbol-aware tool calls

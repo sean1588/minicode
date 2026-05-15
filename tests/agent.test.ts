@@ -246,30 +246,26 @@ test("agent does not treat repeated validation commands after edits as a loop", 
 });
 
 test("agent still stops on repeated identical mutations", async () => {
-  const responses: ModelResponse[] = [
-    {
-      text: "first edit",
-      toolCalls: [{ id: "edit-1", name: "edit_file", input: { path: "app.ts", content: "same" } }],
-      stopReason: "tool_use",
-      usage: { inputTokens: 1, outputTokens: 1 },
-    },
-    {
-      text: "second edit",
-      toolCalls: [{ id: "edit-2", name: "edit_file", input: { path: "app.ts", content: "same" } }],
-      stopReason: "tool_use",
-      usage: { inputTokens: 1, outputTokens: 1 },
-    },
-    {
-      text: "third edit",
-      toolCalls: [{ id: "edit-3", name: "edit_file", input: { path: "app.ts", content: "same" } }],
-      stopReason: "tool_use",
-      usage: { inputTokens: 1, outputTokens: 1 },
-    },
-  ];
+  // A model that keeps emitting the same edit_file forever should be
+  // hard-stopped after the soft guard has fired 3 times in the turn.
+  class RepeatingEditClient implements ModelClient {
+    private idx = 0;
+    async chat(): Promise<ModelResponse> {
+      this.idx += 1;
+      return {
+        text: "edit",
+        toolCalls: [
+          { id: `edit-${this.idx}`, name: "edit_file", input: { path: "app.ts", content: "same" } },
+        ],
+        stopReason: "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    }
+  }
 
   const agent = new CodingAgent({
     config: createTestAgentConfig("/tmp"),
-    modelClient: new SequenceModelClient(responses),
+    modelClient: new RepeatingEditClient(),
     toolRegistry: new ToolRegistry([createEditTool()]),
   });
 
