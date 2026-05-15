@@ -112,11 +112,75 @@ test("agent stops on repeated identical tool calls", async () => {
   assert.match(text, /repeated identical tool calls/);
 });
 
+test("soft loop guard lets the model recover after a single nudge", async () => {
+  // Three identical echo calls trip the guard once (skip + nudge + reset
+  // the offending fingerprint), the model redirects on the next turn,
+  // and the turn completes normally. Regression check against the prior
+  // terminate-on-first-fire behavior, which would have hard-stopped the
+  // turn before the redirect message could land.
+  const responses: ModelResponse[] = [
+    {
+      text: "first call",
+      toolCalls: [{ id: "echo-1", name: "echo_tool", input: { value: "same" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "second call",
+      toolCalls: [{ id: "echo-2", name: "echo_tool", input: { value: "same" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "third call (will be nudged)",
+      toolCalls: [{ id: "echo-3", name: "echo_tool", input: { value: "same" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "redirect after nudge",
+      toolCalls: [{ id: "echo-4", name: "echo_tool", input: { value: "different" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "Done.",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Do something");
+  assert.equal(text, "Done.");
+
+  const toolMessages = agent
+    .getSession()
+    .getMessages()
+    .filter((m) => m.role === "tool");
+  const nudges = toolMessages.filter(
+    (m) => typeof m.content === "string" && m.content.includes("loop guard"),
+  );
+  assert.equal(nudges.length, 1, "exactly one loop-guard nudge should fire");
+  assert.equal(
+    toolMessages.length,
+    4,
+    "the 3rd echo should be suppressed (nudge) and the 4th should execute normally",
+  );
+});
+
 test("agent tolerates 3 identical search calls before tripping loop guard", async () => {
   // search has a relaxed threshold of 4 (vs 3 for other tools) — regex
   // exploration legitimately emits pattern variants and may revisit one
-  // before converging. Verify the agent gets to the 4th repeat before
-  // tripping, and that the underlying tool actually executed 3 times.
+  // before converging. Verify the agent executes the underlying tool 3
+  // times before the 4th repeat triggers the soft guard (skip + nudge),
+  // and that the nudge surfaces as the suppressed call's tool result.
   let searchCallCount = 0;
   const searchTool: ToolDefinition = {
     name: "search",
@@ -155,12 +219,25 @@ test("agent tolerates 3 identical search calls before tripping loop guard", asyn
     toolRegistry: new ToolRegistry([searchTool]),
   });
 
-  const { text } = await agent.runTurn("Do something");
-  assert.match(text, /repeated identical tool calls/);
+  await agent.runTurn("Do something");
+  // Find the first loop-guard nudge in the transcript and count search
+  // executions that happened before it. Threshold = 4 means the search
+  // tool should have run 3 times before the 4th repeat was suppressed.
+  // If search had used the default threshold of 3, we would see only 2
+  // executions before the first nudge.
+  const messages = agent.getSession().getMessages();
+  const firstNudgeIndex = messages.findIndex(
+    (m) => m.role === "tool" && typeof m.content === "string" && m.content.includes("loop guard"),
+  );
+  assert.ok(firstNudgeIndex >= 0, "soft loop guard should inject at least one nudge tool result");
+  const executionsBeforeFirstNudge = messages
+    .slice(0, firstNudgeIndex)
+    .filter((m) => m.role === "tool" && typeof m.content === "string" && m.content.includes("no matches"))
+    .length;
   assert.equal(
-    searchCallCount,
+    executionsBeforeFirstNudge,
     3,
-    "search should execute 3 times before the 4th repeat trips the guard",
+    "search threshold = 4 should let the tool run 3 times before the 4th repeat trips the guard",
   );
 });
 
