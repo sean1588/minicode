@@ -87,12 +87,17 @@ export interface BenchmarkToolUsageSummary {
 }
 
 const BENCHMARK_SYSTEM_PROMPT_SUFFIX = [
-  "[Benchmark Execution Mode]",
-  "- This task is running in a non-interactive benchmark harness.",
-  "- The task is already approved. Do not ask for confirmation, permission, or whether you should proceed.",
+  "[Execution Mode]",
+  "- This task is running in a non-interactive harness. The task is already approved.",
+  "- Do not ask for confirmation, permission, or whether you should proceed.",
   "- If the task requires code changes, make them immediately using the available tools.",
   "- Do not stop after presenting a plan. Either complete the task or explain a concrete blocker.",
-  "- When validation is part of the task, run the required command once after making changes.",
+  "",
+  "[Long-form Task Discipline]",
+  "- Non-trivial coding tasks routinely require 30+ tool-call iterate-test-fix cycles. Persistent iteration against the test suite is expected; do not bail early because you have read a few files.",
+  "- Iterate against the canonical test runner (the test command shipped with the task) until it passes. Treat the runner's output as the source of truth — not your own assessment of whether the code looks correct, and not ad-hoc verification scripts you write yourself.",
+  "- Before declaring the task complete: run the FULL existing test suite, not just tests targeting the new feature. Many tasks modify code that other features depend on — verify you did not break previously-passing functionality. Regression failures on stages you were not asked to modify still count as failures.",
+  "- \"I have implemented X\" is not the same as \"tests pass.\" Do not declare completion without observing an explicit green signal (exit code 0, all-pass marker) from the canonical test runner over the full suite.",
 ].join("\n");
 
 const BENCHMARK_RETRY_REMINDER = [

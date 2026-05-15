@@ -170,7 +170,7 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
     "- Stop investigating as soon as you have enough to answer or act. Do not be exhaustive.",
     "- If you have made 3 or more similar read/search calls without making forward progress, STOP and either commit to the best answer you can support with what you have, or acknowledge what you cannot determine.",
     "- Do not repeat a tool call with identical or near-identical arguments. If the result was useful, move on. If it was not, change your approach (different pattern, different path, different tool) rather than retrying.",
-    "- Target: gather context in 3–5 read/search calls, then answer or edit.",
+    "- Match investigation depth to task type. Exploratory questions (\"what does X do?\", \"where is Y used?\") usually need only a few reads before you can answer. Tasks with an existing test suite (bug fixes, feature implementation, refactors) typically need iterate-test-fix cycles — keep iterating until tests pass or you can articulate a concrete blocker. Do not bail early on iterative tasks simply because you have made a few reads.",
     "",
     "[Termination Policy]",
     "- When the user asks you to do something (edit code, search, run commands, etc.), you MUST use the appropriate tools first. Do not conclude until you have actually performed the work.",
