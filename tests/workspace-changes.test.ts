@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, test } from "node:test";
 
 import {
+  captureBaselineRef,
   collectWorkspaceChanges,
   writeWorkspaceDiff,
 } from "../src/benchmark/workspace-changes.js";
@@ -108,4 +109,63 @@ test("workspace diff only includes files inside the selected workspace subtree",
   assert.match(diff, /diff --git a\/README\.md b\/README\.md/);
   assert.doesNotMatch(diff, /sibling\.ts/);
   assert.doesNotMatch(diff, /ROOT\.md/);
+});
+
+test("baseline ref captures committed changes that would otherwise be invisible", async () => {
+  // Regression: Gemini-3-Pro ran `git add` + `git commit` mid-task on a
+  // benchmark run. The old `git diff` (working-tree vs index) saw nothing
+  // and the harness threw away a working fix.
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+  assert.ok(baseline && baseline.length >= 7, "baseline ref should be a SHA");
+
+  // Model edits a tracked file and commits, then leaves an untracked helper.
+  await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 2;\n", "utf8");
+  execFileSync("git", ["add", "src/app.ts"], { cwd: workspaceRoot, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "fix value"], { cwd: workspaceRoot, stdio: "ignore" });
+  await writeFile(path.join(workspaceRoot, "reproduce.py"), "print('hi')\n", "utf8");
+
+  const withoutBaseline = await collectWorkspaceChanges(workspaceRoot);
+  // Without the baseline we miss the committed file entirely.
+  assert.deepEqual(withoutBaseline.changedFiles.sort(), ["reproduce.py"]);
+
+  const withBaseline = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(withBaseline.changedFiles.sort(), ["reproduce.py", "src/app.ts"]);
+
+  const diffPath = path.join(workspaceRoot, "artifacts", "with-baseline.patch");
+  const wrote = await writeWorkspaceDiff(workspaceRoot, diffPath, baseline ?? undefined);
+  assert.equal(wrote, true);
+  const diff = await readFile(diffPath, "utf8");
+  assert.match(diff, /diff --git a\/src\/app\.ts b\/src\/app\.ts/);
+  assert.match(diff, /-export const value = 1;/);
+  assert.match(diff, /\+export const value = 2;/);
+  assert.match(diff, /diff --git a\/reproduce\.py b\/reproduce\.py/);
+});
+
+test("baseline ref also captures staged and unstaged changes (no false negatives)", async () => {
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  // One staged tracked change, one unstaged tracked change, one untracked.
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 99;\n", "utf8");
+  execFileSync("git", ["add", "src/app.ts"], { cwd: workspaceRoot, stdio: "ignore" });
+  await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 100;\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "notes.md"), "# notes\n", "utf8");
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(changes.changedFiles.sort(), ["notes.md", "src/app.ts"]);
+
+  const diffPath = path.join(workspaceRoot, "artifacts", "mixed.patch");
+  await writeWorkspaceDiff(workspaceRoot, diffPath, baseline ?? undefined);
+  const diff = await readFile(diffPath, "utf8");
+  assert.match(diff, /\+export const value = 100;/);
+  assert.match(diff, /diff --git a\/notes\.md b\/notes\.md/);
+});
+
+test("captureBaselineRef returns null for a non-git workspace", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-workspace-changes-nongit-"));
+  tempDirs.push(workspaceRoot);
+  const baseline = await captureBaselineRef(workspaceRoot);
+  assert.equal(baseline, null);
 });

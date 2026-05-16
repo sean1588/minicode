@@ -198,13 +198,21 @@ minicode benchmark run \\
 """
 
 
+def _as_text(value: object) -> str:
+    # subprocess.TimeoutExpired ignores text=True on Python 3.14 and stashes
+    # the partial captures as bytes. Normalize to str for write_text.
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""  # type: ignore[return-value]
+
+
 def write_task_outputs(out_dir: Path, task: Task, container_result: subprocess.CompletedProcess) -> None:
     """Surface container stdout/stderr to the host. result.json,
     <instance_id>.traj.json, and minicode.patch are already on the host via
     the volume mount.
     """
-    (out_dir / "container.stdout").write_text(container_result.stdout or "")
-    (out_dir / "container.stderr").write_text(container_result.stderr or "")
+    (out_dir / "container.stdout").write_text(_as_text(container_result.stdout))
+    (out_dir / "container.stderr").write_text(_as_text(container_result.stderr))
     (out_dir / "task.json").write_text(json.dumps(
         {
             "instance_id": task.instance_id,
