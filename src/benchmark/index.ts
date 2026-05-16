@@ -30,6 +30,7 @@ export {
 } from "./config.js";
 export {
   collectWorkspaceChanges,
+  getWorkspaceDiff,
   writeWorkspaceDiff,
   type WorkspaceChanges,
   type WorkspaceStatusEntry,
