@@ -133,13 +133,10 @@ export async function collectWorkspaceChanges(workspaceRoot: string): Promise<Wo
   };
 }
 
-export async function writeWorkspaceDiff(
-  workspaceRoot: string,
-  outPath: string,
-): Promise<boolean> {
+export async function getWorkspaceDiff(workspaceRoot: string): Promise<string | null> {
   const changes = await collectWorkspaceChanges(workspaceRoot);
   if (!changes.isGitRepo) {
-    return false;
+    return null;
   }
 
   const trackedDiff = await runGit(
@@ -162,9 +159,19 @@ export async function writeWorkspaceDiff(
     }
   }
 
-  const combinedDiff = [trackedDiff, ...untrackedDiffs]
+  return [trackedDiff, ...untrackedDiffs]
     .filter((section) => section.trim().length > 0)
     .join("\n");
+}
+
+export async function writeWorkspaceDiff(
+  workspaceRoot: string,
+  outPath: string,
+): Promise<boolean> {
+  const combinedDiff = await getWorkspaceDiff(workspaceRoot);
+  if (combinedDiff === null) {
+    return false;
+  }
 
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, combinedDiff, "utf8");

@@ -16,11 +16,13 @@ import {
 } from "../benchmark/config.js";
 import {
   collectWorkspaceChanges,
+  getWorkspaceDiff,
   writeWorkspaceDiff,
 } from "../benchmark/workspace-changes.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
 import { createToolRegistry } from "../tools/registry.js";
 import { CliUsageError } from "./args.js";
+import { buildContextBenchTrajectory } from "./contextbench-trajectory.js";
 
 export interface BenchmarkRunArgs {
   prompt: string;
@@ -33,6 +35,8 @@ export interface BenchmarkRunArgs {
   workspaceRoot?: string;
   diffOut?: string;
   outFile?: string;
+  contextBenchTrajectory?: string;
+  contextBenchImage?: string;
   verbose: boolean;
 }
 
@@ -301,6 +305,8 @@ export function parseBenchmarkRunArgs(argv: string[]): BenchmarkRunArgs {
   let workspaceRoot: string | undefined;
   let diffOut: string | undefined;
   let outFile: string | undefined;
+  let contextBenchTrajectory: string | undefined;
+  let contextBenchImage: string | undefined;
   let verbose = false;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -403,6 +409,26 @@ export function parseBenchmarkRunArgs(argv: string[]): BenchmarkRunArgs {
       promptFile = arg.slice("--prompt-file=".length).trim();
       continue;
     }
+    if (arg === "--contextbench-trajectory") {
+      const parsed = readFlagValue(argv, i, "--contextbench-trajectory");
+      contextBenchTrajectory = parsed.value;
+      i = parsed.nextIndex;
+      continue;
+    }
+    if (arg.startsWith("--contextbench-trajectory=")) {
+      contextBenchTrajectory = arg.slice("--contextbench-trajectory=".length).trim();
+      continue;
+    }
+    if (arg === "--contextbench-image") {
+      const parsed = readFlagValue(argv, i, "--contextbench-image");
+      contextBenchImage = parsed.value;
+      i = parsed.nextIndex;
+      continue;
+    }
+    if (arg.startsWith("--contextbench-image=")) {
+      contextBenchImage = arg.slice("--contextbench-image=".length).trim();
+      continue;
+    }
 
     promptParts.push(arg);
   }
@@ -422,6 +448,8 @@ export function parseBenchmarkRunArgs(argv: string[]): BenchmarkRunArgs {
     ...(workspaceRoot ? { workspaceRoot } : {}),
     ...(diffOut ? { diffOut } : {}),
     ...(outFile ? { outFile } : {}),
+    ...(contextBenchTrajectory ? { contextBenchTrajectory } : {}),
+    ...(contextBenchImage ? { contextBenchImage } : {}),
     verbose,
   };
 }
@@ -582,6 +610,23 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       await writeFile(outPath, payload + "\n", "utf8");
     } else {
       console.log(payload);
+    }
+
+    if (args.contextBenchTrajectory) {
+      const trajectoryPath = path.resolve(cwd, args.contextBenchTrajectory);
+      const patch = (await getWorkspaceDiff(config.workspaceRoot)) ?? "";
+      const trajectory = buildContextBenchTrajectory({
+        systemPrompt: BENCHMARK_SYSTEM_PROMPT_SUFFIX,
+        userPrompt: prompt,
+        toolCalls,
+        finalAssistantText: attempt.text,
+        workspaceRoot: config.workspaceRoot,
+        patch,
+        ...(projectIndex !== undefined ? { projectIndex } : {}),
+        ...(args.contextBenchImage ? { image: args.contextBenchImage } : {}),
+      });
+      await mkdir(path.dirname(trajectoryPath), { recursive: true });
+      await writeFile(trajectoryPath, JSON.stringify(trajectory, null, 2) + "\n", "utf8");
     }
   } finally {
     if (previousAnthropicApiKey === undefined) {
