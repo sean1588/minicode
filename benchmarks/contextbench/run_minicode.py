@@ -176,15 +176,16 @@ minicode benchmark run \\
   --model "{args.model}" \\
   --out /out/result.json \\
   --diff-out /out/minicode.patch \\
-  --contextbench-trajectory /out/trajectory.traj.json \\
+  --contextbench-trajectory "/out/{task.instance_id}.traj.json" \\
   --contextbench-image "{task.image}" \\
   --prompt-file /tmp/problem_statement.txt 2>&1 | tee /out/minicode.stdout
 """
 
 
 def write_task_outputs(out_dir: Path, task: Task, container_result: subprocess.CompletedProcess) -> None:
-    """Surface container stdout/stderr to the host. result.json, trajectory.traj.json,
-    and minicode.patch are already on the host via the volume mount.
+    """Surface container stdout/stderr to the host. result.json,
+    <instance_id>.traj.json, and minicode.patch are already on the host via
+    the volume mount.
     """
     (out_dir / "container.stdout").write_text(container_result.stdout or "")
     (out_dir / "container.stderr").write_text(container_result.stderr or "")
@@ -250,9 +251,9 @@ def run_task(task: Task, args: argparse.Namespace, out_root: Path) -> tuple[bool
 
     if result.returncode != 0:
         return False, f"container exit {result.returncode}; see container.stderr"
-    trajectory = out_dir / "trajectory.traj.json"
+    trajectory = out_dir / f"{task.instance_id}.traj.json"
     if not trajectory.exists():
-        return False, "container produced no trajectory.traj.json"
+        return False, f"container produced no {task.instance_id}.traj.json"
     return True, str(trajectory)
 
 
