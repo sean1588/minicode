@@ -104,11 +104,23 @@ const BENCHMARK_SYSTEM_PROMPT_SUFFIX = [
   "- \"I have implemented X\" is not the same as \"tests pass.\" Do not declare completion without observing an explicit green signal (exit code 0, all-pass marker) from the canonical test runner over the full suite.",
 ].join("\n");
 
-const BENCHMARK_RETRY_REMINDER = [
+const BENCHMARK_RETRY_REMINDER_APPROVAL = [
   "Benchmark harness reminder:",
   "- This task is already approved.",
   "- Do not ask for confirmation or present a plan without acting.",
   "- Use tools, make the required edits immediately, and finish the task.",
+].join("\n");
+
+// Used when the previous attempt emitted zero tool calls — either pure
+// reasoning that produced no output (Gemini 2.5 Pro's thinking-paralysis
+// mode) or narration claiming work was done without any tool calls.
+// In benchmark mode every task requires code changes; zero tool calls
+// is a definite failure regardless of what the response text claims.
+const BENCHMARK_RETRY_REMINDER_NO_ACTION = [
+  "Benchmark harness reminder:",
+  "- Your previous response made zero tool calls. The task is not complete.",
+  '- Code changes only happen through tool calls (edit_file / write_file). Text alone — including past-tense statements like "I\'ve added X" or future-tense plans like "I\'ll add X" — is not a change.',
+  "- Begin by reading the relevant files with read_file or read_symbol, then make the edits with edit_file / write_file, then verify the result with run_command.",
 ].join("\n");
 
 const CONFIRMATION_REQUEST_PATTERNS = [
@@ -123,6 +135,8 @@ const CONFIRMATION_REQUEST_PATTERNS = [
   /\bneed your approval\b/i,
   /\bpermission\b/i,
 ];
+
+export type BenchmarkRetryReason = "approval_seeking" | "no_action";
 
 const SPECIALIZED_TOOL_NAMES = new Set([
   "read_symbol",
@@ -159,6 +173,50 @@ export function isBenchmarkApprovalSeekingResponse(text: string): boolean {
     return false;
   }
   return CONFIRMATION_REQUEST_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function countToolCallsInMessages(messages: SessionMessage[]): number {
+  let count = 0;
+  for (const message of messages) {
+    if (message.role === "assistant" && message.toolCalls?.length) {
+      count += message.toolCalls.length;
+    }
+  }
+  return count;
+}
+
+/**
+ * Decide whether a benchmark attempt should be retried once with an
+ * additional reminder appended to the prompt. Returns the reason (so the
+ * caller can pick a matching reminder), or `null` if the attempt looks
+ * fine as-is.
+ *
+ * Two failure modes warrant retry:
+ *   - `no_action`: the model emitted zero tool calls in the entire turn.
+ *     In benchmark mode every task requires code changes, so a tool-call-
+ *     free response is by definition incomplete. Covers both pure-
+ *     reasoning failures (visible text empty) and hallucinated-completion
+ *     narration ("I've added the helper" with no edit_file call).
+ *   - `approval_seeking`: the model asked for confirmation rather than
+ *     acting, even though it made some tool calls.
+ */
+export function getBenchmarkRetryReason(attempt: {
+  text: string;
+  toolCallCount: number;
+}): BenchmarkRetryReason | null {
+  if (attempt.toolCallCount === 0) {
+    return "no_action";
+  }
+  if (isBenchmarkApprovalSeekingResponse(attempt.text)) {
+    return "approval_seeking";
+  }
+  return null;
+}
+
+export function getBenchmarkRetryReminder(reason: BenchmarkRetryReason): string {
+  return reason === "approval_seeking"
+    ? BENCHMARK_RETRY_REMINDER_APPROVAL
+    : BENCHMARK_RETRY_REMINDER_NO_ACTION;
 }
 
 function stableSerialize(value: unknown): string {
@@ -561,13 +619,22 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       verbose: args.verbose,
       ...(projectIndex !== undefined ? { projectIndex } : {}),
     });
-    if (isBenchmarkApprovalSeekingResponse(attempt.text)) {
+    const retryReason = getBenchmarkRetryReason({
+      text: attempt.text,
+      toolCallCount: countToolCallsInMessages(attempt.messages),
+    });
+    if (retryReason !== null) {
       if (args.verbose) {
+        const description =
+          retryReason === "approval_seeking"
+            ? "Model asked for confirmation"
+            : "Model emitted zero tool calls (pure-reasoning or narration-only response)";
         console.error(
-          "[benchmark] Model asked for confirmation; retrying once with a non-interactive reminder.",
+          `[benchmark] ${description}; retrying once with a non-interactive reminder.`,
         );
       }
-      attempt = await runBenchmarkAttempt(`${prompt}\n\n${BENCHMARK_RETRY_REMINDER}`, {
+      const reminder = getBenchmarkRetryReminder(retryReason);
+      attempt = await runBenchmarkAttempt(`${prompt}\n\n${reminder}`, {
         config,
         modelClient,
         toolRegistry,

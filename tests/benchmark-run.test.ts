@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   buildBenchmarkToolTrace,
+  getBenchmarkRetryReason,
+  getBenchmarkRetryReminder,
   getBenchmarkSystemPromptSuffix,
   isBenchmarkApprovalSeekingResponse,
   parseBenchmarkRunArgs,
@@ -86,6 +88,73 @@ test("normal benchmark summaries are not treated as approval-seeking", () => {
     ),
     false,
   );
+});
+
+test("getBenchmarkRetryReason flags zero-tool-call attempts as no_action", () => {
+  // Pure-reasoning failure (Gemini 2.5 Pro's "thought a lot, emitted
+  // nothing" mode). Despite empty text, the attempt is still a definite
+  // failure in benchmark mode since the task needs code changes.
+  assert.equal(
+    getBenchmarkRetryReason({ text: "", toolCallCount: 0 }),
+    "no_action",
+  );
+  // Hallucinated-completion failure: the model narrates work without
+  // making any tool calls. Caught the same way — zero tool calls is
+  // the load-bearing signal, not the text.
+  assert.equal(
+    getBenchmarkRetryReason({
+      text: "I've added the new transformation to astropy/coordinates/itrs.py and registered it with the frame_transform_graph.",
+      toolCallCount: 0,
+    }),
+    "no_action",
+  );
+  // Future-tense planning without action — also covered.
+  assert.equal(
+    getBenchmarkRetryReason({
+      text: "I will add the helper function to utils.py and update the imports.",
+      toolCallCount: 0,
+    }),
+    "no_action",
+  );
+});
+
+test("getBenchmarkRetryReason flags approval-seeking when tool calls exist", () => {
+  assert.equal(
+    getBenchmarkRetryReason({
+      text: "I found the changes needed. Please confirm and I'll apply them.",
+      toolCallCount: 5,
+    }),
+    "approval_seeking",
+  );
+});
+
+test("getBenchmarkRetryReason returns null for normal completion with tool calls", () => {
+  assert.equal(
+    getBenchmarkRetryReason({
+      text: "Updated src/app.ts, ran npm test, all tests passed.",
+      toolCallCount: 12,
+    }),
+    null,
+  );
+});
+
+test("getBenchmarkRetryReminder returns distinct reminders for the two reasons", () => {
+  const approval = getBenchmarkRetryReminder("approval_seeking");
+  const noAction = getBenchmarkRetryReminder("no_action");
+
+  // Approval reminder leans on "already approved" — the model was acting
+  // but asked for permission.
+  assert.match(approval, /already approved/i);
+  assert.doesNotMatch(approval, /zero tool calls/i);
+
+  // No-action reminder names the failure mode explicitly so the model
+  // understands what changed.
+  assert.match(noAction, /zero tool calls/i);
+  assert.match(noAction, /edit_file/);
+  // Calls out both the past-tense and future-tense narration traps that
+  // were observed in the Gemini 2.5 Pro empty-trajectory investigation.
+  assert.match(noAction, /past-tense/i);
+  assert.match(noAction, /future-tense/i);
 });
 
 test("parseBenchmarkRunArgs preserves prompt text and benchmark flags", () => {
