@@ -166,8 +166,24 @@ if ! command -v node >/dev/null 2>&1 \\
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null
 fi
 
-echo "Installing minicode from {args.tarball_url}"
-npm install -g "{args.tarball_url}" >/dev/null 2>&1
+# Many SWE-bench images (especially django ones) activate a conda env whose
+# `python` is 3.6, which breaks node-gyp's tree-sitter build because gyp's
+# python source uses walrus operator (3.8+). Point npm at the system python
+# 3.10 if available — it's present on every SWE-bench image we've seen so far.
+NPM_PY=""
+for cand in /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12 /usr/bin/python3.9; do
+  if [ -x "$cand" ]; then NPM_PY="$cand"; break; fi
+done
+
+echo "Installing minicode from {args.tarball_url} (npm_config_python=$NPM_PY)"
+# Capture full npm output to /out/npm-install.log so failures (tree-sitter
+# native build, etc.) are inspectable from the host without re-running.
+if ! npm_config_python="$NPM_PY" npm install -g "{args.tarball_url}" \
+    > /out/npm-install.log 2>&1; then
+  echo "npm install failed — see /out/npm-install.log (tail below):"
+  tail -40 /out/npm-install.log
+  exit 1
+fi
 
 minicode benchmark run \\
   --workspace-root "$WS" \\
@@ -210,11 +226,15 @@ def run_task(task: Task, args: argparse.Namespace, out_root: Path) -> tuple[bool
     if not pull_image(task.image):
         return False, "image pull failed"
 
+    # minicode reads bare env names (MODEL_TIMEOUT_SECONDS etc.) — the
+    # MINICODE_BENCHMARK_* prefix only applies inside harbor's adapter,
+    # which has its own translation step. Pass through the unprefixed
+    # names directly.
     env = {
-        "MINICODE_BENCHMARK_MAX_STEPS": str(args.max_steps),
-        "MINICODE_BENCHMARK_MAX_TOKENS": str(args.max_tokens),
-        "MINICODE_BENCHMARK_MAX_CONTEXT_TOKENS": str(args.max_context_tokens),
-        "MINICODE_BENCHMARK_MODEL_TIMEOUT_SECONDS": str(args.model_timeout_seconds),
+        "MAX_STEPS": str(args.max_steps),
+        "MAX_TOKENS": str(args.max_tokens),
+        "MAX_CONTEXT_TOKENS": str(args.max_context_tokens),
+        "MODEL_TIMEOUT_SECONDS": str(args.model_timeout_seconds),
         "CONFIRM_DESTRUCTIVE": "false",
     }
     for key in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
