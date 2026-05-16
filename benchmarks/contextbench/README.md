@@ -36,14 +36,16 @@ tasks by reusing the SWE-bench Docker images each task ships with.
      --limit 3
    ```
 
-3. Score the trajectories with ContextBench's evaluator:
+3. Score the trajectories with ContextBench's evaluator. The evaluator
+   extracts `instance_id` from the trajectory filename (`<id>.traj.json`),
+   so make sure the file is named with the full instance id:
 
    ```bash
-   for traj in /tmp/minicode-contextbench-smoke/*/trajectory.traj.json; do
+   for traj in /tmp/minicode-contextbench-smoke/*/*.traj.json; do
      PYTHONPATH=/tmp/ContextBench python3 -m contextbench.evaluate \
        --gold /tmp/ContextBench/data/contextbench_verified.parquet \
        --pred "$traj" \
-       --out "${traj%/trajectory.traj.json}/score.jsonl"
+       --out "$(dirname "$traj")/score.jsonl"
    done
    ```
 
