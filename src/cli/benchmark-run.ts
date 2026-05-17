@@ -85,6 +85,11 @@ export interface BenchmarkToolUsageSummary {
   fileReadTotal: number;
   searchTotal: number;
   mutationTotal: number;
+  // Subset of commandTotal: run_command calls whose shell command looks
+  // like it mutates the filesystem (heredoc-into-file, sed -i, tee, etc.).
+  // Counted separately from mutationTotal so the structured-vs-shell
+  // breakdown is preserved.
+  shellMutationTotal: number;
   commandTotal: number;
   skippedTotal: number;
   repeatedStop: boolean;
@@ -124,6 +129,19 @@ const BENCHMARK_RETRY_REMINDER_NO_ACTION = [
   "- Begin by reading the relevant files with read_file or read_symbol, then make the edits with edit_file / write_file, then verify the result with run_command.",
 ].join("\n");
 
+// Used when the previous attempt made tool calls but never mutated any
+// file (no edit_file/write_file, no `cat > FILE`/`sed -i`/`tee` shell
+// edit). Observed shape: model reads a few symbols, narrates a plan
+// ("Here's how I'll fix it: 1. … 2. …"), and stops without acting.
+// Distinct from `approval_seeking` (no explicit confirmation request)
+// and from `no_action` (tool-call count > 0).
+const BENCHMARK_RETRY_REMINDER_NO_MUTATION = [
+  "Benchmark harness reminder:",
+  "- Your previous response read files but never edited any. The task is not complete.",
+  "- Code changes only happen through file mutations: edit_file / write_file (preferred), or a shell command that writes to a file (e.g. `cat > path <<EOF`, `sed -i ...`).",
+  "- Reading more files is not progress on its own. Identify the file to change, make the edit, then verify with run_command.",
+].join("\n");
+
 const CONFIRMATION_REQUEST_PATTERNS = [
   /\bplease confirm\b/i,
   /\bconfirm and i(?:'|’)ll\b/i,
@@ -137,7 +155,7 @@ const CONFIRMATION_REQUEST_PATTERNS = [
   /\bpermission\b/i,
 ];
 
-export type BenchmarkRetryReason = "approval_seeking" | "no_action";
+export type BenchmarkRetryReason = "approval_seeking" | "no_action" | "no_mutation";
 
 const SPECIALIZED_TOOL_NAMES = new Set([
   "read_symbol",
@@ -152,6 +170,43 @@ const SEARCH_TOOL_NAMES = new Set(["search"]);
 const MUTATION_TOOL_NAMES = new Set(["edit_file", "write_file"]);
 const COMMAND_TOOL_NAMES = new Set(["run_command"]);
 const REPEATED_TOOL_CALL_STOP_TEXT = "Stopped due to repeated identical tool calls";
+
+// Heuristics for "this shell command modified a file." Observed during
+// trace analysis: gemini-3-pro routinely uses `cat > FILE <<EOF` /
+// `cat >> FILE` heredocs instead of edit_file/write_file, so the model
+// is doing real work while our toolUsage.mutationTotal reads zero. The
+// retry detector and mutation analysis both need to recognize these as
+// real edits.
+const SHELL_MUTATION_PATTERNS: RegExp[] = [
+  // Redirect to a file: `> path`, `>> path`, or with a leading fd like `2> path`.
+  // Excludes `/dev/null`, `/dev/stderr`, and fd redirects (`>&2`).
+  /(?:^|[^&>])>>?\s*(?!\/dev\/null\b|\/dev\/stderr\b|&\d)[^\s|;&<>]+/,
+  // sed in-place edit.
+  /\bsed\b[^|;]*\s-i\b/,
+  // tee writes its stdin to one or more files.
+  /\btee\b(?!\s+--help\b)/,
+  // Python `open(..., "w"|"a"|"r+"|"wb"|"ab").write(...)` invocation (covers
+  // the common `python -c "..."` mutation shape).
+  /\bopen\s*\(\s*['"][^'"]+['"]\s*,\s*['"][rwa]\+?b?\+?['"]\s*\)\s*\.\s*write\b/,
+];
+
+export function looksLikeShellFileMutation(command: string): boolean {
+  if (typeof command !== "string" || command.length === 0) {
+    return false;
+  }
+  return SHELL_MUTATION_PATTERNS.some((pattern) => pattern.test(command));
+}
+
+function toolCallLooksLikeShellMutation(toolCall: {
+  name: string;
+  input: Record<string, unknown>;
+}): boolean {
+  if (!COMMAND_TOOL_NAMES.has(toolCall.name)) {
+    return false;
+  }
+  const command = toolCall.input?.command;
+  return typeof command === "string" && looksLikeShellFileMutation(command);
+}
 
 interface BenchmarkAttemptResult {
   text: string;
@@ -187,12 +242,41 @@ function countToolCallsInMessages(messages: SessionMessage[]): number {
 }
 
 /**
+ * Count any tool call that produced a real workspace mutation, whether via
+ * the structured tools (edit_file / write_file) or via a shell command
+ * that looks like a file write (heredoc into a file, sed -i, tee, etc.).
+ */
+export function countMutationsInMessages(messages: SessionMessage[]): number {
+  let count = 0;
+  for (const message of messages) {
+    if (message.role !== "assistant" || !message.toolCalls?.length) {
+      continue;
+    }
+    for (const toolCall of message.toolCalls) {
+      if (MUTATION_TOOL_NAMES.has(toolCall.name)) {
+        count += 1;
+        continue;
+      }
+      if (
+        toolCallLooksLikeShellMutation({
+          name: toolCall.name,
+          input: (toolCall.input ?? {}) as Record<string, unknown>,
+        })
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+/**
  * Decide whether a benchmark attempt should be retried once with an
  * additional reminder appended to the prompt. Returns the reason (so the
  * caller can pick a matching reminder), or `null` if the attempt looks
  * fine as-is.
  *
- * Two failure modes warrant retry:
+ * Three failure modes warrant retry, checked in this order:
  *   - `no_action`: the model emitted zero tool calls in the entire turn.
  *     In benchmark mode every task requires code changes, so a tool-call-
  *     free response is by definition incomplete. Covers both pure-
@@ -200,10 +284,17 @@ function countToolCallsInMessages(messages: SessionMessage[]): number {
  *     narration ("I've added the helper" with no edit_file call).
  *   - `approval_seeking`: the model asked for confirmation rather than
  *     acting, even though it made some tool calls.
+ *   - `no_mutation`: the model made tool calls but never produced a file
+ *     mutation — read-only exploration that stopped at a plan. Observed
+ *     on Gemini 2.5 Pro: 3 read_symbol calls followed by a future-tense
+ *     plan, no edit. mutationCount counts both structured and shell-based
+ *     mutations so this only fires when the model genuinely did nothing
+ *     to the workspace.
  */
 export function getBenchmarkRetryReason(attempt: {
   text: string;
   toolCallCount: number;
+  mutationCount: number;
 }): BenchmarkRetryReason | null {
   if (attempt.toolCallCount === 0) {
     return "no_action";
@@ -211,13 +302,21 @@ export function getBenchmarkRetryReason(attempt: {
   if (isBenchmarkApprovalSeekingResponse(attempt.text)) {
     return "approval_seeking";
   }
+  if (attempt.mutationCount === 0) {
+    return "no_mutation";
+  }
   return null;
 }
 
 export function getBenchmarkRetryReminder(reason: BenchmarkRetryReason): string {
-  return reason === "approval_seeking"
-    ? BENCHMARK_RETRY_REMINDER_APPROVAL
-    : BENCHMARK_RETRY_REMINDER_NO_ACTION;
+  switch (reason) {
+    case "approval_seeking":
+      return BENCHMARK_RETRY_REMINDER_APPROVAL;
+    case "no_action":
+      return BENCHMARK_RETRY_REMINDER_NO_ACTION;
+    case "no_mutation":
+      return BENCHMARK_RETRY_REMINDER_NO_MUTATION;
+  }
 }
 
 function stableSerialize(value: unknown): string {
@@ -283,6 +382,7 @@ export function summarizeBenchmarkToolUsage(
   let fileReadTotal = 0;
   let searchTotal = 0;
   let mutationTotal = 0;
+  let shellMutationTotal = 0;
   let commandTotal = 0;
   let skippedTotal = 0;
 
@@ -304,6 +404,9 @@ export function summarizeBenchmarkToolUsage(
     }
     if (COMMAND_TOOL_NAMES.has(toolCall.name)) {
       commandTotal += 1;
+      if (toolCallLooksLikeShellMutation(toolCall)) {
+        shellMutationTotal += 1;
+      }
     }
     if (toolCall.skipped) {
       skippedTotal += 1;
@@ -330,6 +433,7 @@ export function summarizeBenchmarkToolUsage(
     fileReadTotal,
     searchTotal,
     mutationTotal,
+    shellMutationTotal,
     commandTotal,
     skippedTotal,
     repeatedStop:
@@ -629,13 +733,16 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
     const retryReason = getBenchmarkRetryReason({
       text: attempt.text,
       toolCallCount: countToolCallsInMessages(attempt.messages),
+      mutationCount: countMutationsInMessages(attempt.messages),
     });
     if (retryReason !== null) {
       if (args.verbose) {
         const description =
           retryReason === "approval_seeking"
             ? "Model asked for confirmation"
-            : "Model emitted zero tool calls (pure-reasoning or narration-only response)";
+            : retryReason === "no_action"
+              ? "Model emitted zero tool calls (pure-reasoning or narration-only response)"
+              : "Model made tool calls but never mutated any file (plan-only response)";
         console.error(
           `[benchmark] ${description}; retrying once with a non-interactive reminder.`,
         );
