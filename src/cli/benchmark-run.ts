@@ -15,6 +15,7 @@ import {
   resolveBenchmarkEnv,
 } from "../benchmark/config.js";
 import {
+  captureBaselineRef,
   collectWorkspaceChanges,
   getWorkspaceDiff,
   writeWorkspaceDiff,
@@ -610,6 +611,12 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
 
     const toolRegistry = createToolRegistry(config, projectIndex);
 
+    // Snapshot HEAD before the model runs so we can diff against this point
+    // even if it commits its fix mid-run. Without this, `git diff` (which
+    // compares working-tree vs index) is blind to committed changes and the
+    // patch returned to the harness would be empty.
+    const baselineRef = (await captureBaselineRef(config.workspaceRoot)) ?? undefined;
+
     const startedAt = new Date().toISOString();
     const started = performance.now();
     let attempt = await runBenchmarkAttempt(prompt, {
@@ -645,11 +652,11 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
     const durationMs = performance.now() - started;
     const completedAt = new Date().toISOString();
 
-    const changes = await collectWorkspaceChanges(config.workspaceRoot);
+    const changes = await collectWorkspaceChanges(config.workspaceRoot, baselineRef);
     let diffOutPath: string | undefined;
     if (args.diffOut) {
       diffOutPath = path.resolve(cwd, args.diffOut);
-      await writeWorkspaceDiff(config.workspaceRoot, diffOutPath);
+      await writeWorkspaceDiff(config.workspaceRoot, diffOutPath, baselineRef);
     }
 
     const toolCalls = buildBenchmarkToolTrace(attempt.messages);
@@ -681,7 +688,7 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
 
     if (args.contextBenchTrajectory) {
       const trajectoryPath = path.resolve(cwd, args.contextBenchTrajectory);
-      const patch = (await getWorkspaceDiff(config.workspaceRoot)) ?? "";
+      const patch = (await getWorkspaceDiff(config.workspaceRoot, baselineRef)) ?? "";
       const trajectory = buildContextBenchTrajectory({
         systemPrompt: BENCHMARK_SYSTEM_PROMPT_SUFFIX,
         userPrompt: prompt,
