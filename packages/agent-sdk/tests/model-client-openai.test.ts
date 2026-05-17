@@ -450,6 +450,204 @@ test("openai-compatible client surfaces reasoning_tokens via completion_tokens_d
   assert.equal(response.usage.reasoningTokens, 339);
 });
 
+test("openai-compatible client surfaces reasoning content via message.reasoning", async () => {
+  // OpenRouter forwards Gemini-2.5/3 extended-thinking content as
+  // `choices[0].message.reasoning`. Previously this was silently dropped
+  // (we only kept the token count), which made it impossible to tell
+  // why a model collapsed to empty content + empty tool_calls. The
+  // parser now lifts the field onto ModelResponse.reasoningContent.
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: "",
+              reasoning: "Let me think... the bug is in foo.py line 42.",
+            },
+          },
+        ],
+        usage: { prompt_tokens: 40, completion_tokens: 200 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.text, "");
+  assert.equal(
+    response.reasoningContent,
+    "Let me think... the bug is in foo.py line 42.",
+  );
+});
+
+test("openai-compatible client also accepts reasoning_content field name", async () => {
+  // Some self-hosted gateways use `reasoning_content` instead of
+  // `reasoning`. Both name variants should hydrate the same field.
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: "ok", reasoning_content: "step-by-step…" },
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 30 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.text, "ok");
+  assert.equal(response.reasoningContent, "step-by-step…");
+});
+
+test("openai-compatible client forwards reasoningMaxTokens as reasoning.max_tokens", async () => {
+  // Required for Gemini 2.5 Pro through OpenRouter: dynamic thinking
+  // can't be disabled on Google's side, so capping is the only knob
+  // to prevent the model from burning its full output budget on
+  // reasoning without producing visible content.
+  let capturedBody: Record<string, unknown> | null = null;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse((init?.body as string) ?? "{}");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 32000,
+    reasoningMaxTokens: 4000,
+  });
+
+  const reasoning = (capturedBody as { reasoning?: Record<string, unknown> } | null)
+    ?.reasoning;
+  assert.deepEqual(reasoning, { max_tokens: 4000 });
+});
+
+test("openai-compatible client combines reasoning effort and max_tokens when both set", async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse((init?.body as string) ?? "{}");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 32000,
+    reasoningEffort: "medium",
+    reasoningMaxTokens: 4000,
+  });
+
+  const reasoning = (capturedBody as { reasoning?: Record<string, unknown> } | null)
+    ?.reasoning;
+  assert.deepEqual(reasoning, { effort: "medium", max_tokens: 4000 });
+});
+
+test("openai-compatible client omits reasoning param when neither effort nor cap set", async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse((init?.body as string) ?? "{}");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 32000,
+  });
+
+  assert.equal(
+    (capturedBody as { reasoning?: unknown } | null)?.reasoning,
+    undefined,
+  );
+});
+
+test("openai-compatible client omits reasoningContent when both fields are empty or missing", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "hi" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  const response = await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 64,
+  });
+
+  assert.equal(response.reasoningContent, undefined);
+});
+
 test("openai-compatible client omits reasoningTokens when zero or absent", async () => {
   const fetchImpl: typeof fetch = async () =>
     new Response(

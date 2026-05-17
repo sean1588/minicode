@@ -83,6 +83,18 @@ export interface AgentConfig {
   compactionModel?: string;
   /** Reasoning effort level for models that support reasoning tokens. When unset, no reasoning parameters are sent. */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Hard cap on reasoning tokens per turn. When set, sent as
+   * `reasoning.max_tokens` on OpenAI-compatible requests and used to
+   * clamp Anthropic's `thinking.budget_tokens`. Opt-in; usually unset.
+   *
+   * Mainly a lever for models like Gemini 2.5 Pro that cannot disable
+   * dynamic thinking and can otherwise burn their entire output budget
+   * on reasoning without producing visible content or tool calls. Use
+   * with caution — capping below what a hard task needs will reduce
+   * answer quality.
+   */
+  reasoningMaxTokens?: number;
   /** Rebuild the system prompt (including code map) every agent step. Disabling improves KV cache hit rates for local models. Default: false */
   enableDynamicPrompt?: boolean;
 }
@@ -104,6 +116,24 @@ export interface ModelResponse {
   text: string;
   toolCalls: ToolCall[];
   stopReason: "end_turn" | "tool_use" | "max_tokens";
+  /**
+   * Extended-thinking / reasoning content produced by the model, when
+   * the provider exposes it. Anthropic surfaces it via `thinking` content
+   * blocks on extended-thinking models; OpenRouter forwards Gemini-2.5/3
+   * thinking content via `choices[0].message.reasoning` (and some
+   * providers via `reasoning_content`). Previously both clients dropped
+   * this content on the floor — we only retained the token count. Keep
+   * it on the response so:
+   *   1. Traces / UIs can display the model's reasoning alongside its
+   *      visible output.
+   *   2. The agent loop can detect "pure-thinking collapse" (text empty,
+   *      toolCalls empty, reasoningContent non-empty) and surface the
+   *      reasoning instead of the generic "no response" fallback.
+   *
+   * Separate from `text` because thinking content is structured side
+   * information, not the model's reply to the user.
+   */
+  reasoningContent?: string;
   /**
    * Set when the caller supplied an `outputSchema` and the model
    * called the synthetic respond tool with arguments matching the
@@ -189,6 +219,8 @@ export interface ModelClient {
     tools: ToolSchema[];
     maxTokens: number;
     reasoningEffort?: ReasoningEffort;
+    /** See `AgentConfig.reasoningMaxTokens`. */
+    reasoningMaxTokens?: number;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     /**

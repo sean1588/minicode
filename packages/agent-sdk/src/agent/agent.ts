@@ -135,6 +135,7 @@ function extractFocusSymbol(toolCall: ToolCall): string | undefined {
 
 const VERBOSE_SEP = "\u2500".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
+const RESCUE_REASONING_MAX = 8000;
 
 /**
  * Content-aware truncation for tool outputs.
@@ -429,6 +430,14 @@ export class CodingAgent {
       cachedInputTokens?: number;
       reasoningTokens?: number;
     };
+    /**
+     * Most recent step's reasoning content, when the model provided any
+     * (Anthropic extended thinking blocks or OpenRouter `message.reasoning`).
+     * Surfaced so callers can include it when re-prompting after a failed
+     * attempt — e.g. benchmark mode's retry path can feed the model's own
+     * prior thinking back so it sees what it was about to do.
+     */
+    reasoningContent?: string;
     streamed?: boolean;
   }> {
     this.session.addMessage({
@@ -442,6 +451,7 @@ export class CodingAgent {
     let totalOutputTokens = 0;
     let totalCachedInputTokens = 0;
     let totalReasoningTokens = 0;
+    let lastReasoningContent: string | undefined;
     let loopGuardFires = 0;
 
     for (let step = 0; step < this.config.maxSteps; step += 1) {
@@ -555,6 +565,9 @@ export class CodingAgent {
         ...(this.config.reasoningEffort
           ? { reasoningEffort: this.config.reasoningEffort }
           : {}),
+        ...(this.config.reasoningMaxTokens !== undefined
+          ? { reasoningMaxTokens: this.config.reasoningMaxTokens }
+          : {}),
         ...(this.onUiUpdate
           ? {
               onStream: (chunk: string) => {
@@ -570,6 +583,12 @@ export class CodingAgent {
       totalOutputTokens += response.usage.outputTokens;
       totalCachedInputTokens += response.usage.cachedInputTokens ?? 0;
       totalReasoningTokens += response.usage.reasoningTokens ?? 0;
+      if (
+        typeof response.reasoningContent === "string" &&
+        response.reasoningContent.trim().length > 0
+      ) {
+        lastReasoningContent = response.reasoningContent;
+      }
 
       if (this.verbose) {
         this.verboseLog(`\n${VERBOSE_SEP}`);
@@ -613,15 +632,33 @@ export class CodingAgent {
               ? { reasoningTokens: totalReasoningTokens }
               : {}),
           },
+          ...(lastReasoningContent !== undefined
+            ? { reasoningContent: lastReasoningContent }
+            : {}),
           streamed,
         };
       }
 
       if (response.toolCalls.length === 0) {
+        // Pure-thinking collapse: some reasoning-capable models (Gemini
+        // 2.5/3 via OpenRouter, occasionally Claude with extended thinking)
+        // burn their full reasoning budget and return empty content +
+        // empty tool_calls. Previously we replaced this with a generic
+        // "no response" fallback, throwing away the reasoning entirely.
+        // If the provider forwarded reasoning content, prefer surfacing
+        // it — at least the user/trace can see what the model thought.
+        const reasoning = response.reasoningContent?.trim() ?? "";
+        const cappedReasoning =
+          reasoning.length > RESCUE_REASONING_MAX
+            ? reasoning.slice(0, RESCUE_REASONING_MAX) +
+              `\n\n[...reasoning truncated, ${reasoning.length - RESCUE_REASONING_MAX} chars omitted]`
+            : reasoning;
         const finalText =
           response.text.length > 0
             ? response.text
-            : "The model returned no response or tool calls. If you asked for code changes or other work, try rephrasing your request or using a model with stronger tool-use support.";
+            : reasoning.length > 0
+              ? `[model produced only reasoning content, no visible reply or tool calls]\n\n${cappedReasoning}`
+              : "The model returned no response or tool calls. If you asked for code changes or other work, try rephrasing your request or using a model with stronger tool-use support.";
         this.session.addMessage({
           role: "assistant",
           content: finalText,
@@ -640,6 +677,9 @@ export class CodingAgent {
               ? { reasoningTokens: totalReasoningTokens }
               : {}),
           },
+          ...(lastReasoningContent !== undefined
+            ? { reasoningContent: lastReasoningContent }
+            : {}),
           streamed,
         };
       }
@@ -722,6 +762,9 @@ export class CodingAgent {
                   ? { reasoningTokens: totalReasoningTokens }
                   : {}),
               },
+              ...(lastReasoningContent !== undefined
+                ? { reasoningContent: lastReasoningContent }
+                : {}),
               streamed: false,
             };
           }
@@ -840,6 +883,9 @@ export class CodingAgent {
               ? { reasoningTokens: totalReasoningTokens }
               : {}),
           },
+      ...(lastReasoningContent !== undefined
+        ? { reasoningContent: lastReasoningContent }
+        : {}),
       streamed: false,
     };
   }

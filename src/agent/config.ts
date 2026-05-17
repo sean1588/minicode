@@ -37,6 +37,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "compactionThreshold: " + (config.compactionThreshold ?? "(disabled)"),
     "compactionModel: " + (config.compactionModel ?? "(disabled — using mechanical compaction)"),
     "reasoningEffort: " + (config.reasoningEffort ?? "(unset — no reasoning parameters sent)"),
+    "reasoningMaxTokens: " + (config.reasoningMaxTokens !== undefined ? String(config.reasoningMaxTokens) : "(unset — uncapped)"),
     "enableDynamicPrompt: " + (config.enableDynamicPrompt ?? false),
   ];
   return lines.join("\n");
@@ -411,6 +412,13 @@ export async function loadAgentConfig(
     ...(() => {
       const effort = parseReasoningEffort(env.REASONING_EFFORT);
       return effort ? { reasoningEffort: effort } : {};
+    })(),
+    ...(() => {
+      const raw = env.REASONING_MAX_TOKENS;
+      if (raw === undefined || raw === "") return {};
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value <= 0) return {};
+      return { reasoningMaxTokens: Math.floor(value) };
     })(),
   };
 }

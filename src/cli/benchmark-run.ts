@@ -142,6 +142,45 @@ const BENCHMARK_RETRY_REMINDER_NO_MUTATION = [
   "- Reading more files is not progress on its own. Identify the file to change, make the edit, then verify with run_command.",
 ].join("\n");
 
+/**
+ * Cap on prior-reasoning content forwarded to the retry prompt. ~2000
+ * chars ≈ 500 tokens — enough to convey the model's high-level plan from
+ * the failed attempt without ballooning the second attempt's input cost.
+ */
+const PRIOR_REASONING_MAX_CHARS = 2000;
+
+/**
+ * Build a "your previous attempt thought this" block to append to the
+ * retry prompt. Helps the model see its own prior reasoning so the
+ * retry isn't starting from a cold state — particularly useful when the
+ * first attempt collapsed to pure reasoning (no visible content / no
+ * tool calls). Returns an empty string when no reasoning was captured.
+ */
+export function buildPriorReasoningContext(
+  reasoningContent: string | undefined,
+): string {
+  if (typeof reasoningContent !== "string") {
+    return "";
+  }
+  const trimmed = reasoningContent.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  const snippet =
+    trimmed.length > PRIOR_REASONING_MAX_CHARS
+      ? trimmed.slice(0, PRIOR_REASONING_MAX_CHARS) +
+        `\n…[${trimmed.length - PRIOR_REASONING_MAX_CHARS} more chars of reasoning truncated]`
+      : trimmed;
+  return [
+    "",
+    "Your previous attempt's internal reasoning (verbatim, for your own context):",
+    "<<<PRIOR_REASONING>>>",
+    snippet,
+    "<<<END_PRIOR_REASONING>>>",
+    "Apply that reasoning concretely — make the file changes your previous turn was planning, then verify.",
+  ].join("\n");
+}
+
 const CONFIRMATION_REQUEST_PATTERNS = [
   /\bplease confirm\b/i,
   /\bconfirm and i(?:'|’)ll\b/i,
@@ -216,6 +255,11 @@ interface BenchmarkAttemptResult {
     cachedInputTokens?: number;
     reasoningTokens?: number;
   };
+  // Most recent step's reasoning content from the model, when the provider
+  // exposed it. Used by the retry path to feed the model's own prior
+  // thinking back into the retry prompt — "you reasoned X but didn't act,
+  // do it now" works much better than abstract scolding.
+  reasoningContent?: string;
   streamed?: boolean;
   messages: SessionMessage[];
 }
@@ -748,13 +792,19 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
         );
       }
       const reminder = getBenchmarkRetryReminder(retryReason);
-      attempt = await runBenchmarkAttempt(`${prompt}\n\n${reminder}`, {
-        config,
-        modelClient,
-        toolRegistry,
-        verbose: args.verbose,
-        ...(projectIndex !== undefined ? { projectIndex } : {}),
-      });
+      const priorReasoningBlock = buildPriorReasoningContext(
+        attempt.reasoningContent,
+      );
+      attempt = await runBenchmarkAttempt(
+        `${prompt}\n\n${reminder}${priorReasoningBlock}`,
+        {
+          config,
+          modelClient,
+          toolRegistry,
+          verbose: args.verbose,
+          ...(projectIndex !== undefined ? { projectIndex } : {}),
+        },
+      );
     }
     const durationMs = performance.now() - started;
     const completedAt = new Date().toISOString();
