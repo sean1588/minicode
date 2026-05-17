@@ -59,6 +59,42 @@ test("loadAgentConfig leaves reasoningEffort undefined when env var is unset", a
   }
 });
 
+test("loadAgentConfig parses REASONING_MAX_TOKENS env var", async () => {
+  const prev = process.env.REASONING_MAX_TOKENS;
+  try {
+    process.env.REASONING_MAX_TOKENS = "4000";
+    const config = await loadAgentConfig("/tmp");
+    assert.equal(config.reasoningMaxTokens, 4000);
+  } finally {
+    if (prev === undefined) {
+      delete process.env.REASONING_MAX_TOKENS;
+    } else {
+      process.env.REASONING_MAX_TOKENS = prev;
+    }
+  }
+});
+
+test("loadAgentConfig ignores non-positive or invalid REASONING_MAX_TOKENS values", async () => {
+  const prev = process.env.REASONING_MAX_TOKENS;
+  try {
+    for (const bad of ["0", "-100", "abc", ""]) {
+      process.env.REASONING_MAX_TOKENS = bad;
+      const config = await loadAgentConfig("/tmp");
+      assert.equal(
+        config.reasoningMaxTokens,
+        undefined,
+        `expected undefined for input ${JSON.stringify(bad)}`,
+      );
+    }
+  } finally {
+    if (prev === undefined) {
+      delete process.env.REASONING_MAX_TOKENS;
+    } else {
+      process.env.REASONING_MAX_TOKENS = prev;
+    }
+  }
+});
+
 test("loadAgentConfig normalizes REASONING_EFFORT case", async () => {
   const prev = process.env.REASONING_EFFORT;
   try {

@@ -101,11 +101,22 @@ function toAnthropicMessages(
 
 function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
   const textParts: string[] = [];
+  const reasoningParts: string[] = [];
   const toolCalls: ToolCall[] = [];
 
   for (const block of response.content) {
     if (block.type === "text") {
       textParts.push(block.text);
+      continue;
+    }
+
+    if (block.type === "thinking") {
+      // Extended-thinking blocks. Previously dropped silently; now
+      // surface as `reasoningContent` so callers can display/inspect.
+      const blockText = (block as { thinking?: string }).thinking;
+      if (typeof blockText === "string" && blockText.length > 0) {
+        reasoningParts.push(blockText);
+      }
       continue;
     }
 
@@ -126,6 +137,11 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
     cache_read_input_tokens?: number;
   }).cache_read_input_tokens;
 
+  const reasoningContent =
+    reasoningParts.length > 0
+      ? reasoningParts.join("\n").trim() || undefined
+      : undefined;
+
   return {
     text: textParts.join("\n").trim(),
     toolCalls,
@@ -135,6 +151,7 @@ function parseResponse(response: Anthropic.Messages.Message): ModelResponse {
         : response.stop_reason === "max_tokens"
           ? "max_tokens"
           : "end_turn",
+    ...(reasoningContent !== undefined ? { reasoningContent } : {}),
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
@@ -316,6 +333,14 @@ interface OpenAICompatibleChoice {
   message?: {
     content?: string | null;
     tool_calls?: OpenAICompatibleToolCall[];
+    /**
+     * Extended-thinking / reasoning content, when the provider forwards
+     * it. OpenRouter exposes Gemini-2.5/3 thinking content via
+     * `reasoning`; some self-hosted gateways use `reasoning_content`
+     * instead. We accept either.
+     */
+    reasoning?: string | null;
+    reasoning_content?: string | null;
   };
   finish_reason?: string | null;
 }
@@ -564,10 +589,23 @@ function parseOpenAICompatibleResponse(
   const reasoningTokens =
     response.usage?.completion_tokens_details?.reasoning_tokens;
 
+  // OpenRouter forwards Gemini thinking via `reasoning`; some gateways
+  // use `reasoning_content` instead. Prefer `reasoning` and fall back.
+  const rawReasoning =
+    (typeof message.reasoning === "string" ? message.reasoning : undefined) ??
+    (typeof message.reasoning_content === "string"
+      ? message.reasoning_content
+      : undefined);
+  const reasoningContent =
+    rawReasoning && rawReasoning.trim().length > 0
+      ? rawReasoning.trim()
+      : undefined;
+
   return applyLeakedToolCallRecovery({
     text: (message.content ?? "").trim(),
     toolCalls,
     stopReason,
+    ...(reasoningContent !== undefined ? { reasoningContent } : {}),
     usage: {
       inputTokens: response.usage?.prompt_tokens ?? 0,
       outputTokens: response.usage?.completion_tokens ?? 0,
@@ -631,6 +669,7 @@ export class AnthropicModelClient implements ModelClient {
     tools: ToolSchema[];
     maxTokens: number;
     reasoningEffort?: ReasoningEffort;
+    reasoningMaxTokens?: number;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     cacheableSystem?: boolean;
@@ -683,15 +722,26 @@ export class AnthropicModelClient implements ModelClient {
     };
 
     // Build thinking parameter for models that support extended thinking.
-    const thinkingParam =
+    // When an explicit `reasoningMaxTokens` cap is set, clamp the budget
+    // to it so the caller can hold the reasoning spend below the
+    // effort-derived default.
+    const effortBudget =
       params.reasoningEffort && params.reasoningEffort !== "none"
+        ? Math.max(
+            1,
+            Math.round(params.maxTokens * effortToBudgetFraction(params.reasoningEffort)),
+          )
+        : 0;
+    const cappedBudget =
+      params.reasoningMaxTokens !== undefined && params.reasoningMaxTokens > 0
+        ? Math.min(effortBudget || params.reasoningMaxTokens, params.reasoningMaxTokens)
+        : effortBudget;
+    const thinkingParam =
+      cappedBudget > 0
         ? {
             thinking: {
               type: "enabled" as const,
-              budget_tokens: Math.max(
-                1,
-                Math.round(params.maxTokens * effortToBudgetFraction(params.reasoningEffort)),
-              ),
+              budget_tokens: cappedBudget,
             },
           }
         : {};
@@ -907,6 +957,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     tools: ToolSchema[];
     maxTokens: number;
     reasoningEffort?: ReasoningEffort;
+    reasoningMaxTokens?: number;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     cacheableSystem?: boolean;
@@ -951,8 +1002,22 @@ export class OpenAICompatibleModelClient implements ModelClient {
       stream: useStream,
     };
 
-    if (params.reasoningEffort) {
-      requestBody.reasoning = { effort: params.reasoningEffort };
+    if (params.reasoningEffort || params.reasoningMaxTokens !== undefined) {
+      const reasoning: Record<string, unknown> = {};
+      if (params.reasoningEffort) {
+        reasoning.effort = params.reasoningEffort;
+      }
+      if (
+        params.reasoningMaxTokens !== undefined &&
+        params.reasoningMaxTokens > 0
+      ) {
+        // OpenRouter forwards `reasoning.max_tokens` to Gemini's
+        // thinkingBudget; OpenAI o-series also honour it. Capping is
+        // the only knob for Gemini 2.5 Pro since dynamic thinking can't
+        // be disabled on that model.
+        reasoning.max_tokens = params.reasoningMaxTokens;
+      }
+      requestBody.reasoning = reasoning;
     }
 
     // Prompt caching. Most OpenAI-compatible providers (OpenAI, DeepSeek,

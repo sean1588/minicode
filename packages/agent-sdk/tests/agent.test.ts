@@ -316,6 +316,35 @@ test("agent returns fallback text when model returns empty response", async () =
   assert.match(text, /no response or tool calls/);
 });
 
+test("agent surfaces reasoningContent when model collapses to pure thinking", async () => {
+  // Pure-thinking collapse: Gemini-2.5/3 sometimes burn their full
+  // reasoning budget and return empty content + empty tool_calls but
+  // non-empty reasoning. Before this fix the agent replaced everything
+  // with the generic "no response" fallback. Now the reasoning is
+  // surfaced so the trace / UI can see what the model thought.
+  const responses: ModelResponse[] = [
+    {
+      text: "",
+      toolCalls: [],
+      stopReason: "end_turn",
+      reasoningContent:
+        "I should call edit_file on foo.py to replace the bad default.",
+      usage: { inputTokens: 10, outputTokens: 0, reasoningTokens: 1200 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Hello");
+  assert.match(text, /model produced only reasoning content/i);
+  assert.match(text, /edit_file on foo\.py/);
+  assert.doesNotMatch(text, /no response or tool calls/);
+});
+
 test("agent respects maxSteps limit", async () => {
   const config = createTestAgentConfig("/tmp");
   config.maxSteps = 2;

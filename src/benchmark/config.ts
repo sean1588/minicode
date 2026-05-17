@@ -47,6 +47,7 @@ export interface BenchmarkConfigFile {
   compactionThreshold?: number;
   compactionModel?: string;
   reasoningEffort?: ReasoningEffort;
+  reasoningMaxTokens?: number;
   enableDynamicPrompt?: boolean;
 }
 
@@ -314,6 +315,19 @@ export async function buildBenchmarkAgentConfig(
         resolvedEnv.values.REASONING_EFFORT ?? fileConfig.reasoningEffort,
       );
       return effort ? { reasoningEffort: effort } : {};
+    })(),
+    ...(() => {
+      // Opt-in hard cap on reasoning tokens per turn. Useful for models
+      // (notably Gemini 2.5 Pro) that can otherwise burn the full output
+      // budget on dynamic thinking without producing a visible response.
+      // Unset by default — uncapped reasoning is the right behavior for
+      // most models.
+      const raw =
+        resolvedEnv.values.REASONING_MAX_TOKENS ?? fileConfig.reasoningMaxTokens;
+      if (raw === undefined || raw === null || raw === "") return {};
+      const value = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(value) || value <= 0) return {};
+      return { reasoningMaxTokens: Math.floor(value) };
     })(),
     enableDynamicPrompt: parseBoolean(
       resolvedEnv.values.ENABLE_DYNAMIC_PROMPT ?? fileConfig.enableDynamicPrompt,

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   buildBenchmarkToolTrace,
+  buildPriorReasoningContext,
   countMutationsInMessages,
   getBenchmarkRetryReason,
   getBenchmarkRetryReminder,
@@ -245,6 +246,38 @@ test("looksLikeShellFileMutation rejects read-only and benign redirects", () => 
   // don't count them as code mutations.
   assert.equal(looksLikeShellFileMutation("git checkout tests/foo.py"), false);
   assert.equal(looksLikeShellFileMutation("git add ."), false);
+});
+
+test("buildPriorReasoningContext returns empty when no reasoning was captured", () => {
+  assert.equal(buildPriorReasoningContext(undefined), "");
+  assert.equal(buildPriorReasoningContext(""), "");
+  assert.equal(buildPriorReasoningContext("   \n\n   "), "");
+});
+
+test("buildPriorReasoningContext wraps the prior reasoning with framing", () => {
+  // The wrapper tells the model this is its own prior thinking, and
+  // nudges it to act on the reasoning rather than re-deliberate.
+  const block = buildPriorReasoningContext(
+    "The bug is the hardcoded 1.0 fallback in sliced_wcs.py line 254.",
+  );
+  assert.match(block, /your previous attempt/i);
+  assert.match(block, /<<<PRIOR_REASONING>>>/);
+  assert.match(block, /<<<END_PRIOR_REASONING>>>/);
+  assert.match(block, /hardcoded 1\.0 fallback/);
+  assert.match(block, /apply that reasoning/i);
+});
+
+test("buildPriorReasoningContext truncates very long reasoning", () => {
+  // 12k reasoning tokens from a pure-thinking collapse would explode
+  // the next attempt's input cost. Cap at 2000 chars so the retry stays
+  // affordable while still preserving the high-level plan.
+  const long = "x".repeat(5000);
+  const block = buildPriorReasoningContext(long);
+  assert.match(block, /more chars of reasoning truncated/);
+  // The wrapped block should NOT contain the full 5000 chars worth of x's.
+  const xCount = (block.match(/x/g) ?? []).length;
+  assert.ok(xCount < 5000, `expected truncation, got ${xCount} x chars`);
+  assert.ok(xCount >= 2000, `expected at least 2000 x chars preserved, got ${xCount}`);
 });
 
 test("countMutationsInMessages counts structured + shell mutations together", () => {
