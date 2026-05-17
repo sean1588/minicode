@@ -3,10 +3,12 @@ import { test } from "node:test";
 
 import {
   buildBenchmarkToolTrace,
+  countMutationsInMessages,
   getBenchmarkRetryReason,
   getBenchmarkRetryReminder,
   getBenchmarkSystemPromptSuffix,
   isBenchmarkApprovalSeekingResponse,
+  looksLikeShellFileMutation,
   parseBenchmarkRunArgs,
   summarizeBenchmarkToolUsage,
 } from "../src/cli/benchmark-run.js";
@@ -95,7 +97,7 @@ test("getBenchmarkRetryReason flags zero-tool-call attempts as no_action", () =>
   // nothing" mode). Despite empty text, the attempt is still a definite
   // failure in benchmark mode since the task needs code changes.
   assert.equal(
-    getBenchmarkRetryReason({ text: "", toolCallCount: 0 }),
+    getBenchmarkRetryReason({ text: "", toolCallCount: 0, mutationCount: 0 }),
     "no_action",
   );
   // Hallucinated-completion failure: the model narrates work without
@@ -105,6 +107,7 @@ test("getBenchmarkRetryReason flags zero-tool-call attempts as no_action", () =>
     getBenchmarkRetryReason({
       text: "I've added the new transformation to astropy/coordinates/itrs.py and registered it with the frame_transform_graph.",
       toolCallCount: 0,
+      mutationCount: 0,
     }),
     "no_action",
   );
@@ -113,6 +116,7 @@ test("getBenchmarkRetryReason flags zero-tool-call attempts as no_action", () =>
     getBenchmarkRetryReason({
       text: "I will add the helper function to utils.py and update the imports.",
       toolCallCount: 0,
+      mutationCount: 0,
     }),
     "no_action",
   );
@@ -123,24 +127,56 @@ test("getBenchmarkRetryReason flags approval-seeking when tool calls exist", () 
     getBenchmarkRetryReason({
       text: "I found the changes needed. Please confirm and I'll apply them.",
       toolCallCount: 5,
+      mutationCount: 0,
     }),
     "approval_seeking",
   );
 });
 
-test("getBenchmarkRetryReason returns null for normal completion with tool calls", () => {
+test("getBenchmarkRetryReason flags plan-only attempts as no_mutation", () => {
+  // Observed on Gemini 2.5 Pro 71f348da: 3 read-only tool calls
+  // (search_code_map + 2 read_symbol) followed by a future-tense plan
+  // ("Here's how I'll fix it: 1. Read X. 2. Modify Y. 3. I'll replace Z.")
+  // and no edit. Approval-seeking detector doesn't fire (no "please confirm")
+  // and no_action doesn't fire (toolCallCount > 0) — needs a third signal.
+  assert.equal(
+    getBenchmarkRetryReason({
+      text: "Here's how I'll fix it: 1. Read sliced_wcs.py. 2. Modify world_to_pixel_values. 3. I'll replace the 1. fallback.",
+      toolCallCount: 3,
+      mutationCount: 0,
+    }),
+    "no_mutation",
+  );
+});
+
+test("getBenchmarkRetryReason returns null when mutations occurred", () => {
   assert.equal(
     getBenchmarkRetryReason({
       text: "Updated src/app.ts, ran npm test, all tests passed.",
       toolCallCount: 12,
+      mutationCount: 2,
     }),
     null,
   );
 });
 
-test("getBenchmarkRetryReminder returns distinct reminders for the two reasons", () => {
+test("getBenchmarkRetryReason prioritizes no_action over no_mutation", () => {
+  // Defensive: a zero-tool-call attempt also has zero mutations, but the
+  // reminder for no_action is more specific. Make sure that path wins.
+  assert.equal(
+    getBenchmarkRetryReason({
+      text: "I will edit utils.py.",
+      toolCallCount: 0,
+      mutationCount: 0,
+    }),
+    "no_action",
+  );
+});
+
+test("getBenchmarkRetryReminder returns distinct reminders for each reason", () => {
   const approval = getBenchmarkRetryReminder("approval_seeking");
   const noAction = getBenchmarkRetryReminder("no_action");
+  const noMutation = getBenchmarkRetryReminder("no_mutation");
 
   // Approval reminder leans on "already approved" — the model was acting
   // but asked for permission.
@@ -155,6 +191,83 @@ test("getBenchmarkRetryReminder returns distinct reminders for the two reasons",
   // were observed in the Gemini 2.5 Pro empty-trajectory investigation.
   assert.match(noAction, /past-tense/i);
   assert.match(noAction, /future-tense/i);
+
+  // No-mutation reminder is distinct — the model DID call tools, just
+  // never edited anything. It should mention reading-without-editing,
+  // and acknowledge shell-based edits as legitimate (since some models
+  // prefer `cat > file` over edit_file).
+  assert.match(noMutation, /read files but never edited/i);
+  assert.match(noMutation, /cat > path|sed -i/);
+  assert.notEqual(noMutation, noAction);
+  assert.notEqual(noMutation, approval);
+});
+
+test("looksLikeShellFileMutation detects common file-writing shells", () => {
+  // Heredoc into file — the gemini-3-pro 71f348da pattern.
+  assert.equal(
+    looksLikeShellFileMutation("cat > path/to/file.py <<'EOF'\nbody\nEOF"),
+    true,
+  );
+  // Append redirect with heredoc.
+  assert.equal(
+    looksLikeShellFileMutation("cat << 'EOF' >> tests/foo.py\nbody\nEOF"),
+    true,
+  );
+  // In-place sed.
+  assert.equal(looksLikeShellFileMutation("sed -i 's/old/new/g' foo.py"), true);
+  // tee.
+  assert.equal(looksLikeShellFileMutation("echo x | tee path/to/file"), true);
+  // Python open().write().
+  assert.equal(
+    looksLikeShellFileMutation(
+      'python -c "open(\'foo.py\', \'w\').write(\'body\')"',
+    ),
+    true,
+  );
+});
+
+test("looksLikeShellFileMutation rejects read-only and benign redirects", () => {
+  // Pure read.
+  assert.equal(looksLikeShellFileMutation("cat path/to/file.py"), false);
+  // Pipe + cat with output to /dev/null.
+  assert.equal(
+    looksLikeShellFileMutation("python script.py > /dev/null 2>&1"),
+    false,
+  );
+  // File descriptor redirect (no file write).
+  assert.equal(looksLikeShellFileMutation("python script.py 2>&1"), false);
+  // pytest invocation — no redirect, no in-place edit.
+  assert.equal(
+    looksLikeShellFileMutation("python -m pytest tests/foo.py"),
+    false,
+  );
+  // git commands operate on the index, not arbitrary file writes — we
+  // don't count them as code mutations.
+  assert.equal(looksLikeShellFileMutation("git checkout tests/foo.py"), false);
+  assert.equal(looksLikeShellFileMutation("git add ."), false);
+});
+
+test("countMutationsInMessages counts structured + shell mutations together", () => {
+  const messages: SessionMessage[] = [
+    { role: "user", content: "task" },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "1", name: "read_file", input: { path: "a.py" } },
+        { id: "2", name: "edit_file", input: { path: "a.py", old_string: "x", new_string: "y" } },
+        {
+          id: "3",
+          name: "run_command",
+          input: { command: "cat > b.py <<'EOF'\nprint('hi')\nEOF" },
+        },
+        { id: "4", name: "run_command", input: { command: "python -m pytest" } },
+      ],
+    },
+    { role: "assistant", content: "done" },
+  ];
+  // edit_file + the heredoc command count; read_file and pytest don't.
+  assert.equal(countMutationsInMessages(messages), 2);
 });
 
 test("parseBenchmarkRunArgs preserves prompt text and benchmark flags", () => {
@@ -284,8 +397,46 @@ test("benchmark tool usage summary separates structured tools from file reads", 
   assert.equal(summary.specializedByName.get_dependencies, 1);
   assert.equal(summary.fileReadTotal, 1);
   assert.equal(summary.mutationTotal, 1);
+  assert.equal(summary.shellMutationTotal, 0);
   assert.equal(summary.commandTotal, 1);
   assert.deepEqual(summary.repeatedToolCalls, []);
+});
+
+test("benchmark tool usage summary counts shell-based file edits as shellMutation", () => {
+  // Gemini-3-Pro pattern: `cat > FILE <<EOF` heredoc instead of edit_file.
+  // mutationTotal stays at the structured-tool count; shellMutationTotal
+  // exposes the shell-based edits without inflating mutationTotal.
+  const summary = summarizeBenchmarkToolUsage(
+    [
+      {
+        step: 1,
+        name: "run_command",
+        input: { command: "cat > foo.py <<'EOF'\nprint('hi')\nEOF" },
+        result: "ok",
+        skipped: false,
+      },
+      {
+        step: 2,
+        name: "run_command",
+        input: { command: "sed -i 's/old/new/g' bar.py" },
+        result: "ok",
+        skipped: false,
+      },
+      {
+        step: 3,
+        name: "run_command",
+        input: { command: "python -m pytest" },
+        result: "ok",
+        skipped: false,
+      },
+    ],
+    "Done",
+  );
+
+  assert.equal(summary.total, 3);
+  assert.equal(summary.commandTotal, 3);
+  assert.equal(summary.mutationTotal, 0);
+  assert.equal(summary.shellMutationTotal, 2);
 });
 
 test("benchmark tool usage summary reports repeated-call stops", () => {

@@ -155,9 +155,20 @@ fi
 cd "$WS"
 
 if [ -s /tmp/test.patch ]; then
-  git apply --whitespace=nowarn /tmp/test.patch \\
-    || git apply --reject --whitespace=nowarn /tmp/test.patch \\
-    || true
+  if git apply --whitespace=nowarn /tmp/test.patch; then
+    # Commit the test_patch so the model can't accidentally revert it with
+    # `git checkout`. Observed in trace analysis: models that run
+    # `git checkout <test_file>` to clean their own scratch edits also blow
+    # away the canonical failing tests, which silently corrupts scoring.
+    git -c user.email=benchmark@minicode -c user.name=minicode-benchmark \\
+      add -A
+    git -c user.email=benchmark@minicode -c user.name=minicode-benchmark \\
+      commit -m "ContextBench: apply test_patch" --allow-empty >/dev/null
+  else
+    # Couldn't apply cleanly — fall back to --reject so the failure is
+    # visible via .rej files, but don't commit a half-applied state.
+    git apply --reject --whitespace=nowarn /tmp/test.patch || true
+  fi
 fi
 
 if ! command -v node >/dev/null 2>&1 \\
