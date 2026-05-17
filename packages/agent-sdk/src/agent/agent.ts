@@ -135,6 +135,7 @@ function extractFocusSymbol(toolCall: ToolCall): string | undefined {
 
 const VERBOSE_SEP = "\u2500".repeat(60);
 const PROGRESS_THINKING_MAX = 200;
+const RESCUE_REASONING_MAX = 8000;
 
 /**
  * Content-aware truncation for tool outputs.
@@ -647,11 +648,16 @@ export class CodingAgent {
         // If the provider forwarded reasoning content, prefer surfacing
         // it — at least the user/trace can see what the model thought.
         const reasoning = response.reasoningContent?.trim() ?? "";
+        const cappedReasoning =
+          reasoning.length > RESCUE_REASONING_MAX
+            ? reasoning.slice(0, RESCUE_REASONING_MAX) +
+              `\n\n[...reasoning truncated, ${reasoning.length - RESCUE_REASONING_MAX} chars omitted]`
+            : reasoning;
         const finalText =
           response.text.length > 0
             ? response.text
             : reasoning.length > 0
-              ? `[model produced only reasoning content, no visible reply or tool calls]\n\n${reasoning}`
+              ? `[model produced only reasoning content, no visible reply or tool calls]\n\n${cappedReasoning}`
               : "The model returned no response or tool calls. If you asked for code changes or other work, try rephrasing your request or using a model with stronger tool-use support.";
         this.session.addMessage({
           role: "assistant",

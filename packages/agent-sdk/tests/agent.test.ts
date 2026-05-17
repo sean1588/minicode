@@ -345,6 +345,32 @@ test("agent surfaces reasoningContent when model collapses to pure thinking", as
   assert.doesNotMatch(text, /no response or tool calls/);
 });
 
+test("agent truncates oversized reasoning content on pure-thinking collapse", async () => {
+  // Guard against dumping a 50KB reasoning blob verbatim into the chat.
+  // Cap is ~8K chars + a truncation marker.
+  const huge = "x".repeat(20000);
+  const responses: ModelResponse[] = [
+    {
+      text: "",
+      toolCalls: [],
+      stopReason: "end_turn",
+      reasoningContent: huge,
+      usage: { inputTokens: 10, outputTokens: 0, reasoningTokens: 5000 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([createEchoTool()]),
+  });
+
+  const { text } = await agent.runTurn("Hello");
+  assert.match(text, /reasoning truncated/i);
+  assert.match(text, /12000 chars omitted/);
+  assert.ok(text.length < huge.length, "rescue text should be smaller than raw reasoning");
+});
+
 test("agent respects maxSteps limit", async () => {
   const config = createTestAgentConfig("/tmp");
   config.maxSteps = 2;
