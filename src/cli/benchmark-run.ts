@@ -70,8 +70,8 @@ export interface BenchmarkRunResult {
    */
   retry: {
     reason: BenchmarkRetryReason;
-    toolChoice: "required";
-    reasoningMaxTokens: number;
+    toolChoice?: "required";
+    reasoningMaxTokens?: number;
   } | null;
 }
 
@@ -207,6 +207,21 @@ const CONFIRMATION_REQUEST_PATTERNS = [
 ];
 
 export type BenchmarkRetryReason = "approval_seeking" | "no_action" | "no_mutation";
+
+/**
+ * Whether the retry path should force a tool call (`toolChoice: "required"`)
+ * AND cap reasoning to 2K tokens on the retried attempt. Default is true —
+ * this is the validated rescue behavior for collapse-prone retries. Set
+ * `BENCHMARK_RETRY_FORCE_TOOLS=0` (or `false`/`no`/`off`) to disable; the
+ * retry will then run with the same model config as the first attempt.
+ *
+ * The escape hatch exists so a future model that misbehaves under
+ * `tool_choice: required` can be unblocked without a code revert.
+ */
+export function isRetryForceToolsEnabled(env: NodeJS.ProcessEnv): boolean {
+  const value = (env.BENCHMARK_RETRY_FORCE_TOOLS ?? "").trim().toLowerCase();
+  return value !== "0" && value !== "false" && value !== "no" && value !== "off";
+}
 
 const SPECIALIZED_TOOL_NAMES = new Set([
   "read_symbol",
@@ -787,7 +802,7 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       ...(projectIndex !== undefined ? { projectIndex } : {}),
     });
     let retryRecord:
-      | { reason: BenchmarkRetryReason; toolChoice: "required"; reasoningMaxTokens: number }
+      | { reason: BenchmarkRetryReason; toolChoice?: "required"; reasoningMaxTokens?: number }
       | null = null;
     const retryReason = getBenchmarkRetryReason({
       text: attempt.text,
@@ -816,18 +831,23 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       // path that produced the original collapse (Gemini 2.5 Pro routinely
       // burns 10K+ reasoning tokens before returning nothing). The cap is
       // above what a typical planning step needs (~1-2K tokens) but well
-      // below the observed collapse zone.
+      // below the observed collapse zone. Opt-out via env var.
       const RETRY_REASONING_MAX_TOKENS = 2000;
-      const retryConfig = {
-        ...config,
-        toolChoice: "required" as const,
-        reasoningMaxTokens: RETRY_REASONING_MAX_TOKENS,
-      };
-      retryRecord = {
-        reason: retryReason,
-        toolChoice: "required",
-        reasoningMaxTokens: RETRY_REASONING_MAX_TOKENS,
-      };
+      const forceTools = isRetryForceToolsEnabled(process.env);
+      const retryConfig = forceTools
+        ? {
+            ...config,
+            toolChoice: "required" as const,
+            reasoningMaxTokens: RETRY_REASONING_MAX_TOKENS,
+          }
+        : config;
+      retryRecord = forceTools
+        ? {
+            reason: retryReason,
+            toolChoice: "required",
+            reasoningMaxTokens: RETRY_REASONING_MAX_TOKENS,
+          }
+        : { reason: retryReason };
       attempt = await runBenchmarkAttempt(
         `${prompt}\n\n${reminder}${priorReasoningBlock}`,
         {

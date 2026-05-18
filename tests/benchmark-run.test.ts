@@ -9,6 +9,7 @@ import {
   getBenchmarkRetryReminder,
   getBenchmarkSystemPromptSuffix,
   isBenchmarkApprovalSeekingResponse,
+  isRetryForceToolsEnabled,
   looksLikeShellFileMutation,
   parseBenchmarkRunArgs,
   summarizeBenchmarkToolUsage,
@@ -509,4 +510,38 @@ test("benchmark tool usage summary reports repeated-call stops", () => {
       count: 3,
     },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// isRetryForceToolsEnabled
+// ---------------------------------------------------------------------------
+
+test("isRetryForceToolsEnabled defaults to true when env var unset", () => {
+  assert.equal(isRetryForceToolsEnabled({}), true);
+});
+
+test("isRetryForceToolsEnabled defaults to true when env var is empty/whitespace", () => {
+  assert.equal(isRetryForceToolsEnabled({ BENCHMARK_RETRY_FORCE_TOOLS: "" }), true);
+  assert.equal(isRetryForceToolsEnabled({ BENCHMARK_RETRY_FORCE_TOOLS: "   " }), true);
+});
+
+test("isRetryForceToolsEnabled returns false for explicit disable values", () => {
+  for (const value of ["0", "false", "no", "off", "FALSE", "NO", "Off"]) {
+    assert.equal(
+      isRetryForceToolsEnabled({ BENCHMARK_RETRY_FORCE_TOOLS: value }),
+      false,
+      `expected false for input ${JSON.stringify(value)}`,
+    );
+  }
+});
+
+test("isRetryForceToolsEnabled returns true for affirmative or unrecognized values", () => {
+  // Unrecognized values fall back to "on" — keeping the safe default for typos.
+  for (const value of ["1", "true", "yes", "on", "TRUE", "anything"]) {
+    assert.equal(
+      isRetryForceToolsEnabled({ BENCHMARK_RETRY_FORCE_TOOLS: value }),
+      true,
+      `expected true for input ${JSON.stringify(value)}`,
+    );
+  }
 });
