@@ -813,3 +813,99 @@ test("openai-compatible client does not mistake regular text for a leaked tool c
   assert.equal(response.toolCalls.length, 0);
   assert.match(response.text, /To call the tool/);
 });
+
+// ---------------------------------------------------------------------------
+// tool_choice
+// ---------------------------------------------------------------------------
+
+test("openai-compatible client defaults tool_choice to 'auto'", async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse((init?.body as string) ?? "{}");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [
+      { name: "echo", description: "Echo back", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 32000,
+  });
+
+  assert.equal((capturedBody as { tool_choice?: unknown } | null)?.tool_choice, "auto");
+});
+
+test("openai-compatible client forwards tool_choice='required' when set", async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse((init?.body as string) ?? "{}");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [
+      { name: "echo", description: "Echo back", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 32000,
+    toolChoice: "required",
+  });
+
+  assert.equal((capturedBody as { tool_choice?: unknown } | null)?.tool_choice, "required");
+});
+
+test("openai-compatible client downgrades toolChoice='required' to 'auto' when tools is empty", async () => {
+  // Providers reject `tool_choice: "required"` with no tools — silently
+  // downgrade to keep callers from having to guard at every site.
+  let capturedBody: Record<string, unknown> | null = null;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse((init?.body as string) ?? "{}");
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const client = new OpenAICompatibleModelClient({
+    baseUrl: "http://localhost:1234/v1",
+    fetchImpl,
+  });
+  await client.chat({
+    model: "test-model",
+    system: "Test",
+    messages: [{ role: "user", content: "Hi" }],
+    tools: [],
+    maxTokens: 32000,
+    toolChoice: "required",
+  });
+
+  assert.equal((capturedBody as { tool_choice?: unknown } | null)?.tool_choice, "auto");
+});

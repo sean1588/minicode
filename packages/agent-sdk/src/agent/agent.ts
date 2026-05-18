@@ -568,6 +568,9 @@ export class CodingAgent {
         ...(this.config.reasoningMaxTokens !== undefined
           ? { reasoningMaxTokens: this.config.reasoningMaxTokens }
           : {}),
+        ...(this.config.toolChoice !== undefined
+          ? { toolChoice: this.config.toolChoice }
+          : {}),
         ...(this.onUiUpdate
           ? {
               onStream: (chunk: string) => {

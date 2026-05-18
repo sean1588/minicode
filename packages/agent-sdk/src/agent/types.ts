@@ -47,6 +47,19 @@ export type SessionMessage = UserMessage | AssistantMessage | ToolResultMessage;
 /** Valid reasoning effort levels for models that support reasoning tokens. */
 export type ReasoningEffort = "xhigh" | "high" | "medium" | "low" | "minimal" | "none";
 
+/**
+ * Constrains how the model uses tools on a given chat call.
+ *   - `"auto"` (default): model decides whether to call a tool or reply with text.
+ *   - `"required"`: model MUST call at least one tool. Useful for forcing
+ *     action after a no-action attempt — prevents the model from burning
+ *     its budget in extended thinking and returning nothing.
+ *   - `"none"`: model may not call tools.
+ *
+ * If `tools` is empty, `"required"` is silently downgraded to `"auto"` (the
+ * provider would otherwise reject the request).
+ */
+export type ToolChoice = "auto" | "required" | "none";
+
 export interface AgentConfig {
   modelProvider: "anthropic" | "openai-compatible";
   model: string;
@@ -97,6 +110,14 @@ export interface AgentConfig {
   reasoningMaxTokens?: number;
   /** Rebuild the system prompt (including code map) every agent step. Disabling improves KV cache hit rates for local models. Default: false */
   enableDynamicPrompt?: boolean;
+  /**
+   * When set, forwarded to `ModelClient.chat` on every step. Mainly used by
+   * the benchmark retry path to set `"required"` on a second attempt after
+   * the first attempt produced no action (forces the model to commit to a
+   * tool call rather than another pure-thinking collapse). Unset in normal
+   * agent operation.
+   */
+  toolChoice?: ToolChoice;
 }
 
 export interface ToolSchema {
@@ -221,6 +242,8 @@ export interface ModelClient {
     reasoningEffort?: ReasoningEffort;
     /** See `AgentConfig.reasoningMaxTokens`. */
     reasoningMaxTokens?: number;
+    /** See `AgentConfig.toolChoice`. Silently downgraded to `"auto"` when `tools` is empty. */
+    toolChoice?: ToolChoice;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     /**

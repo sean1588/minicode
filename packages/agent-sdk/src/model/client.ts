@@ -12,6 +12,7 @@ import type {
   ReasoningEffort,
   SessionMessage,
   ToolCall,
+  ToolChoice,
   ToolSchema,
 } from "../agent/types.js";
 import {
@@ -639,6 +640,25 @@ function effortToBudgetFraction(effort: ReasoningEffort): number {
   }
 }
 
+function mapAnthropicToolChoice(
+  choice: ToolChoice | undefined,
+  toolCount: number,
+): { type: "auto" } | { type: "any" } | { type: "none" } | null {
+  if (choice === undefined) return null;
+  if (choice === "required" && toolCount === 0) return { type: "auto" };
+  if (choice === "required") return { type: "any" };
+  if (choice === "none") return { type: "none" };
+  return { type: "auto" };
+}
+
+function resolveOpenAIToolChoice(
+  choice: ToolChoice | undefined,
+  toolCount: number,
+): "auto" | "required" | "none" {
+  if (choice === "required" && toolCount === 0) return "auto";
+  return choice ?? "auto";
+}
+
 export class AnthropicModelClient implements ModelClient {
   private readonly client: Anthropic;
   private readonly timeoutSeconds: number;
@@ -670,6 +690,7 @@ export class AnthropicModelClient implements ModelClient {
     maxTokens: number;
     reasoningEffort?: ReasoningEffort;
     reasoningMaxTokens?: number;
+    toolChoice?: ToolChoice;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     cacheableSystem?: boolean;
@@ -746,7 +767,15 @@ export class AnthropicModelClient implements ModelClient {
           }
         : {};
 
-    const requestParams = { ...baseParams, ...thinkingParam };
+    const anthropicToolChoice = mapAnthropicToolChoice(
+      params.toolChoice,
+      toolsForRequest.length,
+    );
+    const toolChoiceParam = anthropicToolChoice
+      ? { tool_choice: anthropicToolChoice }
+      : {};
+
+    const requestParams = { ...baseParams, ...thinkingParam, ...toolChoiceParam };
     const requestOptions = params.signal ? { signal: params.signal } : undefined;
 
     return withRetry(async () => {
@@ -958,6 +987,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     maxTokens: number;
     reasoningEffort?: ReasoningEffort;
     reasoningMaxTokens?: number;
+    toolChoice?: ToolChoice;
     onStream?: (chunk: string) => void;
     signal?: AbortSignal;
     cacheableSystem?: boolean;
@@ -997,7 +1027,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
       model: params.model,
       messages: toOpenAICompatibleMessages(params.system, params.messages),
       tools: toOpenAICompatibleTools(toolsForRequest),
-      tool_choice: "auto",
+      tool_choice: resolveOpenAIToolChoice(params.toolChoice, toolsForRequest.length),
       max_tokens: params.maxTokens,
       stream: useStream,
     };
