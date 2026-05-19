@@ -61,6 +61,18 @@ export interface BenchmarkRunResult {
   diffOut?: string;
   toolCalls: BenchmarkToolCallTrace[];
   toolUsage: BenchmarkToolUsageSummary;
+  /**
+   * Populated when the first attempt triggered a retry (no_action,
+   * no_mutation, or approval_seeking). Lets downstream analysis tell
+   * "model collapsed once and a retry rescued it" apart from "model went
+   * through normally" without needing verbose stderr capture. `null` when
+   * no retry fired.
+   */
+  retry: {
+    reason: BenchmarkRetryReason;
+    toolChoice?: "required";
+    reasoningMaxTokens?: number;
+  } | null;
 }
 
 export interface BenchmarkToolCallTrace {
@@ -195,6 +207,21 @@ const CONFIRMATION_REQUEST_PATTERNS = [
 ];
 
 export type BenchmarkRetryReason = "approval_seeking" | "no_action" | "no_mutation";
+
+/**
+ * Whether the retry path should force a tool call (`toolChoice: "required"`)
+ * AND cap reasoning to 2K tokens on the retried attempt. Default is true —
+ * this is the validated rescue behavior for collapse-prone retries. Set
+ * `BENCHMARK_RETRY_FORCE_TOOLS=0` (or `false`/`no`/`off`) to disable; the
+ * retry will then run with the same model config as the first attempt.
+ *
+ * The escape hatch exists so a future model that misbehaves under
+ * `tool_choice: required` can be unblocked without a code revert.
+ */
+export function isRetryForceToolsEnabled(env: NodeJS.ProcessEnv): boolean {
+  const value = (env.BENCHMARK_RETRY_FORCE_TOOLS ?? "").trim().toLowerCase();
+  return value !== "0" && value !== "false" && value !== "no" && value !== "off";
+}
 
 const SPECIALIZED_TOOL_NAMES = new Set([
   "read_symbol",
@@ -774,6 +801,9 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       verbose: args.verbose,
       ...(projectIndex !== undefined ? { projectIndex } : {}),
     });
+    let retryRecord:
+      | { reason: BenchmarkRetryReason; toolChoice?: "required"; reasoningMaxTokens?: number }
+      | null = null;
     const retryReason = getBenchmarkRetryReason({
       text: attempt.text,
       toolCallCount: countToolCallsInMessages(attempt.messages),
@@ -795,10 +825,33 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       const priorReasoningBlock = buildPriorReasoningContext(
         attempt.reasoningContent,
       );
+      // Force a tool call on the retry AND cap reasoning. The first attempt
+      // already failed to act; `tool_choice: required` commits the model to
+      // emit a tool call, and the reasoning cap starves the dynamic-thinking
+      // path that produced the original collapse (Gemini 2.5 Pro routinely
+      // burns 10K+ reasoning tokens before returning nothing). The cap is
+      // above what a typical planning step needs (~1-2K tokens) but well
+      // below the observed collapse zone. Opt-out via env var.
+      const RETRY_REASONING_MAX_TOKENS = 2000;
+      const forceTools = isRetryForceToolsEnabled(process.env);
+      const retryConfig = forceTools
+        ? {
+            ...config,
+            toolChoice: "required" as const,
+            reasoningMaxTokens: RETRY_REASONING_MAX_TOKENS,
+          }
+        : config;
+      retryRecord = forceTools
+        ? {
+            reason: retryReason,
+            toolChoice: "required",
+            reasoningMaxTokens: RETRY_REASONING_MAX_TOKENS,
+          }
+        : { reason: retryReason };
       attempt = await runBenchmarkAttempt(
         `${prompt}\n\n${reminder}${priorReasoningBlock}`,
         {
-          config,
+          config: retryConfig,
           modelClient,
           toolRegistry,
           verbose: args.verbose,
@@ -832,6 +885,7 @@ export async function runBenchmarkCommand(argv: string[]): Promise<void> {
       ...(diffOutPath ? { diffOut: diffOutPath } : {}),
       toolCalls,
       toolUsage: summarizeBenchmarkToolUsage(toolCalls, attempt.text),
+      retry: retryRecord,
     };
     const payload = JSON.stringify(result, null, 2);
 

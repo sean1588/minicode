@@ -245,3 +245,83 @@ test("anthropic client extracts synthetic call alongside real tool calls", async
   assert.equal(response.toolCalls.length, 1);
   assert.equal(response.toolCalls[0]?.name, "read_file");
 });
+
+// ---------------------------------------------------------------------------
+// tool_choice forwarding
+// ---------------------------------------------------------------------------
+
+test("anthropic client omits tool_choice by default", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      { name: "read_file", description: "read", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 64,
+  });
+  assert.equal(fake.captured.params.tool_choice, undefined);
+});
+
+test("anthropic client forwards toolChoice='required' as { type: 'any' }", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "read_file",
+          input: { path: "foo.ts" },
+        },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      { name: "read_file", description: "read", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 64,
+    toolChoice: "required",
+  });
+  assert.deepEqual(fake.captured.params.tool_choice, { type: "any" });
+});
+
+test("anthropic client downgrades toolChoice='required' to { type: 'auto' } when tools is empty", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [],
+    maxTokens: 64,
+    toolChoice: "required",
+  });
+  assert.deepEqual(fake.captured.params.tool_choice, { type: "auto" });
+});

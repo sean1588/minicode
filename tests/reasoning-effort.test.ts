@@ -350,3 +350,62 @@ test("agent loop omits reasoningEffort when not configured", async () => {
   await agent.runTurn("Hello");
   assert.equal(capturedParams.reasoningEffort, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Agent loop passes toolChoice to model client
+// ---------------------------------------------------------------------------
+
+test("agent loop passes toolChoice to model client chat call when set", async () => {
+  let capturedToolChoice: unknown = "<unset>";
+
+  const config: AgentConfig = {
+    ...createTestAgentConfig("/tmp"),
+    toolChoice: "required",
+  };
+
+  const mockClient = {
+    async chat(params: { toolChoice?: unknown }): Promise<ModelResponse> {
+      capturedToolChoice = params.toolChoice;
+      return {
+        text: "Response",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config,
+    modelClient: mockClient,
+    toolRegistry: new ToolRegistry([]),
+  });
+
+  await agent.runTurn("Hello");
+  assert.equal(capturedToolChoice, "required");
+});
+
+test("agent loop omits toolChoice when not configured", async () => {
+  let capturedParams: Record<string, unknown> = {};
+
+  const mockClient = {
+    async chat(params: Record<string, unknown>): Promise<ModelResponse> {
+      capturedParams = params;
+      return {
+        text: "Response",
+        toolCalls: [],
+        stopReason: "end_turn",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+    },
+  };
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: mockClient,
+    toolRegistry: new ToolRegistry([]),
+  });
+
+  await agent.runTurn("Hello");
+  assert.equal(capturedParams.toolChoice, undefined);
+});
