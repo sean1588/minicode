@@ -14,32 +14,16 @@ In our own ablation on a 25-task local benchmark suite (see [`benchmarks/RESULTS
 
 _Run `minicode serve` to get the web UI on localhost: chat, tool activity, session controls, model switching, symbol focus, annotations, and a live dependency graph._
 
-## Quick Start (OpenRouter)
+## Quick Start
 ```bash
 npm install -g @sean.holung/minicode
+# cd to working directory of your project
 minicode serve
 ```
 
 1. Navigate to [localhost:4567](http://localhost:4567)
-2. Click Connect OpenRouter to sign in to [OpenRouter](https://openrouter.ai/) and connect account.
+2. Select one of the connection options.
 3. Choose a model. Choose a (free) model if on free tier. Model must support tool use.
-
-
-## Quick Start (LM Studio)
-
-```bash
-# 1. Start LM Studio, load a model (e.g. [GLM 4.7 Flash](https://lmstudio.ai/models/zai-org/glm-4.7-flash)), and start the local server. May need to increase context length settings for the model loaded.
-
-# 2. Install
-npm install -g @sean.holung/minicode
-
-# 3. Configure
-#    Set your model name in ~/.minicode/.env — minicode will prompt you if this is missing.
-cat > ~/.minicode/.env << 'EOF'
-MODEL_PROVIDER=openai-compatible
-MODEL=your-model-name
-EOF
-```
 
 ### How to run
 
