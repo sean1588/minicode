@@ -237,6 +237,126 @@ test("agent tolerates 3 identical search calls before tripping loop guard", asyn
   );
 });
 
+test("run_command fingerprint collapses comment-only bodies so '# END' streaks fire the guard", async () => {
+  // Regression: gemini-3-flash on django-16527 timed out wrapping
+  // "# Final status: ...", "# END", "# Exiting" in run_command calls
+  // because it couldn't return text without a tool call. Each body was
+  // different so verbatim hashing never tripped the guard. Normalising
+  // strips comment-only lines to the empty string — three such calls
+  // (default threshold = 3) now trip the soft guard immediately.
+  const runCommandTool: ToolDefinition = {
+    name: "run_command",
+    description: "Run a shell command",
+    inputSchema: {
+      type: "object",
+      properties: { command: { type: "string" } },
+      required: ["command"],
+    },
+    execute: async () => "ok",
+  };
+
+  const responses: ModelResponse[] = [
+    {
+      text: "step 1",
+      toolCalls: [{ id: "c1", name: "run_command", input: { command: "# Final status: done." } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "step 2",
+      toolCalls: [{ id: "c2", name: "run_command", input: { command: "# END" } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "step 3",
+      toolCalls: [{ id: "c3", name: "run_command", input: { command: "# Exiting." } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    {
+      text: "OK I'm actually done.",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+  ];
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([runCommandTool]),
+  });
+
+  await agent.runTurn("do something");
+  const toolMessages = agent
+    .getSession()
+    .getMessages()
+    .filter((m) => m.role === "tool");
+  const nudges = toolMessages.filter(
+    (m) => typeof m.content === "string" && m.content.includes("loop guard"),
+  );
+  assert.equal(
+    nudges.length,
+    1,
+    "the 3rd comment-only run_command should fire the soft loop guard exactly once",
+  );
+});
+
+test("run_command fingerprint normalizes comment headers + whitespace so near-identical greps collapse", async () => {
+  // Regression: gemini-3-flash on django-16527 ran three "# Final check
+  // of the modified files\ngrep -A 5 ..." calls that differed only in
+  // trailing whitespace. Verbatim hashing missed the duplication.
+  const runCommandTool: ToolDefinition = {
+    name: "run_command",
+    description: "Run a shell command",
+    inputSchema: {
+      type: "object",
+      properties: { command: { type: "string" } },
+      required: ["command"],
+    },
+    execute: async () => "no matches",
+  };
+
+  const greps = [
+    '# Final check of the modified files across the project.\ngrep -A 5 "show_save_as_new" django/contrib/',
+    '# Final check of the modified files across the project.\ngrep   -A 5  "show_save_as_new"  django/contrib/  ',
+    '# Final check of the modified files across the project.\n# (one more time)\ngrep -A 5 "show_save_as_new" django/contrib/',
+  ];
+  const responses: ModelResponse[] = greps.map((command, index) => ({
+    text: `step ${index + 1}`,
+    toolCalls: [{ id: `c${index + 1}`, name: "run_command", input: { command } }],
+    stopReason: "tool_use" as const,
+    usage: { inputTokens: 1, outputTokens: 1 },
+  }));
+  responses.push({
+    text: "Done.",
+    toolCalls: [],
+    stopReason: "end_turn",
+    usage: { inputTokens: 1, outputTokens: 1 },
+  });
+
+  const agent = new CodingAgent({
+    config: createTestAgentConfig("/tmp"),
+    modelClient: new SequenceModelClient(responses),
+    toolRegistry: new ToolRegistry([runCommandTool]),
+  });
+
+  await agent.runTurn("inspect");
+  const toolMessages = agent
+    .getSession()
+    .getMessages()
+    .filter((m) => m.role === "tool");
+  const nudges = toolMessages.filter(
+    (m) => typeof m.content === "string" && m.content.includes("loop guard"),
+  );
+  assert.equal(
+    nudges.length,
+    1,
+    "the 3rd whitespace-only-variant grep should fire the soft loop guard exactly once",
+  );
+});
+
 test("agent returns usage totals across steps", async () => {
   const responses: ModelResponse[] = [
     {
