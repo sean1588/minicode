@@ -123,14 +123,14 @@ test("baseline ref captures committed changes that would otherwise be invisible"
   await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 2;\n", "utf8");
   execFileSync("git", ["add", "src/app.ts"], { cwd: workspaceRoot, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", "fix value"], { cwd: workspaceRoot, stdio: "ignore" });
-  await writeFile(path.join(workspaceRoot, "reproduce.py"), "print('hi')\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "real_change.md"), "# real\n", "utf8");
 
   const withoutBaseline = await collectWorkspaceChanges(workspaceRoot);
   // Without the baseline we miss the committed file entirely.
-  assert.deepEqual(withoutBaseline.changedFiles.sort(), ["reproduce.py"]);
+  assert.deepEqual(withoutBaseline.changedFiles.sort(), ["real_change.md"]);
 
   const withBaseline = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
-  assert.deepEqual(withBaseline.changedFiles.sort(), ["reproduce.py", "src/app.ts"]);
+  assert.deepEqual(withBaseline.changedFiles.sort(), ["real_change.md", "src/app.ts"]);
 
   const diffPath = path.join(workspaceRoot, "artifacts", "with-baseline.patch");
   const wrote = await writeWorkspaceDiff(workspaceRoot, diffPath, baseline ?? undefined);
@@ -139,7 +139,131 @@ test("baseline ref captures committed changes that would otherwise be invisible"
   assert.match(diff, /diff --git a\/src\/app\.ts b\/src\/app\.ts/);
   assert.match(diff, /-export const value = 1;/);
   assert.match(diff, /\+export const value = 2;/);
-  assert.match(diff, /diff --git a\/reproduce\.py b\/reproduce\.py/);
+  assert.match(diff, /diff --git a\/real_change\.md b\/real_change\.md/);
+});
+
+test("top-level scratch python files are filtered out of changes and diff", async () => {
+  // Regression: gemini-3-flash-preview on django-15863 left 38 scratch
+  // files (`test_*_v10.py`, `reproduce.py`, ...) at the workspace root,
+  // bloating the patch from ~1 real edit to a 39-file diff. Top-level
+  // python additions are almost always model scratch, not part of the
+  // fix.
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  // The real fix lives in a subdirectory.
+  await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 2;\n", "utf8");
+  // Model scratch at the workspace root (the failure shape).
+  await writeFile(path.join(workspaceRoot, "reproduce.py"), "print('hi')\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "test_logic_v10.py"), "print('debug')\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "test_decimal.py"), "print('debug')\n", "utf8");
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(changes.changedFiles.sort(), ["src/app.ts"]);
+  assert.deepEqual(
+    changes.scratchPaths.sort(),
+    ["reproduce.py", "test_decimal.py", "test_logic_v10.py"],
+  );
+
+  const diffPath = path.join(workspaceRoot, "artifacts", "filtered.patch");
+  await writeWorkspaceDiff(workspaceRoot, diffPath, baseline ?? undefined);
+  const diff = await readFile(diffPath, "utf8");
+  assert.match(diff, /diff --git a\/src\/app\.ts b\/src\/app\.ts/);
+  assert.doesNotMatch(diff, /reproduce\.py/);
+  assert.doesNotMatch(diff, /test_logic_v10\.py/);
+  assert.doesNotMatch(diff, /test_decimal\.py/);
+});
+
+test("scratch filter catches non-python output dumps (.txt, .log, .out, .tmp, .bak)", async () => {
+  // Regression: gemini-3-flash on pytest-7432 dumped file contents to
+  // `all.txt`, `err.txt`, `final.txt`, `out.txt`, `part.txt`, `temp.txt`
+  // via `grep ... > out.txt` shell pipelines. The 6 .txt files crowded
+  // the patch with zero real source edits. Same family on django-11433
+  // (`temp.txt`). Extend the filter beyond .py to catch this cohort.
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 2;\n", "utf8");
+  for (const name of ["out.txt", "temp.log", "scratch.out", "x.tmp", "old.bak"]) {
+    await writeFile(path.join(workspaceRoot, name), "scratch\n", "utf8");
+  }
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(changes.changedFiles.sort(), ["src/app.ts"]);
+  assert.deepEqual(
+    changes.scratchPaths.sort(),
+    ["old.bak", "out.txt", "scratch.out", "temp.log", "x.tmp"],
+  );
+});
+
+test("scratch filter does NOT drop config files at the root (.cfg, .toml, .json, .md)", async () => {
+  // Real fixes legitimately touch top-level config files. Don't broaden
+  // the filter to swallow them.
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  for (const name of ["setup.cfg", "pyproject.toml", "package.json", "README.md", ".env.example"]) {
+    await writeFile(path.join(workspaceRoot, name), "real\n", "utf8");
+  }
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(
+    changes.changedFiles.sort(),
+    [".env.example", "README.md", "package.json", "pyproject.toml", "setup.cfg"],
+  );
+  assert.deepEqual(changes.scratchPaths, []);
+});
+
+test("scratch filter does not drop python files in subdirectories", async () => {
+  // A real fix touching `tests/test_foo.py` (deep path) MUST be kept.
+  // Only top-level additions look like model scratch.
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  await mkdir(path.join(workspaceRoot, "tests"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, "tests", "test_real.py"), "assert True\n", "utf8");
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(changes.changedFiles.sort(), ["tests/test_real.py"]);
+  assert.deepEqual(changes.scratchPaths, []);
+});
+
+test("scratch filter does not drop top-level modifications, only additions", async () => {
+  // If a baseline-tracked top-level python file is MODIFIED, that's a
+  // deliberate edit (e.g. `setup.py`, `conftest.py`), not scratch.
+  const workspaceRoot = await createGitWorkspace();
+  await writeFile(path.join(workspaceRoot, "setup.py"), "name='x'\n", "utf8");
+  execFileSync("git", ["add", "setup.py"], { cwd: workspaceRoot, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "add setup"], { cwd: workspaceRoot, stdio: "ignore" });
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  await writeFile(path.join(workspaceRoot, "setup.py"), "name='y'\n", "utf8");
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(changes.changedFiles.sort(), ["setup.py"]);
+  assert.deepEqual(changes.scratchPaths, []);
+});
+
+test("scratch filter excludes committed scratch files from the tracked diff", async () => {
+  // Gemini-3-Pro variant: model creates scratch AND commits it before
+  // the run ends. Filter must catch this via "added vs baseline" too.
+  const workspaceRoot = await createGitWorkspace();
+  const baseline = await captureBaselineRef(workspaceRoot);
+
+  await writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const value = 2;\n", "utf8");
+  await writeFile(path.join(workspaceRoot, "reproduce.py"), "print('hi')\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: workspaceRoot, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "fix + scratch"], { cwd: workspaceRoot, stdio: "ignore" });
+
+  const changes = await collectWorkspaceChanges(workspaceRoot, baseline ?? undefined);
+  assert.deepEqual(changes.changedFiles.sort(), ["src/app.ts"]);
+  assert.deepEqual(changes.scratchPaths, ["reproduce.py"]);
+
+  const diffPath = path.join(workspaceRoot, "artifacts", "committed-scratch.patch");
+  await writeWorkspaceDiff(workspaceRoot, diffPath, baseline ?? undefined);
+  const diff = await readFile(diffPath, "utf8");
+  assert.match(diff, /diff --git a\/src\/app\.ts b\/src\/app\.ts/);
+  assert.doesNotMatch(diff, /reproduce\.py/);
 });
 
 test("baseline ref also captures staged and unstaged changes (no false negatives)", async () => {

@@ -15,6 +15,67 @@ export interface WorkspaceChanges {
   isGitRepo: boolean;
   entries: WorkspaceStatusEntry[];
   changedFiles: string[];
+  /**
+   * Top-level files the model created that we treat as scratch (repro
+   * scripts, debugging tests, etc.). Stripped from `entries` /
+   * `changedFiles` so they don't pollute the canonical diff but surfaced
+   * here so consumers can still observe what was filtered.
+   */
+  scratchPaths: string[];
+}
+
+/**
+ * Extensions on top-level additions we treat as model scratch.
+ *
+ * Original cohort (`.py`): repro / debug scripts (`reproduce.py`,
+ * `test_logic_v10.py`) observed on django-15863.
+ *
+ * Added cohort (`.txt`, `.log`, `.out`, `.tmp`, `.bak`): output
+ * dumps from `python3 -c '...' > out.txt`, `grep ... > all.txt`,
+ * etc. observed on pytest-7432 (6 `.txt` files: `all.txt`, `err.txt`,
+ * `final.txt`, `out.txt`, `part.txt`, `temp.txt`) and on django-11433
+ * (`temp.txt`). These extensions are essentially never legitimate
+ * top-level files in SWE-Bench Python repos.
+ *
+ * Deliberately excluded: `.md` (README/CHANGELOG live at root),
+ * `.cfg`/`.toml`/`.ini`/`.json` (config files that real fixes do
+ * sometimes modify), `.yml`/`.yaml` (CI configs).
+ */
+const SCRATCH_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".py",
+  ".txt",
+  ".log",
+  ".out",
+  ".tmp",
+  ".bak",
+]);
+
+/**
+ * Top-level additions made during a benchmark run that we treat as
+ * scratch. SWE-Bench-style fixes live in deep subdirectories
+ * (`django/...`, `sympy/...`, `src/...`); files appearing at the
+ * workspace root with scratch-looking extensions are almost
+ * certainly repro/debug artifacts the model created and didn't
+ * clean up. Stripping them from the diff collapses 39-file patches
+ * back to the ~1 real source-file edit (observed on django-15863
+ * with gemini-3-flash-preview).
+ *
+ * Conservative scope:
+ *  - top-level path only (no `/`)
+ *  - untracked (`?`) or added-vs-baseline (`A`)
+ *  - extension in `SCRATCH_EXTENSIONS`
+ *
+ * Modifications to existing top-level files (status `M`) are
+ * untouched — those reflect a deliberate edit, not scratch.
+ */
+function isScratchAddition(entry: WorkspaceStatusEntry): boolean {
+  if (entry.path.includes("/")) return false;
+  const dotIndex = entry.path.lastIndexOf(".");
+  if (dotIndex <= 0) return false;
+  const extension = entry.path.slice(dotIndex);
+  if (!SCRATCH_EXTENSIONS.has(extension)) return false;
+  const code = entry.status.charAt(0);
+  return code === "?" || code === "A";
 }
 
 async function runGit(
@@ -147,6 +208,7 @@ export async function collectWorkspaceChanges(
       isGitRepo: false,
       entries: [],
       changedFiles: [],
+      scratchPaths: [],
     };
   }
 
@@ -203,11 +265,17 @@ export async function collectWorkspaceChanges(
     entries = statusEntries;
   }
 
-  const changedFiles = [...new Set(entries.map((entry) => entry.path))];
+  const scratchPaths = [
+    ...new Set(entries.filter(isScratchAddition).map((entry) => entry.path)),
+  ];
+  const scratchSet = new Set(scratchPaths);
+  const filteredEntries = entries.filter((entry) => !scratchSet.has(entry.path));
+  const changedFiles = [...new Set(filteredEntries.map((entry) => entry.path))];
   return {
     isGitRepo: true,
-    entries,
+    entries: filteredEntries,
     changedFiles,
+    scratchPaths,
   };
 }
 
@@ -223,10 +291,23 @@ export async function getWorkspaceDiff(
   // With a baseline ref we diff working-tree vs baseline directly, which
   // captures committed + staged + unstaged in one pass. Without one we
   // fall back to the working-tree-vs-index behavior — useful when the
-  // caller hasn't snapshotted a starting point.
+  // caller hasn't snapshotted a starting point. Scratch additions filtered
+  // out at the collect step are also excluded here via `:!<path>` pathspecs
+  // so they don't appear in the tracked-diff section when the model
+  // commits them mid-run.
+  const excludeSpecs = changes.scratchPaths.map((scratchPath) => `:!${scratchPath}`);
   const trackedDiffArgs = baselineRef
-    ? ["diff", "--binary", "--no-ext-diff", "--relative", baselineRef, "--", "."]
-    : ["diff", "--binary", "--no-ext-diff", "--relative", "--", "."];
+    ? [
+        "diff",
+        "--binary",
+        "--no-ext-diff",
+        "--relative",
+        baselineRef,
+        "--",
+        ".",
+        ...excludeSpecs,
+      ]
+    : ["diff", "--binary", "--no-ext-diff", "--relative", "--", ".", ...excludeSpecs];
   const trackedDiff = await runGit(workspaceRoot, trackedDiffArgs, true);
 
   const untrackedDiffs: string[] = [];

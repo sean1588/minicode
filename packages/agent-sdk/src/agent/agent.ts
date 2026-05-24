@@ -29,7 +29,42 @@ function stableSerialize(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/**
+ * Collapse a shell command body to its canonical, comment-free form for
+ * loop-detection hashing.
+ *
+ * Two runaway shapes observed on django-16527 with gemini-3-flash-preview
+ * slipped past the verbatim-stringify fingerprint:
+ *   1. Three `run_command` calls all starting with
+ *      `# Final check of the modified files across the project.\ngrep -A 5 ...`
+ *      but with slightly different trailing characters — hashed distinctly.
+ *   2. A streak of pure comment bodies (`# END`, `# Exiting`,
+ *      `# Final status: ...`) the model issued to signal "I'm done"
+ *      because returning text without a tool call isn't in its repertoire.
+ *      Each comment was different, so none collapsed.
+ *
+ * Normalising — strip comment-only lines, trim each line, collapse
+ * runs of whitespace — turns shape (1) into a single fingerprint after
+ * the comment header is stripped, and shape (2) into the empty string
+ * across all variants so the third repeat fires the loop guard.
+ */
+function normalizeShellCommand(command: string): string {
+  return command
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .join("\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
 function signatureForToolCall(toolCall: ToolCall): string {
+  if (toolCall.name === "run_command") {
+    const command = toolCall.input.command;
+    if (typeof command === "string") {
+      return `run_command:${normalizeShellCommand(command)}`;
+    }
+  }
   return `${toolCall.name}:${stableSerialize(toolCall.input)}`;
 }
 
