@@ -2,44 +2,28 @@
 
 > Now supports connecting to [OpenRouter](https://openrouter.ai/) account via minicode UI. Sign in with OpenRouter account. Use for free with compatible [free tier OpenRouter hosted models](https://openrouter.ai/models?q=free) from MiniMax, Nvidia, Qwen, Google, etc.
 
+<img width="1723" height="920" alt="minicode-screenshot" src="https://minicode.seanholung.com/images/minicode-graph.webp" />
+
 A graph-native coding agent and code exploration environment built around structural context optimization that leverages symbol-aware retrieval, dependency graphs, and targeted context. It started as a way to make local models viable under tighter context budgets, and it now also works well with hosted frontier models through the same runtime, web UI, and OpenAI-compatible serve mode. 
 
 minicode is built on a simple bet: models perform better when you give them more useful context, not less raw context. Bloated context dilutes attention; targeted context lets the model build a structural picture of the codebase before answering.
 
-Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup with language plugins, injects a compact **code map** (signatures only) into the system prompt, and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model can walk the code structurally instead of grepping and reading entire files. TypeScript and JavaScript support come built-in, with custom language plugins leaving room for broader language support over time.
+Read operations dominate token usage in typical agent sessions; minicode addresses this by optimizing for **specific languages**. It indexes your project at startup and exposes symbol-level tools (`read_symbol`, `find_references`, `get_dependencies`) so the model can walk the code structurally instead of grepping and reading entire files. TypeScript, JavaScript, and Python support come built-in, with support for custom language plugins leaving room for broader language support over time.
 
 In our own ablation on a 25-task local benchmark suite (see [`benchmarks/RESULTS-GEMMA-4.md`](benchmarks/RESULTS-GEMMA-4.md)), turning the structural tools on raises pass rate from 47% to 61% on Gemma 4 26B-A4B — a +14.7 pp lift driven mostly by **comprehension-heavy tasks** (planning and refactor work where the agent has to trace relationships across files). The tradeoff is honest: graph tools cost about 30% more tokens per task when actually used, but they buy correctness on the kinds of questions where reading whole files just runs out the model's reasoning budget without building a structural picture.
 
 _Run `minicode serve` to get the web UI on localhost: chat, tool activity, session controls, model switching, symbol focus, annotations, and a live dependency graph._
 
-<img width="1723" height="920" alt="Screenshot 2026-03-26 at 6 30 23 PM" src="https://github.com/user-attachments/assets/499c8dc7-cc2b-4125-abd5-32b2fc9795ea" />
-
-## Quick Start (OpenRouter)
+## Quick Start
 ```bash
 npm install -g @sean.holung/minicode
+# cd to working directory of your project
 minicode serve
 ```
 
 1. Navigate to [localhost:4567](http://localhost:4567)
-2. Click Connect OpenRouter to sign in to [OpenRouter](https://openrouter.ai/) and connect account.
+2. Select one of the connection options.
 3. Choose a model. Choose a (free) model if on free tier. Model must support tool use.
-
-
-## Quick Start (LM Studio)
-
-```bash
-# 1. Start LM Studio, load a model (e.g. [GLM 4.7 Flash](https://lmstudio.ai/models/zai-org/glm-4.7-flash)), and start the local server. May need to increase context length settings for the model loaded.
-
-# 2. Install
-npm install -g @sean.holung/minicode
-
-# 3. Configure
-#    Set your model name in ~/.minicode/.env — minicode will prompt you if this is missing.
-cat > ~/.minicode/.env << 'EOF'
-MODEL_PROVIDER=openai-compatible
-MODEL=your-model-name
-EOF
-```
 
 ### How to run
 
