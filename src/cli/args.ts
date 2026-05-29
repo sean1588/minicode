@@ -57,15 +57,22 @@ export function parseCliArgs(argv: string[]): CliArgs {
       serve = true;
       continue;
     }
-    if (arg === "plugin" && args[i + 1] === "install") {
-      pluginInstall = true;
-      i += 1;
-      continue;
-    }
-    if (arg === "plugin" && args[i + 1] === "uninstall") {
-      pluginUninstall = true;
-      i += 1;
-      continue;
+    if (arg === "plugin") {
+      const sub = args[i + 1];
+      if (sub === "install") {
+        pluginInstall = true;
+        i += 1;
+        continue;
+      }
+      if (sub === "uninstall") {
+        pluginUninstall = true;
+        i += 1;
+        continue;
+      }
+      throw new CliUsageError(
+        `Unknown 'plugin' subcommand: ${sub ?? "(missing)"}. Expected 'install' or 'uninstall'. ` +
+          "Example: minicode plugin install [--repo]",
+      );
     }
     if (arg === "--repo") {
       pluginRepo = true;

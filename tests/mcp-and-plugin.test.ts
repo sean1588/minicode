@@ -15,10 +15,18 @@ test("parseCliArgs parses 'plugin install' subcommand", () => {
   assert.equal(parsed.oneshot, false);
 });
 
-test("parseCliArgs does not set pluginInstall for bare 'plugin'", () => {
-  const parsed = parseCliArgs(["node", "src/index.ts", "plugin"]);
-  assert.equal(parsed.pluginInstall, false);
-  assert.equal(parsed.task, "plugin");
+test("parseCliArgs rejects bare 'plugin' (and typos) instead of silently launching agent", () => {
+  // Pre-PR #223 behaviour silently treated `minicode plugin` and typos like
+  // `minicode plugin instal` as an agent task with that text as the prompt.
+  // Guard now throws so users see the actual command they meant.
+  assert.throws(
+    () => parseCliArgs(["node", "src/index.ts", "plugin"]),
+    /Unknown 'plugin' subcommand/,
+  );
+  assert.throws(
+    () => parseCliArgs(["node", "src/index.ts", "plugin", "instal"]),
+    /Unknown 'plugin' subcommand: instal/,
+  );
 });
 
 test("validateCliArgs rejects plugin install with serve", () => {

@@ -64,10 +64,16 @@ export type ClaudeResult = { code: number; stdout: string; stderr: string };
 
 export type RunClaude = (args: string[]) => Promise<ClaudeResult>;
 
+/**
+ * Outcome of an `activatePlugin` / `deactivatePlugin` call. Named generically
+ * (`ok`) so the deactivate path doesn't have to read "activated: true" to
+ * mean "uninstalled". `commands` carries the fallback shell sequence the
+ * user can run manually when `ok` is false.
+ */
 export type ActivateResult =
-  | { activated: true; ranCommands: string[] }
+  | { ok: true; ranCommands: string[] }
   | {
-      activated: false;
+      ok: false;
       reason: "claude-not-found" | "command-failed";
       commands: string[];
       detail?: string;
@@ -135,15 +141,39 @@ async function readPackageVersion(pluginSourceDir: string): Promise<string> {
       // try next
     }
   }
-  return "0.0.0";
+  // The plugin source directory was already validated as present (plugin.json
+  // exists) before we get here, so a missing/unparseable package.json is
+  // genuinely anomalous — fail loudly rather than baking a wrong version
+  // (e.g. "0.0.0") into the generated manifest.
+  throw new Error(
+    `Could not read a valid version from package.json near ${pluginSourceDir}. ` +
+      "Checked: " +
+      candidates.join(", "),
+  );
 }
 
+/**
+ * Read a JSON file, returning an empty object when the file doesn't exist
+ * (initial-install path). A malformed file throws — silently overwriting a
+ * user's corrupt `settings.json` would destroy any state we couldn't parse.
+ */
 async function readJsonOrEmpty(filePath: string): Promise<Record<string, unknown>> {
+  let content: string;
   try {
-    const content = await readFile(filePath, "utf-8");
+    content = await readFile(filePath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw err;
+  }
+  try {
     return JSON.parse(content) as Record<string, unknown>;
-  } catch {
-    return {};
+  } catch (err) {
+    throw new Error(
+      `Refusing to overwrite malformed ${filePath} — fix or remove the file first. ` +
+        `Parse error: ${(err as Error).message}`,
+    );
   }
 }
 
@@ -216,8 +246,46 @@ async function materializePluginHome(opts: {
   });
 }
 
-function looksAlreadyKnown(r: ClaudeResult): boolean {
-  return /already|exists|known/i.test(`${r.stdout} ${r.stderr}`);
+/**
+ * Decide whether a non-zero `claude` exit is benign because the requested
+ * transition is already true — "marketplace already added" on add,
+ * "plugin already not installed" / "not installed" on uninstall.
+ *
+ * Anchored to the explicit "already (state)" phrasing OR a bare "not
+ * installed" for the uninstall direction, NOT bare tokens like
+ * "already"/"exists"/"known" — those false-positive on `"unknown error"`,
+ * `"path does not exist"`, `"version already in use"`. Misclassifying those
+ * would silently mask a real failure behind a confusing retry.
+ *
+ * NOT used on `plugin install` — that's natively idempotent, so any
+ * non-zero exit there is treated as a genuine failure.
+ */
+function isAlreadyInDesiredState(r: ClaudeResult): boolean {
+  const text = `${r.stdout} ${r.stderr}`;
+  return (
+    /\balready\s+(exists|added|known|registered|installed)\b/i.test(text) ||
+    /\bnot\s+installed\b/i.test(text)
+  );
+}
+
+/**
+ * Verify `claude` is on PATH. Returns the same error shape both activate and
+ * deactivate use, so callers can early-return without re-deriving the
+ * fallback-commands list themselves.
+ */
+async function ensureClaude(opts: {
+  runClaude: RunClaude;
+  fallback: string[];
+}): Promise<{ ok: true } | (ActivateResult & { ok: false })> {
+  const probe = await opts.runClaude(["--version"]);
+  if (probe.code !== 0) {
+    return {
+      ok: false,
+      reason: "claude-not-found",
+      commands: opts.fallback,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -243,25 +311,19 @@ async function activatePlugin(opts: {
     `claude plugin install ${PLUGIN_ID}`,
   ];
 
-  const probe = await opts.runClaude(["--version"]);
-  if (probe.code !== 0) {
-    return {
-      activated: false,
-      reason: "claude-not-found",
-      commands: fallback,
-    };
-  }
+  const precheck = await ensureClaude({ runClaude: opts.runClaude, fallback });
+  if (!precheck.ok) return precheck;
 
   const addArgs = ["plugin", "marketplace", "add", opts.home];
   const add = await opts.runClaude(addArgs);
   if (add.code === 0) {
     record(addArgs);
-  } else if (looksAlreadyKnown(add)) {
+  } else if (isAlreadyInDesiredState(add)) {
     const updateArgs = ["plugin", "marketplace", "update", MARKETPLACE_NAME];
     const update = await opts.runClaude(updateArgs);
     if (update.code !== 0) {
       return {
-        activated: false,
+        ok: false,
         reason: "command-failed",
         commands: fallback,
         detail: `marketplace update failed: ${(update.stderr || update.stdout).trim()}`,
@@ -270,7 +332,7 @@ async function activatePlugin(opts: {
     record(updateArgs);
   } else {
     return {
-      activated: false,
+      ok: false,
       reason: "command-failed",
       commands: fallback,
       detail: `marketplace add failed: ${(add.stderr || add.stdout).trim()}`,
@@ -279,9 +341,13 @@ async function activatePlugin(opts: {
 
   const installArgs = ["plugin", "install", PLUGIN_ID];
   const install = await opts.runClaude(installArgs);
-  if (install.code !== 0 && !looksAlreadyKnown(install)) {
+  // `claude plugin install` is natively idempotent; treat any non-zero exit
+  // as a genuine failure rather than guessing at "already installed" from
+  // stderr text. Anchored, narrow string-matching here would still be
+  // load-bearing for a UX nicety we don't need.
+  if (install.code !== 0) {
     return {
-      activated: false,
+      ok: false,
       reason: "command-failed",
       commands: fallback,
       detail: `plugin install failed: ${(install.stderr || install.stdout).trim()}`,
@@ -289,7 +355,7 @@ async function activatePlugin(opts: {
   }
   record(installArgs);
 
-  return { activated: true, ranCommands };
+  return { ok: true, ranCommands };
 }
 
 async function deactivatePlugin(opts: {
@@ -297,27 +363,23 @@ async function deactivatePlugin(opts: {
 }): Promise<ActivateResult> {
   const fallback = [`claude plugin uninstall ${PLUGIN_ID}`];
 
-  const probe = await opts.runClaude(["--version"]);
-  if (probe.code !== 0) {
-    return {
-      activated: false,
-      reason: "claude-not-found",
-      commands: fallback,
-    };
-  }
+  const precheck = await ensureClaude({ runClaude: opts.runClaude, fallback });
+  if (!precheck.ok) return precheck;
 
   const uninstallArgs = ["plugin", "uninstall", PLUGIN_ID];
   const uninstall = await opts.runClaude(uninstallArgs);
-  // Treat "not installed" as success.
-  if (uninstall.code !== 0 && !looksAlreadyKnown(uninstall)) {
+  // Treat "already uninstalled" (the marketplace-already-known shape applied
+  // in reverse) as success, but a non-zero exit without that anchor is a
+  // genuine failure.
+  if (uninstall.code !== 0 && !isAlreadyInDesiredState(uninstall)) {
     return {
-      activated: false,
+      ok: false,
       reason: "command-failed",
       commands: fallback,
       detail: `plugin uninstall failed: ${(uninstall.stderr || uninstall.stdout).trim()}`,
     };
   }
-  return { activated: true, ranCommands: [`claude ${uninstallArgs.join(" ")}`] };
+  return { ok: true, ranCommands: [`claude ${uninstallArgs.join(" ")}`] };
 }
 
 async function writeSettings(opts: {
@@ -348,70 +410,48 @@ async function writeSettings(opts: {
   await writeJson(opts.settingsPath, settings);
 }
 
-function logInstallReport(report: {
-  home: string;
+/**
+ * Print an install / uninstall outcome. Same shape for both — the only thing
+ * that changes is the verb ("activated"/"deactivated") and the optional
+ * footer.
+ */
+function logReport(opts: {
+  header: string;
+  verb: "activated" | "deactivated";
+  home?: string;
   settingsPath: string;
   activation: ActivateResult;
+  footer?: string;
 }): void {
-  console.log("minicode plugin installed");
-  console.log(`  plugin home:   ${report.home}`);
-  console.log(`  settings file: ${report.settingsPath}`);
+  console.log(opts.header);
+  if (opts.home) {
+    console.log(`  plugin home:   ${opts.home}`);
+  }
+  console.log(`  settings file: ${opts.settingsPath}`);
   console.log("");
-  if (report.activation.activated) {
-    console.log("✓ activated via claude CLI:");
-    for (const cmd of report.activation.ranCommands) {
+  if (opts.activation.ok) {
+    console.log(`✓ ${opts.verb} via claude CLI:`);
+    for (const cmd of opts.activation.ranCommands) {
       console.log(`    ${cmd}`);
     }
   } else {
     const reason =
-      report.activation.reason === "claude-not-found"
+      opts.activation.reason === "claude-not-found"
         ? "the `claude` CLI is not on PATH"
         : "`claude` CLI reported an error";
-    console.log(`✗ activation skipped — ${reason}.`);
-    if (
-      report.activation.reason === "command-failed" &&
-      report.activation.detail
-    ) {
-      console.log(`    ${report.activation.detail}`);
+    const action = opts.verb === "activated" ? "activation" : "deactivation";
+    console.log(`✗ ${action} skipped — ${reason}.`);
+    if (opts.activation.reason === "command-failed" && opts.activation.detail) {
+      console.log(`    ${opts.activation.detail}`);
     }
-    console.log("  Run manually to activate:");
-    for (const cmd of report.activation.commands) {
+    console.log(`  Run manually to ${opts.verb.replace(/d$/, "")}:`);
+    for (const cmd of opts.activation.commands) {
       console.log(`    ${cmd}`);
     }
   }
-  console.log("");
-  console.log("Start minicode serve in another terminal for the MCP server to be reachable:");
-  console.log("    minicode serve");
-}
-
-function logUninstallReport(report: {
-  settingsPath: string;
-  activation: ActivateResult;
-}): void {
-  console.log("minicode plugin uninstalled");
-  console.log(`  settings file: ${report.settingsPath}`);
-  console.log("");
-  if (report.activation.activated) {
-    console.log("✓ deactivated via claude CLI:");
-    for (const cmd of report.activation.ranCommands) {
-      console.log(`    ${cmd}`);
-    }
-  } else {
-    const reason =
-      report.activation.reason === "claude-not-found"
-        ? "the `claude` CLI is not on PATH"
-        : "`claude` CLI reported an error";
-    console.log(`✗ deactivation skipped — ${reason}.`);
-    if (
-      report.activation.reason === "command-failed" &&
-      report.activation.detail
-    ) {
-      console.log(`    ${report.activation.detail}`);
-    }
-    console.log("  Run manually to deactivate:");
-    for (const cmd of report.activation.commands) {
-      console.log(`    ${cmd}`);
-    }
+  if (opts.footer) {
+    console.log("");
+    console.log(opts.footer);
   }
 }
 
@@ -436,10 +476,15 @@ export async function runPluginInstall(
 
   await materializePluginHome({ home, pluginSourceDir, version });
 
-  const settingsPath = settingsPathFor(opts);
-  await writeSettings({ settingsPath, home, enable: true });
-
+  // Activate FIRST, settings.json SECOND. If activation fails (claude not on
+  // PATH or CLI error), we leave settings.json untouched — the exact
+  // "claims-enabled-but-not-registered" silent-no-op state this PR exists
+  // to fix. Users see the manual commands in the report and can retry.
   const activation = await activatePlugin({ home, runClaude });
+  const settingsPath = settingsPathFor(opts);
+  if (activation.ok) {
+    await writeSettings({ settingsPath, home, enable: true });
+  }
   return { ok: true, home, settingsPath, activation };
 }
 
@@ -449,9 +494,25 @@ export async function runPluginUninstall(
   const userHome = opts.userHome ?? os.homedir();
   const home = minicodeHome(userHome);
   const runClaude = opts.runClaude ?? defaultRunClaude;
+  const scope = opts.scope ?? "global";
 
   const settingsPath = settingsPathFor(opts);
   await writeSettings({ settingsPath, home, enable: false });
+
+  // Repo-scoped uninstall: only strip the repo-local toggle. The marketplace
+  // registration is global — calling `claude plugin uninstall` here would
+  // yank the plugin out of every other repo that enabled it.
+  if (scope === "repo") {
+    return {
+      ok: true,
+      home,
+      settingsPath,
+      activation: {
+        ok: true,
+        ranCommands: ["(skipped — repo-scoped uninstall leaves global registration intact)"],
+      },
+    };
+  }
 
   const activation = await deactivatePlugin({ runClaude });
   return { ok: true, home, settingsPath, activation };
@@ -478,19 +539,25 @@ export async function installPlugin(opts: {
   }
 
   if (opts.uninstall) {
-    logUninstallReport({
+    logReport({
+      header: "minicode plugin uninstalled",
+      verb: "deactivated",
       settingsPath: result.settingsPath,
       activation: result.activation,
     });
   } else {
-    logInstallReport({
+    logReport({
+      header: "minicode plugin installed",
+      verb: "activated",
       home: result.home,
       settingsPath: result.settingsPath,
       activation: result.activation,
+      footer:
+        "Start minicode serve in another terminal for the MCP server to be reachable:\n    minicode serve",
     });
   }
 
-  if (!result.activation.activated) {
+  if (!result.activation.ok) {
     process.exitCode = 1;
   }
 }

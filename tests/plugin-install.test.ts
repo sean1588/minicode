@@ -96,7 +96,7 @@ test("runPluginInstall materialises ~/.minicode/, writes settings.json, calls cl
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.activation.activated, true);
+  assert.equal(result.activation.ok, true);
 
   const home = path.join(userHome, ".minicode");
   const generated = JSON.parse(
@@ -127,12 +127,180 @@ test("runPluginInstall materialises ~/.minicode/, writes settings.json, calls cl
     source: { source: "directory", path: home },
   });
 
-  // claude CLI sequence: --version, marketplace add, plugin install.
-  assert.deepEqual(log, [
-    "--version",
-    `plugin marketplace add ${home}`,
-    "plugin install minicode@minicode-local",
-  ]);
+  // Load-bearing assertions only: the install must happen, and the
+  // marketplace must be registered first. Don't pin the exact order of the
+  // probe or the precise phrasing of each step — that brittleness would
+  // misclassify benign refactors as regressions.
+  assert.ok(log.includes(`plugin marketplace add ${home}`));
+  assert.ok(log.includes("plugin install minicode@minicode-local"));
+  assert.ok(
+    log.indexOf(`plugin marketplace add ${home}`) <
+      log.indexOf("plugin install minicode@minicode-local"),
+    "marketplace add must come before plugin install",
+  );
+});
+
+test("runPluginInstall surfaces command-failed when plugin install itself fails", async () => {
+  // The load-bearing fix this PR ships — pluginInstall failure is no longer
+  // misclassified as success by the old `looksAlreadyKnown` heuristic on
+  // strings like "version already in use".
+  const { pluginSourceDir } = await createFakePackage({ version: "1.0.0" });
+  const userHome = await createTempHome();
+  const log: string[] = [];
+  const runClaude = makeRunClaude(
+    {
+      "plugin install": {
+        code: 1,
+        stdout: "",
+        stderr: "version already in use",
+      },
+    },
+    log,
+  );
+
+  const result = await runPluginInstall({
+    userHome,
+    pluginSourceDir,
+    runClaude,
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.activation.ok, false);
+  if (result.activation.ok) return;
+  assert.equal(result.activation.reason, "command-failed");
+  assert.match(
+    result.activation.detail ?? "",
+    /plugin install failed.*version already in use/,
+  );
+
+  // Settings must NOT have been written — activation failed.
+  try {
+    await readFile(path.join(userHome, ".claude", "settings.json"), "utf-8");
+    assert.fail("settings.json should not exist when activation failed");
+  } catch (err) {
+    assert.match((err as NodeJS.ErrnoException).code ?? "", /ENOENT/);
+  }
+});
+
+test("runPluginInstall preserves unrelated settings keys + foreign plugin entries", async () => {
+  const { pluginSourceDir } = await createFakePackage({ version: "1.0.0" });
+  const userHome = await createTempHome();
+  const settingsPath = path.join(userHome, ".claude", "settings.json");
+  // Seed pre-existing settings — a model setting, a hook, AND someone else's
+  // plugin and marketplace. None of these should be touched.
+  await mkdir(path.dirname(settingsPath), { recursive: true });
+  await writeFile(
+    settingsPath,
+    JSON.stringify({
+      model: "claude-sonnet-4-6",
+      hooks: { sessionStart: ["./scripts/x.sh"] },
+      enabledPlugins: { "other-plugin@other-mp": true },
+      extraKnownMarketplaces: {
+        "other-mp": { source: { source: "directory", path: "/somewhere" } },
+      },
+    }),
+  );
+
+  const log: string[] = [];
+  await runPluginInstall({
+    userHome,
+    pluginSourceDir,
+    runClaude: makeRunClaude({}, log),
+  });
+
+  const after = JSON.parse(await readFile(settingsPath, "utf-8"));
+  // Foreign keys survived.
+  assert.equal(after.model, "claude-sonnet-4-6");
+  assert.deepEqual(after.hooks, { sessionStart: ["./scripts/x.sh"] });
+  // Foreign plugin + marketplace coexist with the minicode ones.
+  assert.equal(after.enabledPlugins["other-plugin@other-mp"], true);
+  assert.equal(after.enabledPlugins["minicode@minicode-local"], true);
+  assert.ok(after.extraKnownMarketplaces["other-mp"]);
+  assert.ok(after.extraKnownMarketplaces["minicode-local"]);
+
+  // Uninstall should also leave the foreign entries intact.
+  await runPluginUninstall({
+    userHome,
+    runClaude: makeRunClaude({}, log),
+  });
+  const afterUninstall = JSON.parse(await readFile(settingsPath, "utf-8"));
+  assert.equal(afterUninstall.model, "claude-sonnet-4-6");
+  assert.equal(afterUninstall.enabledPlugins["other-plugin@other-mp"], true);
+  assert.equal(
+    afterUninstall.enabledPlugins["minicode@minicode-local"],
+    undefined,
+  );
+  assert.ok(afterUninstall.extraKnownMarketplaces["other-mp"]);
+  assert.equal(
+    afterUninstall.extraKnownMarketplaces["minicode-local"],
+    undefined,
+  );
+});
+
+test("runPluginInstall refuses to overwrite a malformed settings.json", async () => {
+  // Silently treating parse errors as "empty settings" would destroy
+  // whatever state we couldn't parse. Distinguish file-missing (return {})
+  // from file-malformed (throw with a clear message).
+  const { pluginSourceDir } = await createFakePackage({ version: "1.0.0" });
+  const userHome = await createTempHome();
+  const settingsPath = path.join(userHome, ".claude", "settings.json");
+  await mkdir(path.dirname(settingsPath), { recursive: true });
+  await writeFile(settingsPath, "{not valid json,,,");
+
+  await assert.rejects(
+    runPluginInstall({
+      userHome,
+      pluginSourceDir,
+      runClaude: makeRunClaude({}, []),
+    }),
+    /Refusing to overwrite malformed/,
+  );
+
+  // The malformed file must be left exactly as we found it.
+  assert.equal(
+    await readFile(settingsPath, "utf-8"),
+    "{not valid json,,,",
+  );
+});
+
+test("runPluginUninstall with scope=repo does NOT call global `claude plugin uninstall`", async () => {
+  // Per-repo uninstall should remove the repo-local toggle only — running
+  // the global CLI uninstall would yank the plugin out of every other
+  // repo that enabled it.
+  const { pluginSourceDir } = await createFakePackage({ version: "1.0.0" });
+  const userHome = await createTempHome();
+  const repoRoot = await mkdtemp(path.join(os.tmpdir(), "minicode-plugin-repo-"));
+  tempDirs.push(repoRoot);
+  execFileSync("git", ["init"], { cwd: repoRoot, stdio: "ignore" });
+
+  const installLog: string[] = [];
+  await runPluginInstall({
+    userHome,
+    pluginSourceDir,
+    scope: "repo",
+    repoRoot,
+    runClaude: makeRunClaude({}, installLog),
+  });
+  const uninstallLog: string[] = [];
+  const result = await runPluginUninstall({
+    userHome,
+    scope: "repo",
+    repoRoot,
+    runClaude: makeRunClaude({}, uninstallLog),
+  });
+  assert.equal(result.ok, true);
+  // No `claude` invocations during the uninstall — we just strip the
+  // repo-local setting and return.
+  assert.deepEqual(uninstallLog, []);
+
+  // Repo settings cleared.
+  const repoSettings = JSON.parse(
+    await readFile(
+      path.join(repoRoot, ".claude", "settings.local.json"),
+      "utf-8",
+    ),
+  );
+  assert.equal(repoSettings.enabledPlugins["minicode@minicode-local"], undefined);
 });
 
 test("runPluginInstall with scope=repo writes to <repo>/.claude/settings.local.json", async () => {
@@ -188,8 +356,8 @@ test("runPluginInstall reports claude-not-found when CLI is missing", async () =
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.activation.activated, false);
-  if (result.activation.activated) return;
+  assert.equal(result.activation.ok, false);
+  if (result.activation.ok) return;
   assert.equal(result.activation.reason, "claude-not-found");
   // We stop after the probe; no marketplace add / install attempts.
   assert.deepEqual(log, ["--version"]);
@@ -221,7 +389,7 @@ test("runPluginInstall re-runs `marketplace update` when marketplace is already 
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.activation.activated, true);
+  assert.equal(result.activation.ok, true);
   // marketplace add fails as "already known" → falls through to marketplace update.
   assert.ok(log.includes("plugin marketplace update minicode-local"));
   assert.ok(log.includes("plugin install minicode@minicode-local"));
@@ -249,8 +417,8 @@ test("runPluginInstall surfaces command-failed when marketplace add genuinely er
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.activation.activated, false);
-  if (result.activation.activated) return;
+  assert.equal(result.activation.ok, false);
+  if (result.activation.ok) return;
   assert.equal(result.activation.reason, "command-failed");
   assert.match(result.activation.detail ?? "", /marketplace add failed.*boom/);
 });
@@ -273,7 +441,7 @@ test("runPluginUninstall removes settings entries and calls plugin uninstall", a
   });
   assert.equal(uninstall.ok, true);
   if (!uninstall.ok) return;
-  assert.equal(uninstall.activation.activated, true);
+  assert.equal(uninstall.activation.ok, true);
 
   const settings = JSON.parse(
     await readFile(path.join(userHome, ".claude", "settings.json"), "utf-8"),
