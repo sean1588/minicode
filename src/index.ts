@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import process from "node:process";
+import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { CodingAgent, Session, createModelClient, type ModelClient, type ReasoningEffort } from "@sean.holung/minicode-sdk";
@@ -337,13 +339,32 @@ async function runOneshot(params: {
   console.log(payload);
 }
 
+function findGitRoot(startDir: string): string | undefined {
+  let dir = startDir;
+  while (true) {
+    if (existsSync(path.join(dir, ".git"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
 async function main(): Promise<void> {
   const cliArgs = parseCliArgs(process.argv);
   validateCliArgs(cliArgs);
 
-  if (cliArgs.pluginInstall) {
+  if (cliArgs.pluginInstall || cliArgs.pluginUninstall) {
     const { installPlugin } = await import("./cli/plugin-install.js");
-    await installPlugin();
+    const repoRoot = cliArgs.pluginRepo ? findGitRoot(process.cwd()) : undefined;
+    if (cliArgs.pluginRepo && !repoRoot) {
+      console.error("Error: --repo requires a git repository (no .git directory found in any parent of CWD).");
+      process.exit(1);
+    }
+    await installPlugin({
+      uninstall: cliArgs.pluginUninstall === true,
+      scope: cliArgs.pluginRepo ? "repo" : "global",
+      ...(repoRoot ? { repoRoot } : {}),
+    });
     return;
   }
 

@@ -4,7 +4,7 @@ You have access to minicode's code intelligence tools via MCP. These tools provi
 
 ## Tool Preference
 
-When exploring or understanding code in .ts, .tsx, .js, or .jsx files:
+When exploring or understanding code that minicode has indexed (TypeScript and JavaScript built-in; Python via `minicode-plugin-python`; other languages via custom plugins):
 
 - **Prefer `read_symbol`** over reading entire files. It returns the source, signature, dependencies, references, and annotations for a specific function, class, or type — everything you need in one call.
 - **Prefer `search_code_map`** over generic file search when looking for symbols by name. It searches the indexed symbol table directly.

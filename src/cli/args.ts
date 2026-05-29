@@ -7,6 +7,8 @@ export interface CliArgs {
   port: number;
   task: string;
   pluginInstall?: boolean;
+  pluginUninstall?: boolean;
+  pluginRepo?: boolean;
   benchmarkRun?: boolean;
   benchmarkArgv?: string[];
 }
@@ -40,6 +42,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
   let outFile: string | undefined;
   let serve = false;
   let pluginInstall = false;
+  let pluginUninstall = false;
+  let pluginRepo = false;
   let port = 4567;
   const taskParts: string[] = [];
 
@@ -56,6 +60,15 @@ export function parseCliArgs(argv: string[]): CliArgs {
     if (arg === "plugin" && args[i + 1] === "install") {
       pluginInstall = true;
       i += 1;
+      continue;
+    }
+    if (arg === "plugin" && args[i + 1] === "uninstall") {
+      pluginUninstall = true;
+      i += 1;
+      continue;
+    }
+    if (arg === "--repo") {
+      pluginRepo = true;
       continue;
     }
     if (arg === "--port") {
@@ -120,6 +133,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     port,
     task: taskParts.join(" ").trim(),
     pluginInstall,
+    pluginUninstall,
+    pluginRepo,
   };
 }
 
@@ -138,7 +153,15 @@ export function validateCliArgs(args: CliArgs): void {
     throw new CliUsageError("serve mode is mutually exclusive with --oneshot, --json, and --out.");
   }
 
-  if (args.pluginInstall && (args.serve || args.oneshot)) {
-    throw new CliUsageError("plugin install is mutually exclusive with serve and --oneshot.");
+  if ((args.pluginInstall || args.pluginUninstall) && (args.serve || args.oneshot)) {
+    throw new CliUsageError("plugin install/uninstall is mutually exclusive with serve and --oneshot.");
+  }
+
+  if (args.pluginInstall && args.pluginUninstall) {
+    throw new CliUsageError("plugin install and plugin uninstall are mutually exclusive.");
+  }
+
+  if (args.pluginRepo && !args.pluginInstall && !args.pluginUninstall) {
+    throw new CliUsageError("--repo only applies to 'plugin install' or 'plugin uninstall'.");
   }
 }
