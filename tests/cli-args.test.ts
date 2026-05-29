@@ -7,6 +7,60 @@ import {
   validateCliArgs,
 } from "../src/cli/args.js";
 
+test("parseCliArgs recognises 'plugin install' and 'plugin uninstall' with --repo", () => {
+  const install = parseCliArgs(["node", "src/index.ts", "plugin", "install"]);
+  assert.equal(install.pluginInstall, true);
+  assert.equal(install.pluginUninstall, false);
+  assert.equal(install.pluginRepo, false);
+
+  const uninstallRepo = parseCliArgs([
+    "node",
+    "src/index.ts",
+    "plugin",
+    "uninstall",
+    "--repo",
+  ]);
+  assert.equal(uninstallRepo.pluginInstall, false);
+  assert.equal(uninstallRepo.pluginUninstall, true);
+  assert.equal(uninstallRepo.pluginRepo, true);
+});
+
+test("validateCliArgs rejects --repo without a plugin subcommand", () => {
+  assert.throws(
+    () =>
+      validateCliArgs({
+        verbose: false,
+        oneshot: false,
+        json: false,
+        serve: false,
+        port: 4567,
+        task: "",
+        pluginInstall: false,
+        pluginUninstall: false,
+        pluginRepo: true,
+      }),
+    CliUsageError,
+  );
+});
+
+test("validateCliArgs rejects simultaneous plugin install and uninstall", () => {
+  assert.throws(
+    () =>
+      validateCliArgs({
+        verbose: false,
+        oneshot: false,
+        json: false,
+        serve: false,
+        port: 4567,
+        task: "",
+        pluginInstall: true,
+        pluginUninstall: true,
+        pluginRepo: false,
+      }),
+    CliUsageError,
+  );
+});
+
 test("parseCliArgs parses oneshot and verbose flags", () => {
   const parsed = parseCliArgs([
     "node",
