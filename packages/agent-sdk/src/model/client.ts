@@ -54,9 +54,14 @@ function toAnthropicMessages(
 ): Anthropic.MessageParam[] {
   const converted: Anthropic.MessageParam[] = [];
   let pendingToolCalls: ToolCall[] = [];
+  // Anthropic requires consecutive tool_result blocks grouped into a
+  // single user message, so results are buffered until the next boundary.
   let pendingToolResults: Anthropic.ContentBlockParam[] = [];
 
-  const flushPendingToolResults = () => {
+  // Keep this recovery policy in sync with toOpenAICompatibleMessages:
+  // skip orphan tool results, and synthesize placeholders for interrupted
+  // histories where an assistant tool_use has no recorded result.
+  const flushMissingToolResults = () => {
     if (pendingToolResults.length === 0 && pendingToolCalls.length === 0) {
       return;
     }
@@ -79,7 +84,7 @@ function toAnthropicMessages(
 
   for (const message of messages) {
     if (message.role === "user") {
-      flushPendingToolResults();
+      flushMissingToolResults();
       converted.push({
         role: "user",
         content: message.content,
@@ -88,7 +93,7 @@ function toAnthropicMessages(
     }
 
     if (message.role === "assistant") {
-      flushPendingToolResults();
+      flushMissingToolResults();
       const content: Anthropic.ContentBlockParam[] = [];
       if (message.content.trim().length > 0) {
         content.push({
@@ -129,7 +134,7 @@ function toAnthropicMessages(
     pendingToolCalls.splice(pendingToolCallIndex, 1);
   }
 
-  flushPendingToolResults();
+  flushMissingToolResults();
 
   return converted;
 }
@@ -677,11 +682,27 @@ function mapAnthropicToolChoice(
   thinkingEnabled = false,
 ): { type: "auto" } | { type: "any" } | { type: "none" } | null {
   if (choice === undefined) return null;
-  if (choice === "required" && toolCount === 0) return { type: "auto" };
-  if (choice === "required" && thinkingEnabled) return { type: "auto" };
+  if (choice === "required" && (toolCount === 0 || thinkingEnabled)) {
+    // Anthropic does not support forced tool use with extended thinking.
+    return { type: "auto" };
+  }
   if (choice === "required") return { type: "any" };
   if (choice === "none") return { type: "none" };
   return { type: "auto" };
+}
+
+function clampAnthropicThinkingBudget(
+  requestedBudget: number,
+  maxTokens: number,
+): number {
+  const maxAllowed = maxTokens - 1;
+  if (
+    requestedBudget < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS ||
+    maxAllowed < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
+  ) {
+    return 0;
+  }
+  return Math.min(requestedBudget, maxAllowed);
 }
 
 function resolveOpenAIToolChoice(
@@ -786,29 +807,26 @@ export class AnthropicModelClient implements ModelClient {
             Math.round(params.maxTokens * effortToBudgetFraction(params.reasoningEffort)),
           )
         : 0;
-    let cappedBudget =
+    const requestedBudget =
       params.reasoningMaxTokens !== undefined && params.reasoningMaxTokens > 0
         ? Math.min(effortBudget || params.reasoningMaxTokens, params.reasoningMaxTokens)
         : effortBudget;
-    if (
-      cappedBudget > 0 &&
-      cappedBudget < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
-    ) {
-      cappedBudget =
-        params.reasoningMaxTokens !== undefined &&
-        params.reasoningMaxTokens > 0 &&
-        params.reasoningMaxTokens < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
+    const normalizedBudget =
+      requestedBudget > 0 &&
+      requestedBudget < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
+        ? params.reasoningMaxTokens !== undefined &&
+          params.reasoningMaxTokens > 0 &&
+          params.reasoningMaxTokens < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
           ? 0
-          : ANTHROPIC_MIN_THINKING_BUDGET_TOKENS;
-    }
-    if (cappedBudget >= params.maxTokens) {
-      cappedBudget = params.maxTokens - 1;
-    }
-    if (cappedBudget < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS) {
-      cappedBudget = 0;
-    }
+          : ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
+        : requestedBudget;
+    const cappedBudget = clampAnthropicThinkingBudget(
+      normalizedBudget,
+      params.maxTokens,
+    );
+    const thinkingEnabled = cappedBudget > 0;
     const thinkingParam =
-      cappedBudget > 0
+      thinkingEnabled
         ? {
             thinking: {
               type: "enabled" as const,
@@ -820,7 +838,7 @@ export class AnthropicModelClient implements ModelClient {
     const anthropicToolChoice = mapAnthropicToolChoice(
       params.toolChoice,
       toolsForRequest.length,
-      cappedBudget > 0,
+      thinkingEnabled,
     );
     const toolChoiceParam = anthropicToolChoice
       ? { tool_choice: anthropicToolChoice }

@@ -267,6 +267,126 @@ test("anthropic client groups parallel tool results into one user message", asyn
   );
 });
 
+test("anthropic client keeps out-of-order tool results without placeholders", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [
+      { role: "user", content: "inspect" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "tu_1", name: "read_file", input: { path: "a.ts" } },
+          { id: "tu_2", name: "search", input: { pattern: "foo" } },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "tu_2",
+        toolName: "search",
+        content: "search results",
+      },
+      {
+        role: "tool",
+        toolCallId: "tu_1",
+        toolName: "read_file",
+        content: "file contents",
+      },
+    ],
+    tools: [
+      { name: "read_file", description: "r", input_schema: { type: "object", properties: {} } },
+      { name: "search", description: "s", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 64,
+  });
+
+  const messages = fake.captured.params.messages as Array<Record<string, unknown>>;
+  const toolResults = messages[2]?.content as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    toolResults.map((block) => block.tool_use_id),
+    ["tu_2", "tu_1"],
+  );
+  assert.deepEqual(
+    toolResults.map((block) => block.content),
+    ["search results", "file contents"],
+  );
+  assert.ok(
+    toolResults.every(
+      (block) => !String(block.content).includes("Tool result unavailable"),
+    ),
+  );
+});
+
+test("anthropic client drops orphan tool results", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [
+      { role: "user", content: "inspect" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "tu_1", name: "read_file", input: { path: "a.ts" } },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "tu_99",
+        toolName: "search",
+        content: "orphan result",
+      },
+      {
+        role: "tool",
+        toolCallId: "tu_1",
+        toolName: "read_file",
+        content: "file contents",
+      },
+    ],
+    tools: [
+      { name: "read_file", description: "r", input_schema: { type: "object", properties: {} } },
+      { name: "search", description: "s", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 64,
+  });
+
+  const messages = fake.captured.params.messages as Array<Record<string, unknown>>;
+  const toolResults = messages[2]?.content as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    toolResults.map((block) => block.tool_use_id),
+    ["tu_1"],
+  );
+  assert.deepEqual(
+    toolResults.map((block) => block.content),
+    ["file contents"],
+  );
+});
+
 test("anthropic client inserts placeholder results for interrupted tool calls", async () => {
   const fake = makeFakeClient({
     finalMessage: {
@@ -488,6 +608,29 @@ test("anthropic client omits thinking when max token cap is below provider minim
     tools: [],
     maxTokens: 512,
     reasoningEffort: "high",
+  });
+  assert.equal(fake.captured.params.thinking, undefined);
+});
+
+test("anthropic client omits thinking when explicit reasoning cap is below provider minimum", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [],
+    maxTokens: 8192,
+    reasoningEffort: "high",
+    reasoningMaxTokens: 512,
   });
   assert.equal(fake.captured.params.thinking, undefined);
 });
