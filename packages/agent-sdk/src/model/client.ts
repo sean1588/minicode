@@ -24,6 +24,9 @@ import {
 const DEFAULT_MODEL_START_TIMEOUT_SECONDS = 60;
 const RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
+const ANTHROPIC_MIN_THINKING_BUDGET_TOKENS = 1024;
+const MISSING_TOOL_RESULT_CONTENT =
+  "Tool result unavailable because the previous minicode run ended before recording output.";
 
 /**
  * If the caller supplied an `outputSchema`, look for the synthetic
@@ -50,9 +53,33 @@ function toAnthropicMessages(
   messages: SessionMessage[],
 ): Anthropic.MessageParam[] {
   const converted: Anthropic.MessageParam[] = [];
+  let pendingToolCalls: ToolCall[] = [];
+  let pendingToolResults: Anthropic.ContentBlockParam[] = [];
+
+  const flushPendingToolResults = () => {
+    if (pendingToolResults.length === 0 && pendingToolCalls.length === 0) {
+      return;
+    }
+
+    for (const toolCall of pendingToolCalls) {
+      pendingToolResults.push({
+        type: "tool_result",
+        tool_use_id: toolCall.id,
+        content: MISSING_TOOL_RESULT_CONTENT,
+      });
+    }
+
+    converted.push({
+      role: "user",
+      content: pendingToolResults,
+    });
+    pendingToolResults = [];
+    pendingToolCalls = [];
+  };
 
   for (const message of messages) {
     if (message.role === "user") {
+      flushPendingToolResults();
       converted.push({
         role: "user",
         content: message.content,
@@ -61,6 +88,7 @@ function toAnthropicMessages(
     }
 
     if (message.role === "assistant") {
+      flushPendingToolResults();
       const content: Anthropic.ContentBlockParam[] = [];
       if (message.content.trim().length > 0) {
         content.push({
@@ -82,20 +110,26 @@ function toAnthropicMessages(
         role: "assistant",
         content: content.length > 0 ? content : "",
       });
+      pendingToolCalls = [...(message.toolCalls ?? [])];
       continue;
     }
 
-    converted.push({
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          tool_use_id: message.toolCallId,
-          content: message.content,
-        },
-      ],
+    const pendingToolCallIndex = pendingToolCalls.findIndex(
+      (toolCall) => toolCall.id === message.toolCallId,
+    );
+    if (pendingToolCallIndex === -1) {
+      continue;
+    }
+
+    pendingToolResults.push({
+      type: "tool_result",
+      tool_use_id: message.toolCallId,
+      content: message.content,
     });
+    pendingToolCalls.splice(pendingToolCallIndex, 1);
   }
+
+  flushPendingToolResults();
 
   return converted;
 }
@@ -387,9 +421,6 @@ type OpenAICompatibleMessage =
       content: string;
     };
 
-const MISSING_TOOL_RESULT_CONTENT =
-  "Tool result unavailable because the previous minicode run ended before recording output.";
-
 function toOpenAICompatibleMessages(
   system: string,
   messages: SessionMessage[],
@@ -643,9 +674,11 @@ function effortToBudgetFraction(effort: ReasoningEffort): number {
 function mapAnthropicToolChoice(
   choice: ToolChoice | undefined,
   toolCount: number,
+  thinkingEnabled = false,
 ): { type: "auto" } | { type: "any" } | { type: "none" } | null {
   if (choice === undefined) return null;
   if (choice === "required" && toolCount === 0) return { type: "auto" };
+  if (choice === "required" && thinkingEnabled) return { type: "auto" };
   if (choice === "required") return { type: "any" };
   if (choice === "none") return { type: "none" };
   return { type: "auto" };
@@ -753,10 +786,27 @@ export class AnthropicModelClient implements ModelClient {
             Math.round(params.maxTokens * effortToBudgetFraction(params.reasoningEffort)),
           )
         : 0;
-    const cappedBudget =
+    let cappedBudget =
       params.reasoningMaxTokens !== undefined && params.reasoningMaxTokens > 0
         ? Math.min(effortBudget || params.reasoningMaxTokens, params.reasoningMaxTokens)
         : effortBudget;
+    if (
+      cappedBudget > 0 &&
+      cappedBudget < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
+    ) {
+      cappedBudget =
+        params.reasoningMaxTokens !== undefined &&
+        params.reasoningMaxTokens > 0 &&
+        params.reasoningMaxTokens < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS
+          ? 0
+          : ANTHROPIC_MIN_THINKING_BUDGET_TOKENS;
+    }
+    if (cappedBudget >= params.maxTokens) {
+      cappedBudget = params.maxTokens - 1;
+    }
+    if (cappedBudget < ANTHROPIC_MIN_THINKING_BUDGET_TOKENS) {
+      cappedBudget = 0;
+    }
     const thinkingParam =
       cappedBudget > 0
         ? {
@@ -770,6 +820,7 @@ export class AnthropicModelClient implements ModelClient {
     const anthropicToolChoice = mapAnthropicToolChoice(
       params.toolChoice,
       toolsForRequest.length,
+      cappedBudget > 0,
     );
     const toolChoiceParam = anthropicToolChoice
       ? { tool_choice: anthropicToolChoice }

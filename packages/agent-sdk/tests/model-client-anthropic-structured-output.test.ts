@@ -196,6 +196,121 @@ test("anthropic client passes through unchanged when outputSchema is omitted", a
   assert.equal(response.text, "hello");
 });
 
+test("anthropic client groups parallel tool results into one user message", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [
+      { role: "user", content: "inspect" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "tu_1", name: "read_file", input: { path: "a.ts" } },
+          { id: "tu_2", name: "search", input: { pattern: "foo" } },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "tu_1",
+        toolName: "read_file",
+        content: "file contents",
+      },
+      {
+        role: "tool",
+        toolCallId: "tu_2",
+        toolName: "search",
+        content: "search results",
+      },
+    ],
+    tools: [
+      { name: "read_file", description: "r", input_schema: { type: "object", properties: {} } },
+      { name: "search", description: "s", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 64,
+  });
+
+  const messages = fake.captured.params.messages as Array<Record<string, unknown>>;
+  assert.equal(messages.length, 3);
+  assert.equal(messages[1]?.role, "assistant");
+  const assistantContent = messages[1]?.content as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    assistantContent.map((block) => block.type),
+    ["tool_use", "tool_use"],
+  );
+
+  assert.equal(messages[2]?.role, "user");
+  const toolResults = messages[2]?.content as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    toolResults.map((block) => block.type),
+    ["tool_result", "tool_result"],
+  );
+  assert.deepEqual(
+    toolResults.map((block) => block.tool_use_id),
+    ["tu_1", "tu_2"],
+  );
+  assert.deepEqual(
+    toolResults.map((block) => block.content),
+    ["file contents", "search results"],
+  );
+});
+
+test("anthropic client inserts placeholder results for interrupted tool calls", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [
+      { role: "user", content: "inspect" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "tu_1", name: "read_file", input: { path: "a.ts" } },
+        ],
+      },
+      { role: "user", content: "new request" },
+    ],
+    tools: [
+      { name: "read_file", description: "r", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 64,
+  });
+
+  const messages = fake.captured.params.messages as Array<Record<string, unknown>>;
+  assert.equal(messages.length, 4);
+  const placeholderMessage = messages[2];
+  assert.equal(placeholderMessage?.role, "user");
+  const content = placeholderMessage?.content as Array<Record<string, unknown>>;
+  assert.equal(content[0]?.type, "tool_result");
+  assert.equal(content[0]?.tool_use_id, "tu_1");
+  assert.match(String(content[0]?.content), /Tool result unavailable/);
+  assert.deepEqual(messages[3], { role: "user", content: "new request" });
+});
+
 test("anthropic client extracts synthetic call alongside real tool calls", async () => {
   // Multi-tool step: model calls a real tool AND the synthetic tool.
   // The synthetic call should be extracted; the real call should
@@ -324,4 +439,55 @@ test("anthropic client downgrades toolChoice='required' to { type: 'auto' } when
     toolChoice: "required",
   });
   assert.deepEqual(fake.captured.params.tool_choice, { type: "auto" });
+});
+
+test("anthropic client clamps low thinking budgets to the provider minimum", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      { name: "read_file", description: "read", input_schema: { type: "object", properties: {} } },
+    ],
+    maxTokens: 4096,
+    reasoningEffort: "minimal",
+    toolChoice: "required",
+  });
+  assert.deepEqual(fake.captured.params.thinking, {
+    type: "enabled",
+    budget_tokens: 1024,
+  });
+  assert.deepEqual(fake.captured.params.tool_choice, { type: "auto" });
+});
+
+test("anthropic client omits thinking when max token cap is below provider minimum", async () => {
+  const fake = makeFakeClient({
+    finalMessage: {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  });
+  const client = new AnthropicModelClient("test-key", {
+    client: fake.fakeClient as never,
+  });
+  await client.chat({
+    model: "claude-test",
+    system: "sys",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [],
+    maxTokens: 512,
+    reasoningEffort: "high",
+  });
+  assert.equal(fake.captured.params.thinking, undefined);
 });
