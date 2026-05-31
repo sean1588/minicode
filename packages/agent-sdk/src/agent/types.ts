@@ -77,6 +77,7 @@ export interface AgentConfig {
   maxToolOutputChars: number;
   openAiBaseUrl: string;
   openAiApiKey?: string;
+  anthropicApiKey?: string;
 
   /** Deduplicate repeated read_file calls for the same file within a turn. Default: false */
   enableFileReadDedup?: boolean;

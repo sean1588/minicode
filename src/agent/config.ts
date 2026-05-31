@@ -31,6 +31,7 @@ export function formatConfigForDisplay(config: AgentConfig): string {
     "commandDenylist: " + config.commandDenylist.length + " patterns",
     "openAiBaseUrl: " + config.openAiBaseUrl,
     "openAiApiKey: " + (config.openAiApiKey ? "***" : "(unset)"),
+    "anthropicApiKey: " + (config.anthropicApiKey ? "***" : "(unset)"),
     "enableFileReadDedup: " + (config.enableFileReadDedup ?? false),
     "enableAdaptiveKeepRecent: " + (config.enableAdaptiveKeepRecent ?? false),
     "enableToolOutputTruncation: " + (config.enableToolOutputTruncation ?? false),
@@ -65,7 +66,11 @@ export function getConfigMissing(config: AgentConfig): string[] {
     missing.push("OPENROUTER_API_KEY is not set");
   }
 
-  if (config.modelProvider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+  if (
+    config.modelProvider === "anthropic" &&
+    !config.anthropicApiKey?.trim() &&
+    !process.env.ANTHROPIC_API_KEY?.trim()
+  ) {
     missing.push("ANTHROPIC_API_KEY is not set");
   }
 
@@ -94,7 +99,9 @@ export function getConfiguredProvider(
   const explicitModelProvider = parseExplicitModelProvider(env.MODEL_PROVIDER);
 
   if (config.modelProvider === "anthropic") {
-    return explicitModelProvider === "anthropic" || hasExplicitConfigValue(env.ANTHROPIC_API_KEY)
+    return explicitModelProvider === "anthropic" ||
+      hasExplicitConfigValue(env.ANTHROPIC_API_KEY) ||
+      hasExplicitConfigValue(config.anthropicApiKey)
       ? "anthropic"
       : null;
   }
@@ -336,6 +343,7 @@ export async function loadAgentConfig(
   const openAiApiKey = isOpenRouter
     ? (env.OPENROUTER_API_KEY ?? env.OPENAI_API_KEY)
     : env.OPENAI_API_KEY;
+  const anthropicApiKey = env.ANTHROPIC_API_KEY;
 
   return {
     modelProvider: parseModelProvider(
@@ -386,6 +394,7 @@ export async function loadAgentConfig(
     ),
     openAiBaseUrl: rawBaseUrl,
     ...(openAiApiKey !== undefined ? { openAiApiKey } : {}),
+    ...(anthropicApiKey !== undefined ? { anthropicApiKey } : {}),
     enableFileReadDedup: parseBoolean(
       env.ENABLE_FILE_READ_DEDUP,
       true,
@@ -422,4 +431,3 @@ export async function loadAgentConfig(
     })(),
   };
 }
-

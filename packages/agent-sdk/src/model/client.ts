@@ -1206,7 +1206,7 @@ export function createModelClient(config: AgentConfig): ModelClient {
     });
   }
   return new AnthropicModelClient(
-    process.env.ANTHROPIC_API_KEY,
+    config.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY,
     { timeoutSeconds: config.modelTimeoutSeconds },
   );
 }

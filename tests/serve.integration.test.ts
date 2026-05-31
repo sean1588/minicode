@@ -26,6 +26,8 @@ class MockBridge extends AgentBridge {
   turnHistory: string[] = [];
   openRouterKey: string | undefined;
   openRouterSessionActive = false;
+  anthropicApiKey: string | undefined;
+  anthropicSessionActive = false;
   openAiCompatibleApiKey: string | undefined;
   openAiCompatibleSessionActive = false;
   refreshIndexCount = 0;
@@ -117,17 +119,22 @@ class MockBridge extends AgentBridge {
   override connectOpenRouter(apiKey: string): void {
     this.openRouterKey = apiKey;
     this.openRouterSessionActive = true;
+    this.anthropicApiKey = undefined;
+    this.anthropicSessionActive = false;
     this.openAiCompatibleApiKey = undefined;
     this.openAiCompatibleSessionActive = false;
     this._config.modelProvider = "openai-compatible";
     this._config.openAiBaseUrl = "https://openrouter.ai/api/v1";
     this._config.openAiApiKey = apiKey;
+    delete this._config.anthropicApiKey;
   }
 
   override connectOpenAiCompatible(baseUrl: string, apiKey?: string): void {
     this.openAiCompatibleSessionActive = true;
     this.openRouterKey = undefined;
     this.openRouterSessionActive = false;
+    this.anthropicApiKey = undefined;
+    this.anthropicSessionActive = false;
     this.openAiCompatibleApiKey = apiKey?.trim() || undefined;
     this._config.modelProvider = "openai-compatible";
     this._config.openAiBaseUrl = baseUrl.trim().replace(/\/+$/, "");
@@ -136,6 +143,19 @@ class MockBridge extends AgentBridge {
     } else {
       delete this._config.openAiApiKey;
     }
+    delete this._config.anthropicApiKey;
+  }
+
+  override connectAnthropic(apiKey: string): void {
+    this.anthropicApiKey = apiKey;
+    this.anthropicSessionActive = true;
+    this.openRouterKey = undefined;
+    this.openRouterSessionActive = false;
+    this.openAiCompatibleApiKey = undefined;
+    this.openAiCompatibleSessionActive = false;
+    this._config.modelProvider = "anthropic";
+    this._config.anthropicApiKey = apiKey;
+    delete this._config.openAiApiKey;
   }
 
   override disconnectOpenRouter(): boolean {
@@ -149,6 +169,7 @@ class MockBridge extends AgentBridge {
     this._config.model = this._baseConfig.model;
     this._config.openAiBaseUrl = this._baseConfig.openAiBaseUrl;
     delete this._config.openAiApiKey;
+    delete this._config.anthropicApiKey;
     return true;
   }
 
@@ -167,11 +188,31 @@ class MockBridge extends AgentBridge {
     this._config.model = this._baseConfig.model;
     this._config.openAiBaseUrl = this._baseConfig.openAiBaseUrl;
     delete this._config.openAiApiKey;
+    delete this._config.anthropicApiKey;
     return true;
   }
 
   override isOpenAiCompatibleSessionConnected(): boolean {
     return this.openAiCompatibleSessionActive;
+  }
+
+  override disconnectAnthropic(): boolean {
+    if (!this.anthropicSessionActive) {
+      return false;
+    }
+
+    this.anthropicSessionActive = false;
+    this.anthropicApiKey = undefined;
+    this._config.modelProvider = this._baseConfig.modelProvider;
+    this._config.model = this._baseConfig.model;
+    this._config.openAiBaseUrl = this._baseConfig.openAiBaseUrl;
+    delete this._config.openAiApiKey;
+    delete this._config.anthropicApiKey;
+    return true;
+  }
+
+  override isAnthropicSessionConnected(): boolean {
+    return this.anthropicSessionActive;
   }
 
   override switchModel(modelId: string): void {
@@ -927,6 +968,124 @@ test("GET /api/status exposes OpenRouter session state and base URL", async () =
   assert.equal(body.sessionOpenRouterConnected, true);
 });
 
+test("POST /api/anthropic/connect stores a session-only Anthropic key", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/anthropic/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: " sk-ant-session-key " }),
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    ok: boolean;
+    sessionOnly: boolean;
+    persistedToEnv: boolean;
+    persistedEnvPath: string | null;
+    persistWarning: string | null;
+    needsSetup: boolean;
+    missing: string[];
+    message: string;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.sessionOnly, true);
+  assert.equal(body.persistedToEnv, false);
+  assert.equal(body.persistedEnvPath, null);
+  assert.equal(body.persistWarning, null);
+  assert.equal(body.needsSetup, false);
+  assert.deepEqual(body.missing, []);
+  assert.equal(body.message, "Anthropic connected for this serve session.");
+  assert.equal(bridge.getConfig().modelProvider, "anthropic");
+  assert.equal(bridge.getConfig().anthropicApiKey, "sk-ant-session-key");
+  assert.equal(bridge.getConfig().openAiApiKey, undefined);
+  assert.equal(bridge.isAnthropicSessionConnected(), true);
+});
+
+test("POST /api/anthropic/connect can persist Anthropic setup to ~/.minicode/.env", async () => {
+  const bridge = new MockBridge();
+  const minicodeHome = mkdtempSync(path.join(os.tmpdir(), "minicode-anthropic-home-"));
+  const base = await startTestServer(bridge, { minicodeHome });
+
+  try {
+    const res = await fetch(`${base}/api/anthropic/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: "sk-ant-session-key", persistToEnv: true }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json() as {
+      persistedToEnv: boolean;
+      persistedEnvPath: string | null;
+      persistWarning: string | null;
+      message: string;
+    };
+    assert.equal(body.persistedToEnv, true);
+    assert.equal(body.persistWarning, null);
+    assert.equal(body.persistedEnvPath, path.join(minicodeHome, ".env"));
+    assert.match(body.message, /saved to ~\/\.minicode\/\.env/);
+
+    const envContents = readFileSync(path.join(minicodeHome, ".env"), "utf8");
+    assert.match(envContents, /^MODEL_PROVIDER=anthropic$/m);
+    assert.match(envContents, /^ANTHROPIC_API_KEY=sk-ant-session-key$/m);
+  } finally {
+    rmSync(minicodeHome, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/anthropic/disconnect removes the session-only Anthropic connection", async () => {
+  const bridge = new MockBridge();
+  bridge.connectAnthropic("sk-ant-session-key");
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/anthropic/disconnect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    ok: boolean;
+    disconnected: boolean;
+    sessionOnly: boolean;
+    provider: string;
+    message: string;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.disconnected, true);
+  assert.equal(body.sessionOnly, true);
+  assert.equal(body.provider, "anthropic");
+  assert.equal(
+    body.message,
+    "Removed the session-only Anthropic connection and restored your original provider settings.",
+  );
+  assert.equal(bridge.isAnthropicSessionConnected(), false);
+  assert.equal(bridge.getConfig().modelProvider, "anthropic");
+  assert.equal(bridge.getConfig().anthropicApiKey, undefined);
+});
+
+test("GET /api/status exposes Anthropic session state", async () => {
+  const bridge = new MockBridge();
+  bridge.connectAnthropic("sk-ant-session-key");
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/status`);
+  assert.equal(res.status, 200);
+
+  const body = await res.json() as {
+    sessionAnthropicConnected: boolean;
+    sessionOpenRouterConnected: boolean;
+    sessionOpenAiCompatibleConnected: boolean;
+    provider: string;
+  };
+  assert.equal(body.provider, "anthropic");
+  assert.equal(body.sessionAnthropicConnected, true);
+  assert.equal(body.sessionOpenRouterConnected, false);
+  assert.equal(body.sessionOpenAiCompatibleConnected, false);
+});
+
 test("POST /api/openai-compatible/connect stores a session-only endpoint", async () => {
   const bridge = new MockBridge();
   const base = await startTestServer(bridge);
@@ -1062,6 +1221,20 @@ test("POST /api/openrouter/connect returns 400 when code is missing", async () =
     body: JSON.stringify({ codeVerifier: "pkce-verifier" }),
   });
   assert.equal(res.status, 400);
+});
+
+test("POST /api/anthropic/connect returns 400 when API key is missing", async () => {
+  const bridge = new MockBridge();
+  const base = await startTestServer(bridge);
+
+  const res = await fetch(`${base}/api/anthropic/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: "  " }),
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json() as { error: string };
+  assert.equal(body.error, "apiKey is required");
 });
 
 test("POST /api/openrouter/connect surfaces exchange failures", async () => {

@@ -14,12 +14,17 @@ test("built HTML contains settings entry point and modal shell", () => {
     html.includes('id="connect-openai-compatible-btn"'),
     "HTML should contain the OpenAI-compatible connect button",
   );
+  assert.ok(html.includes('id="connect-anthropic-btn"'), "HTML should contain the Anthropic connect button");
   assert.ok(html.includes('id="config-overlay-intro"'), "HTML should contain the setup overlay intro copy");
   assert.ok(html.includes("Try minicode for free with OpenRouter"), "HTML should promote the free OpenRouter quick start");
   assert.ok(html.includes('id="openrouter-connect-modal"'), "HTML should contain the OpenRouter consent modal");
   assert.ok(
     html.includes('id="openai-compatible-connect-modal"'),
     "HTML should contain the OpenAI-compatible connect modal",
+  );
+  assert.ok(
+    html.includes('id="anthropic-connect-modal"'),
+    "HTML should contain the Anthropic connect modal",
   );
   assert.ok(
     html.includes('id="openai-compatible-preset"'),
@@ -31,6 +36,7 @@ test("built HTML contains settings entry point and modal shell", () => {
     html.includes('id="disconnect-openai-compatible-btn"'),
     "HTML should contain the OpenAI-compatible disconnect button",
   );
+  assert.ok(html.includes('id="disconnect-anthropic-btn"'), "HTML should contain the Anthropic disconnect button");
   assert.ok(!html.includes('id="settings-scope"'), "HTML should no longer contain the settings scope selector");
   assert.ok(html.includes('id="settings-save"'), "HTML should contain the settings save action");
 });
@@ -65,6 +71,8 @@ test("built JS contains config loading and saving logic for settings", () => {
     js.includes("/api/openai-compatible/disconnect"),
     "JS should call the OpenAI-compatible disconnect API",
   );
+  assert.ok(js.includes("/api/anthropic/connect"), "JS should call the Anthropic connect API");
+  assert.ok(js.includes("/api/anthropic/disconnect"), "JS should call the Anthropic disconnect API");
   assert.ok(js.includes("persistToHomeEnv"), "JS should support persisting the selected model after OpenRouter setup");
   assert.ok(js.includes("code_challenge_method"), "JS should generate an OpenRouter PKCE auth request");
   assert.ok(js.includes("sessionStorage"), "JS should persist the PKCE verifier for the OAuth callback");
@@ -74,6 +82,7 @@ test("built JS contains config loading and saving logic for settings", () => {
     js.includes("sessionOpenAiCompatibleConnected"),
     "JS should track session-only OpenAI-compatible state",
   );
+  assert.ok(js.includes("sessionAnthropicConnected"), "JS should track session-only Anthropic state");
   assert.ok(js.includes("OPENAI_COMPATIBLE_PRESETS"), "JS should include OpenAI-compatible endpoint presets");
   assert.ok(js.includes("Save settings"), "JS should contain the settings save action text");
   assert.ok(js.includes("settingsPayload"), "JS should track settings payload state");
