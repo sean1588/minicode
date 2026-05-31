@@ -17,7 +17,7 @@ test("fresh install hides MODEL missing copy until a provider is configured", ()
   assert.equal(state.modelSelectionNote, null);
 });
 
-test("configured OpenAI-compatible provider keeps model guidance visible", () => {
+test("configured OpenAI-compatible provider keeps model guidance and quick connects visible", () => {
   const state = deriveSetupOverlayState({
     configuredProvider: "openai-compatible",
     missing: ["MODEL is not set"],
@@ -27,14 +27,14 @@ test("configured OpenAI-compatible provider keeps model guidance visible", () =>
     state.introText,
     "An OpenAI-compatible provider is already configured. Select a model to continue:",
   );
-  assert.equal(state.hideQuickConnects, true);
+  assert.equal(state.hideQuickConnects, false);
   assert.equal(state.hideOpenRouterSpotlight, false);
   assert.deepEqual(state.missingItems, ["MODEL is not set"]);
   assert.equal(state.showModelSelectionHint, true);
   assert.equal(state.modelSelectionNote, null);
 });
 
-test("configured OpenRouter provider keeps model guidance and hides spotlight", () => {
+test("configured OpenRouter provider keeps model guidance and hides OpenRouter spotlight", () => {
   const state = deriveSetupOverlayState({
     configuredProvider: "openrouter",
     missing: ["MODEL is not set"],
@@ -44,7 +44,7 @@ test("configured OpenRouter provider keeps model guidance and hides spotlight", 
     state.introText,
     "OpenRouter is already configured. Select a model to continue:",
   );
-  assert.equal(state.hideQuickConnects, true);
+  assert.equal(state.hideQuickConnects, false);
   assert.equal(state.hideOpenRouterSpotlight, true);
   assert.deepEqual(state.missingItems, ["MODEL is not set"]);
   assert.equal(state.showModelSelectionHint, true);

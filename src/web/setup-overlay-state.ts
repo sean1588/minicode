@@ -40,7 +40,7 @@ export function deriveSetupOverlayState(input: SetupOverlayStateInput): SetupOve
 
   return {
     introText,
-    hideQuickConnects: hasConfiguredProvider,
+    hideQuickConnects: false,
     hideOpenRouterSpotlight: configuredProvider === "openrouter" && isOnlyModelMissing,
     missingItems: filteredMissingItems,
     showModelSelectionHint: hasConfiguredProvider,
