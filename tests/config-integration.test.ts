@@ -508,6 +508,18 @@ describe("getConfigMissing and getConfigSetupMessage", () => {
     });
   });
 
+  test("returns no ANTHROPIC_API_KEY missing when session config has key", async () => {
+    await withEnv({ ANTHROPIC_API_KEY: undefined }, async () => {
+      const config = {
+        ...createTestAgentConfig("/tmp"),
+        modelProvider: "anthropic" as const,
+        model: "claude-sonnet-4-20250514",
+        anthropicApiKey: "sk-ant-session",
+      };
+      assert.deepEqual(getConfigMissing(config), []);
+    });
+  });
+
   test("does not require ANTHROPIC_API_KEY for openai-compatible provider", async () => {
     await withEnv({ ANTHROPIC_API_KEY: undefined }, async () => {
       const config = {
@@ -1075,5 +1087,15 @@ describe("getConfiguredProvider", () => {
       const resolvedEnv = await resolveConfigEnv({ minicodeHome: home });
       assert.equal(getConfiguredProvider(config, resolvedEnv.values), "openai-compatible");
     });
+  });
+
+  test("returns anthropic when session config has an Anthropic key", async () => {
+    const config = {
+      ...createTestAgentConfig("/tmp"),
+      modelProvider: "anthropic" as const,
+      anthropicApiKey: "sk-ant-session",
+    };
+
+    assert.equal(getConfiguredProvider(config, {}), "anthropic");
   });
 });

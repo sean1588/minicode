@@ -113,6 +113,18 @@
                   <span class="config-overlay-action-note">Starts with common presets, but the endpoint stays editable.</span>
                 </div>
               </div>
+
+              <div id="config-overlay-anthropic" class="config-overlay-spotlight config-overlay-spotlight-secondary">
+                <div class="config-overlay-spotlight-copy">
+                  <span class="config-overlay-spotlight-badge">Hosted model</span>
+                  <strong>Connect Anthropic</strong>
+                  <p>Paste an Anthropic API key to connect this <code>minicode serve</code> session without editing config files first.</p>
+                </div>
+                <div class="config-overlay-actions config-overlay-spotlight-actions">
+                  <button id="connect-anthropic-btn" class="dropdown-action" type="button" data-anthropic-connect="true">Connect Anthropic</button>
+                  <span class="config-overlay-action-note">Session-only by default, with optional persistence.</span>
+                </div>
+              </div>
             </div>
             <p id="config-overlay-intro">minicode needs a model provider to run. Configure one of the following:</p>
             <div class="config-overlay-options">
@@ -221,6 +233,13 @@ MODEL=your-model-name</pre>
       </div>
 
       <div id="settings-banner" class="settings-banner hidden" role="status" aria-live="polite"></div>
+      <div id="settings-anthropic-session" class="settings-session-banner hidden" role="status" aria-live="polite">
+        <div class="settings-session-copy">
+          <div class="settings-session-title">Anthropic is connected for this serve session</div>
+          <div id="settings-anthropic-session-meta" class="settings-session-meta"></div>
+        </div>
+        <button id="disconnect-anthropic-btn" class="header-btn" type="button">Disconnect Anthropic</button>
+      </div>
       <div id="settings-openrouter-session" class="settings-session-banner hidden" role="status" aria-live="polite">
         <div class="settings-session-copy">
           <div class="settings-session-title">OpenRouter is connected for this serve session</div>
@@ -241,6 +260,7 @@ MODEL=your-model-name</pre>
           <div class="settings-session-meta">Temporarily connect a provider for this serve session, or optionally save it to <code>~/.minicode/.env</code>.</div>
         </div>
         <div class="settings-provider-shortcuts-actions">
+          <button class="header-btn" type="button" data-anthropic-connect="true">Connect Anthropic</button>
           <button class="header-btn" type="button" data-openrouter-connect="true">Connect OpenRouter</button>
           <button class="header-btn" type="button" data-openai-compatible-connect="true">Connect OpenAI-compatible</button>
         </div>
@@ -368,6 +388,56 @@ MODEL=your-model-name</pre>
         <div class="settings-actions">
           <button id="openai-compatible-connect-cancel" class="header-btn" type="button">Cancel</button>
           <button id="openai-compatible-connect-continue" class="dropdown-action" type="button">Continue</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="anthropic-connect-modal" class="modal hidden" aria-hidden="true">
+    <div id="anthropic-connect-backdrop" class="modal-backdrop"></div>
+    <section class="modal-panel modal-panel-compact" role="dialog" aria-modal="true" aria-labelledby="anthropic-connect-title">
+      <div class="modal-header">
+        <div>
+          <h2 id="anthropic-connect-title">Connect Anthropic</h2>
+          <p class="modal-subtitle">Configure Anthropic for this <code>minicode serve</code> session and optionally save it for future runs.</p>
+        </div>
+        <button id="anthropic-connect-close" class="header-btn" type="button">Close</button>
+      </div>
+
+      <div class="openrouter-connect-body">
+        <p class="openrouter-connect-lead">
+          Paste an Anthropic API key to point this serve session at the Anthropic runtime path. By default, the key is held only by this live session.
+        </p>
+
+        <div class="openrouter-connect-note">
+          <strong>Connection details</strong>
+          <p>minicode will use <code>MODEL_PROVIDER=anthropic</code> for this session. Select an Anthropic model afterward if one is not already configured.</p>
+        </div>
+
+        <label class="provider-input-group" for="anthropic-api-key">
+          <span class="provider-input-label">API key</span>
+          <input id="anthropic-api-key" class="provider-input" type="password" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" />
+        </label>
+
+        <label class="openrouter-persist-toggle" for="anthropic-persist-checkbox">
+          <input id="anthropic-persist-checkbox" type="checkbox" />
+          <span>Save the Anthropic credentials and provider default to <code>~/.minicode/.env</code> after connecting.</span>
+        </label>
+
+        <p class="openrouter-connect-help">
+          When enabled, minicode will write <code>ANTHROPIC_API_KEY</code> and set <code>MODEL_PROVIDER=anthropic</code>. Nothing is written unless you check the box.
+        </p>
+
+        <p id="anthropic-connect-status" class="config-connect-status hidden"></p>
+      </div>
+
+      <div class="modal-footer">
+        <p class="settings-footnote">
+          Session-only credentials are cleared when this serve process exits or you disconnect.
+        </p>
+        <div class="settings-actions">
+          <button id="anthropic-connect-cancel" class="header-btn" type="button">Cancel</button>
+          <button id="anthropic-connect-continue" class="dropdown-action" type="button">Continue</button>
         </div>
       </div>
     </section>

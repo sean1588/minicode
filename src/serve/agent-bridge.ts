@@ -45,7 +45,7 @@ export class AgentBridge {
   private modelClient: ReturnType<typeof createModelClient> | undefined;
   private projectIndex: ProjectIndex | undefined;
   private toolRegistry: ReturnType<typeof createToolRegistry> | undefined;
-  private sessionProviderConnection: "openrouter" | "openai-compatible" | null = null;
+  private sessionProviderConnection: "anthropic" | "openrouter" | "openai-compatible" | null = null;
   private busy = false;
   private abortController: AbortController | null = null;
   private broadcast: (msg: ServerMessage) => void;
@@ -395,6 +395,33 @@ export class AgentBridge {
     return this.sessionProviderConnection === "openai-compatible";
   }
 
+  isAnthropicSessionConnected(): boolean {
+    return this.sessionProviderConnection === "anthropic";
+  }
+
+  connectAnthropic(apiKey: string): void {
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
+      throw new Error("Anthropic API key is required.");
+    }
+    if (this.busy) {
+      throw new Error("busy");
+    }
+
+    const currentSession = this.agent?.getSession();
+    (this.config as {
+      modelProvider: "anthropic";
+      anthropicApiKey: string;
+      openAiApiKey?: string;
+    }).modelProvider = "anthropic";
+    (this.config as { anthropicApiKey: string }).anthropicApiKey = trimmedKey;
+    delete (this.config as { openAiApiKey?: string }).openAiApiKey;
+    this.sessionProviderConnection = "anthropic";
+
+    this.modelClient = createModelClient(this.config);
+    this.agent = this.createAgent(currentSession);
+  }
+
   connectOpenRouter(apiKey: string): void {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) {
@@ -412,6 +439,7 @@ export class AgentBridge {
     }).modelProvider = "openai-compatible";
     (this.config as { openAiBaseUrl: string }).openAiBaseUrl = "https://openrouter.ai/api/v1";
     (this.config as { openAiApiKey: string }).openAiApiKey = trimmedKey;
+    delete (this.config as { anthropicApiKey?: string }).anthropicApiKey;
     this.sessionProviderConnection = "openrouter";
 
     this.modelClient = createModelClient(this.config);
@@ -441,6 +469,7 @@ export class AgentBridge {
     } else {
       delete (this.config as { openAiApiKey?: string }).openAiApiKey;
     }
+    delete (this.config as { anthropicApiKey?: string }).anthropicApiKey;
 
     this.sessionProviderConnection = "openai-compatible";
     this.modelClient = createModelClient(this.config);
@@ -463,6 +492,17 @@ export class AgentBridge {
       throw new Error("busy");
     }
     if (this.sessionProviderConnection !== "openai-compatible") {
+      return false;
+    }
+
+    return this.disconnectSessionProvider();
+  }
+
+  disconnectAnthropic(): boolean {
+    if (this.busy) {
+      throw new Error("busy");
+    }
+    if (this.sessionProviderConnection !== "anthropic") {
       return false;
     }
 

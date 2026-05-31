@@ -22,6 +22,7 @@ interface StatusResponse {
   provider: string;
   baseUrl?: string;
   configuredProvider?: "anthropic" | "openrouter" | "openai-compatible" | null;
+  sessionAnthropicConnected?: boolean;
   sessionOpenRouterConnected?: boolean;
   sessionOpenAiCompatibleConnected?: boolean;
   needsSetup?: boolean;
@@ -147,6 +148,8 @@ interface OpenRouterDisconnectResponse {
 type OpenAiCompatibleConnectResponse = OpenRouterConnectResponse;
 
 type OpenAiCompatibleDisconnectResponse = OpenRouterDisconnectResponse;
+type AnthropicConnectResponse = OpenRouterConnectResponse;
+type AnthropicDisconnectResponse = OpenRouterDisconnectResponse;
 
 interface ModelSwitchResponse {
   model: string;
@@ -204,17 +207,31 @@ const openAiCompatibleBaseUrlInput = document.getElementById("openai-compatible-
 const openAiCompatibleApiKeyInput = document.getElementById("openai-compatible-api-key") as HTMLInputElement;
 const openAiCompatiblePersistCheckbox = document.getElementById("openai-compatible-persist-checkbox") as HTMLInputElement;
 const openAiCompatibleConnectStatus = document.getElementById("openai-compatible-connect-status")!;
+const anthropicConnectModal = document.getElementById("anthropic-connect-modal")!;
+const anthropicConnectBackdrop = document.getElementById("anthropic-connect-backdrop")!;
+const anthropicConnectCloseBtn = document.getElementById("anthropic-connect-close") as HTMLButtonElement;
+const anthropicConnectCancelBtn = document.getElementById("anthropic-connect-cancel") as HTMLButtonElement;
+const anthropicConnectContinueBtn = document.getElementById("anthropic-connect-continue") as HTMLButtonElement;
+const anthropicApiKeyInput = document.getElementById("anthropic-api-key") as HTMLInputElement;
+const anthropicPersistCheckbox = document.getElementById("anthropic-persist-checkbox") as HTMLInputElement;
+const anthropicConnectStatus = document.getElementById("anthropic-connect-status")!;
 const settingsPath = document.getElementById("settings-path")!;
 const settingsList = document.getElementById("settings-list")!;
 const settingsBanner = document.getElementById("settings-banner")!;
+const settingsAnthropicSession = document.getElementById("settings-anthropic-session")!;
+const settingsAnthropicSessionMeta = document.getElementById("settings-anthropic-session-meta")!;
 const settingsOpenRouterSession = document.getElementById("settings-openrouter-session")!;
 const settingsOpenRouterSessionMeta = document.getElementById("settings-openrouter-session-meta")!;
 const settingsOpenAiCompatibleSession = document.getElementById("settings-openai-compatible-session")!;
 const settingsOpenAiCompatibleSessionMeta = document.getElementById("settings-openai-compatible-session-meta")!;
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsResetBtn = document.getElementById("settings-reset") as HTMLButtonElement;
+const disconnectAnthropicBtn = document.getElementById("disconnect-anthropic-btn") as HTMLButtonElement;
 const disconnectOpenRouterBtn = document.getElementById("disconnect-openrouter-btn") as HTMLButtonElement;
 const disconnectOpenAiCompatibleBtn = document.getElementById("disconnect-openai-compatible-btn") as HTMLButtonElement;
+const connectAnthropicButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-anthropic-connect]"),
+);
 const connectOpenRouterButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-openrouter-connect]"),
 );
@@ -234,6 +251,7 @@ let hadToolCalls = false;
 let settingsPayload: SettingsPayload | null = null;
 let activeSavedSession: SessionMeta | null = null;
 let activeBaseUrl = "";
+let sessionAnthropicConnected = false;
 let sessionOpenRouterConnected = false;
 let sessionOpenAiCompatibleConnected = false;
 const sessionRefreshTracker = createLatestRequestTracker();
@@ -345,6 +363,16 @@ function clearOpenAiCompatibleConnectStatus(): void {
   openAiCompatibleConnectStatus.className = "config-connect-status hidden";
 }
 
+function setAnthropicConnectStatus(message: string, tone: "info" | "success" | "error"): void {
+  anthropicConnectStatus.textContent = message;
+  anthropicConnectStatus.className = `config-connect-status ${tone}`;
+}
+
+function clearAnthropicConnectStatus(): void {
+  anthropicConnectStatus.textContent = "";
+  anthropicConnectStatus.className = "config-connect-status hidden";
+}
+
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
@@ -392,6 +420,10 @@ function isOpenRouterConnectModalOpen(): boolean {
 
 function isOpenAiCompatibleConnectModalOpen(): boolean {
   return isModalOpen(openAiCompatibleConnectModal);
+}
+
+function isAnthropicConnectModalOpen(): boolean {
+  return isModalOpen(anthropicConnectModal);
 }
 
 function encodeBase64Url(bytes: Uint8Array): string {
@@ -610,6 +642,88 @@ async function disconnectOpenAiCompatible(): Promise<void> {
   }
 }
 
+async function connectAnthropic(): Promise<void> {
+  const apiKey = anthropicApiKeyInput.value.trim();
+
+  if (!apiKey) {
+    setAnthropicConnectStatus("API key is required.", "error");
+    return;
+  }
+
+  clearAnthropicConnectStatus();
+  clearSettingsBanner();
+  anthropicConnectContinueBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/anthropic/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey,
+        persistToEnv: anthropicPersistCheckbox.checked,
+      }),
+    });
+    const body = await res.json() as AnthropicConnectResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to connect Anthropic (${res.status})`);
+    }
+
+    activeBaseUrl = body.baseUrl;
+    addMessage(body.message, "thinking");
+    const tone = body.persistWarning
+      ? "info"
+      : (body.needsSetup ? "info" : "success");
+    setConfigConnectStatus(body.message, tone);
+    setSettingsBanner(body.message, tone === "success" ? "success" : "info");
+    closeAnthropicConnectModal();
+    await fetchStatus();
+    await refreshModelList();
+
+    const onlyModelMissing =
+      body.needsSetup &&
+      body.missing.length === 1 &&
+      body.missing[0]?.includes("MODEL");
+    if (onlyModelMissing) {
+      modelDropdown.classList.remove("hidden");
+      sessionDropdown.classList.add("hidden");
+      focusModelSearchInput();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to connect Anthropic";
+    setAnthropicConnectStatus(message, "error");
+  } finally {
+    anthropicConnectContinueBtn.disabled = false;
+  }
+}
+
+async function disconnectAnthropic(): Promise<void> {
+  disconnectAnthropicBtn.disabled = true;
+  clearSettingsBanner();
+
+  try {
+    const res = await fetch("/api/anthropic/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await res.json() as AnthropicDisconnectResponse | { error: string };
+    if (!res.ok) {
+      throw new Error("error" in body ? body.error : `Failed to disconnect Anthropic (${res.status})`);
+    }
+
+    activeBaseUrl = body.baseUrl;
+    addMessage(body.message, "thinking");
+    setSettingsBanner(body.message, body.disconnected ? "success" : "info");
+    clearConfigConnectStatus();
+    await fetchStatus();
+    await refreshModelList();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to disconnect Anthropic";
+    setSettingsBanner(message, "error");
+  } finally {
+    disconnectAnthropicBtn.disabled = false;
+  }
+}
+
 async function fetchStatus(): Promise<void> {
   try {
     const res = await fetch("/api/status");
@@ -618,6 +732,7 @@ async function fetchStatus(): Promise<void> {
     modelInfo.classList.toggle("placeholder", !data.model);
     activeModel = data.model;
     activeBaseUrl = data.baseUrl ?? "";
+    sessionAnthropicConnected = data.sessionAnthropicConnected ?? false;
     sessionOpenRouterConnected = data.sessionOpenRouterConnected ?? false;
     sessionOpenAiCompatibleConnected = data.sessionOpenAiCompatibleConnected ?? false;
     renderSessionProviderControls();
@@ -988,34 +1103,57 @@ function clearSettingsBanner(): void {
 }
 
 function renderSessionProviderControls(): void {
+  if (sessionAnthropicConnected) {
+    settingsAnthropicSession.classList.remove("hidden");
+    settingsAnthropicSessionMeta.textContent =
+      "This session-only connection overrides your original provider settings until you disconnect or restart serve.";
+    settingsOpenRouterSession.classList.add("hidden");
+    settingsOpenRouterSessionMeta.textContent = "";
+    settingsOpenAiCompatibleSession.classList.add("hidden");
+    settingsOpenAiCompatibleSessionMeta.textContent = "";
+    disconnectAnthropicBtn.disabled = false;
+    disconnectOpenRouterBtn.disabled = false;
+    disconnectOpenAiCompatibleBtn.disabled = false;
+    return;
+  }
+
   if (sessionOpenRouterConnected) {
+    settingsAnthropicSession.classList.add("hidden");
+    settingsAnthropicSessionMeta.textContent = "";
     settingsOpenRouterSession.classList.remove("hidden");
     settingsOpenRouterSessionMeta.textContent = activeBaseUrl
       ? `Endpoint: ${activeBaseUrl}. This session-only connection overrides your original provider settings until you disconnect or restart serve.`
       : "This session-only connection overrides your original provider settings until you disconnect or restart serve.";
     settingsOpenAiCompatibleSession.classList.add("hidden");
     settingsOpenAiCompatibleSessionMeta.textContent = "";
+    disconnectAnthropicBtn.disabled = false;
     disconnectOpenRouterBtn.disabled = false;
     disconnectOpenAiCompatibleBtn.disabled = false;
     return;
   }
 
   if (sessionOpenAiCompatibleConnected) {
+    settingsAnthropicSession.classList.add("hidden");
+    settingsAnthropicSessionMeta.textContent = "";
     settingsOpenAiCompatibleSession.classList.remove("hidden");
     settingsOpenAiCompatibleSessionMeta.textContent = activeBaseUrl
       ? `Endpoint: ${activeBaseUrl}. This session-only connection overrides your original provider settings until you disconnect or restart serve.`
       : "This session-only connection overrides your original provider settings until you disconnect or restart serve.";
     settingsOpenRouterSession.classList.add("hidden");
     settingsOpenRouterSessionMeta.textContent = "";
+    disconnectAnthropicBtn.disabled = false;
     disconnectOpenRouterBtn.disabled = false;
     disconnectOpenAiCompatibleBtn.disabled = false;
     return;
   }
 
+  settingsAnthropicSession.classList.add("hidden");
+  settingsAnthropicSessionMeta.textContent = "";
   settingsOpenRouterSession.classList.add("hidden");
   settingsOpenRouterSessionMeta.textContent = "";
   settingsOpenAiCompatibleSession.classList.add("hidden");
   settingsOpenAiCompatibleSessionMeta.textContent = "";
+  disconnectAnthropicBtn.disabled = false;
   disconnectOpenRouterBtn.disabled = false;
   disconnectOpenAiCompatibleBtn.disabled = false;
 }
@@ -1291,6 +1429,24 @@ function closeOpenAiCompatibleConnectModal(): void {
   closeModal(openAiCompatibleConnectModal);
   openAiCompatibleConnectContinueBtn.disabled = false;
   clearOpenAiCompatibleConnectStatus();
+}
+
+function openAnthropicConnectModal(): void {
+  closeHeaderMenus();
+  openModal(anthropicConnectModal);
+  anthropicApiKeyInput.value = "";
+  anthropicPersistCheckbox.checked = false;
+  anthropicConnectContinueBtn.disabled = false;
+  clearAnthropicConnectStatus();
+  requestAnimationFrame(() => {
+    anthropicApiKeyInput.focus();
+  });
+}
+
+function closeAnthropicConnectModal(): void {
+  closeModal(anthropicConnectModal);
+  anthropicConnectContinueBtn.disabled = false;
+  clearAnthropicConnectStatus();
 }
 
 // Form handling
@@ -1876,6 +2032,18 @@ openAiCompatibleConnectCancelBtn.addEventListener("click", () => {
   closeOpenAiCompatibleConnectModal();
 });
 
+anthropicConnectBackdrop.addEventListener("click", () => {
+  closeAnthropicConnectModal();
+});
+
+anthropicConnectCloseBtn.addEventListener("click", () => {
+  closeAnthropicConnectModal();
+});
+
+anthropicConnectCancelBtn.addEventListener("click", () => {
+  closeAnthropicConnectModal();
+});
+
 settingsResetBtn.addEventListener("click", () => {
   clearSettingsBanner();
   renderSettings();
@@ -1937,6 +2105,10 @@ settingsList.addEventListener("change", () => {
   updateSettingsActions();
 });
 
+disconnectAnthropicBtn.addEventListener("click", () => {
+  void disconnectAnthropic();
+});
+
 disconnectOpenRouterBtn.addEventListener("click", () => {
   void disconnectOpenRouter();
 });
@@ -1957,10 +2129,20 @@ document.addEventListener("keydown", (event: KeyboardEvent) => {
     closeOpenAiCompatibleConnectModal();
     return;
   }
+  if (isAnthropicConnectModalOpen()) {
+    closeAnthropicConnectModal();
+    return;
+  }
   if (isSettingsModalOpen()) {
     closeSettings();
   }
 });
+
+for (const button of connectAnthropicButtons) {
+  button.addEventListener("click", () => {
+    openAnthropicConnectModal();
+  });
+}
 
 for (const button of connectOpenRouterButtons) {
   button.addEventListener("click", () => {
@@ -1987,6 +2169,10 @@ openAiCompatibleApiKeyInput.addEventListener("input", () => {
   clearOpenAiCompatibleConnectStatus();
 });
 
+anthropicApiKeyInput.addEventListener("input", () => {
+  clearAnthropicConnectStatus();
+});
+
 openRouterConnectContinueBtn.addEventListener("click", () => {
   openRouterConnectContinueBtn.disabled = true;
   closeOpenRouterConnectModal();
@@ -1995,6 +2181,10 @@ openRouterConnectContinueBtn.addEventListener("click", () => {
 
 openAiCompatibleConnectContinueBtn.addEventListener("click", () => {
   void connectOpenAiCompatible();
+});
+
+anthropicConnectContinueBtn.addEventListener("click", () => {
+  void connectAnthropic();
 });
 
 // -- Resizable pane divider --

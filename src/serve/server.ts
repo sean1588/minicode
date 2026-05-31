@@ -64,6 +64,11 @@ interface OpenAiCompatibleConnectRequestBody {
   persistToEnv?: boolean;
 }
 
+interface AnthropicConnectRequestBody {
+  apiKey?: string;
+  persistToEnv?: boolean;
+}
+
 interface OpenRouterDisconnectResponse {
   ok: boolean;
   disconnected: boolean;
@@ -77,6 +82,7 @@ interface OpenRouterDisconnectResponse {
 }
 
 type OpenAiCompatibleDisconnectResponse = OpenRouterDisconnectResponse;
+type AnthropicDisconnectResponse = OpenRouterDisconnectResponse;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -198,6 +204,7 @@ export function createRequestHandler(
           provider: config.modelProvider,
           baseUrl: config.openAiBaseUrl,
           configuredProvider: getConfiguredProvider(config, resolvedEnv.values),
+          sessionAnthropicConnected: bridge.isAnthropicSessionConnected(),
           sessionOpenRouterConnected: bridge.isOpenRouterSessionConnected(),
           sessionOpenAiCompatibleConnected: bridge.isOpenAiCompatibleSessionConnected(),
           needsSetup: missing.length > 0,
@@ -324,6 +331,75 @@ export function createRequestHandler(
         return;
       }
 
+      if (pathname === "/api/anthropic/connect" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as AnthropicConnectRequestBody;
+        const trimmedApiKey = body.apiKey?.trim() ?? "";
+        if (!trimmedApiKey) {
+          sendJson(res, 400, { error: "apiKey is required" });
+          return;
+        }
+
+        try {
+          bridge.connectAnthropic(trimmedApiKey);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to configure Anthropic";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        let persistedToEnv = false;
+        let persistedEnvPath: string | null = null;
+        let persistWarning: string | null = null;
+
+        if (body.persistToEnv === true) {
+          try {
+            const result = await upsertHomeEnvValues({
+              values: {
+                MODEL_PROVIDER: "anthropic",
+                ANTHROPIC_API_KEY: trimmedApiKey,
+              },
+              ...(minicodeHome ? { minicodeHome } : {}),
+            });
+            persistedToEnv = true;
+            persistedEnvPath = result.path;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to update ~/.minicode/.env";
+            persistedEnvPath = getHomeEnvPath(minicodeHome);
+            persistWarning = `Anthropic connected for this serve session, but minicode could not update ${persistedEnvPath}: ${message}`;
+          }
+        }
+
+        const missing = getConfigMissing(config);
+        const onlyModelMissing = missing.length === 1 && missing[0] === "MODEL is not set";
+        const message = persistWarning
+          ? `${persistWarning}${onlyModelMissing ? " Select a model to continue." : ""}`
+          : persistedToEnv
+            ? (
+              onlyModelMissing
+                ? "Anthropic connected for this serve session and saved to ~/.minicode/.env. Select a model to continue, and minicode will remember it for future runs."
+                : "Anthropic connected for this serve session and saved to ~/.minicode/.env for future runs."
+            )
+            : (
+              onlyModelMissing
+                ? "Anthropic connected for this serve session. Select a model to continue."
+                : "Anthropic connected for this serve session."
+            );
+        sendJson(res, 200, {
+          ok: true,
+          sessionOnly: true,
+          persistedToEnv,
+          persistedEnvPath,
+          persistWarning,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message,
+        });
+        return;
+      }
+
       if (pathname === "/api/openai-compatible/connect" && method === "POST") {
         const body = JSON.parse(await readBody(req)) as OpenAiCompatibleConnectRequestBody;
         if (!body.baseUrl || typeof body.baseUrl !== "string") {
@@ -433,6 +509,34 @@ export function createRequestHandler(
           message: disconnected
             ? "Removed the session-only OpenRouter connection and restored your original provider settings."
             : "No session-only OpenRouter connection was active.",
+        };
+        sendJson(res, 200, body);
+        return;
+      }
+
+      if (pathname === "/api/anthropic/disconnect" && method === "POST") {
+        let disconnected = false;
+        try {
+          disconnected = bridge.disconnectAnthropic();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to remove Anthropic session";
+          sendJson(res, message === "busy" ? 409 : 400, { error: message });
+          return;
+        }
+
+        const missing = getConfigMissing(config);
+        const body: AnthropicDisconnectResponse = {
+          ok: true,
+          disconnected,
+          sessionOnly: true,
+          provider: config.modelProvider,
+          model: config.model,
+          baseUrl: config.openAiBaseUrl,
+          needsSetup: missing.length > 0,
+          missing,
+          message: disconnected
+            ? "Removed the session-only Anthropic connection and restored your original provider settings."
+            : "No session-only Anthropic connection was active.",
         };
         sendJson(res, 200, body);
         return;
