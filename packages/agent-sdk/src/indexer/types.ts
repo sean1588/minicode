@@ -68,6 +68,16 @@ export interface LanguagePlugin {
     symbols: IndexedSymbol[],
     projectFiles: Map<string, string>,
   ): DependencyEdge[] | Promise<DependencyEdge[]>;
+
+  /**
+   * Whether `filePath` is a conventional entry-point file for this language
+   * (e.g. `index.ts` for TS/JS, `__init__.py`/`__main__.py` for Python,
+   * `main.go` for Go). The code map ranks entry points above other files.
+   *
+   * Optional: plugins that don't implement it simply contribute no
+   * entry-point hints, and the host falls back to its built-in default.
+   */
+  isEntryPoint?(filePath: string): boolean;
 }
 
 /**

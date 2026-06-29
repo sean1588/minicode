@@ -33,6 +33,15 @@ const SAMPLE_PY = [
   "",
 ].join("\n");
 
+test("Python plugin flags package entry points", () => {
+  assert.ok(pythonPlugin.isEntryPoint, "plugin should provide isEntryPoint");
+  assert.equal(pythonPlugin.isEntryPoint!("pkg/__init__.py"), true);
+  assert.equal(pythonPlugin.isEntryPoint!("pkg/__main__.py"), true);
+  assert.equal(pythonPlugin.isEntryPoint!("__init__.py"), true);
+  assert.equal(pythonPlugin.isEntryPoint!("pkg/helpers.py"), false);
+  assert.equal(pythonPlugin.isEntryPoint!("pkg/main.py"), false);
+});
+
 test("Python plugin extracts classes, methods, functions, type aliases with module-prefixed qualifiedNames", () => {
   const symbols = pythonPlugin.indexFile("sample.py", SAMPLE_PY);
   const names = symbols.map((s) => s.qualifiedName);

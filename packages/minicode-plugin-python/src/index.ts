@@ -514,6 +514,13 @@ function createPlugin() {
       return EXTENSIONS.some((ext) => lower.endsWith(ext));
     },
 
+    isEntryPoint(filePath: string): boolean {
+      // Package roots (`__init__.py`) and runnable module entries
+      // (`__main__.py`) are Python's structural entry points.
+      const name = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+      return name === "__init__.py" || name === "__main__.py";
+    },
+
     indexFile(filePath: string, content: string): IndexedSymbol[] {
       const tree = parse(filePath, content);
       const symbols: IndexedSymbol[] = [];

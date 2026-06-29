@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { generateCodeMap } from "../src/indexer/code-map.js";
+import { generateCodeMap, isEntryPointFile } from "../src/indexer/code-map.js";
 import { getPluginForFile, loadPlugins } from "../src/indexer/plugin-loader.js";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { typescriptPlugin } from "../src/indexer/plugins/typescript.js";
@@ -103,6 +103,33 @@ test("Code map generator produces expected format", () => {
   assert.ok(result.text.includes("sample.ts"));
   assert.ok(result.text.includes("CodingAgent"));
   assert.ok(result.text.includes("runTurn"));
+});
+
+test("isEntryPointFile recognizes TS index files via the default fallback", () => {
+  assert.equal(isEntryPointFile("src/index.ts"), true);
+  assert.equal(isEntryPointFile("index.tsx"), true);
+  assert.equal(isEntryPointFile("a/b/index.js"), true);
+  assert.equal(isEntryPointFile("a/b/index.jsx"), true);
+  assert.equal(isEntryPointFile("src/util.ts"), false);
+  assert.equal(isEntryPointFile("cmd/main.go"), false);
+});
+
+test("isEntryPointFile consults a plugin-provided predicate, with the regex as fallback", () => {
+  const pluginCheck = (f: string) => f === "main.go" || f.endsWith("/main.go");
+  // Plugin recognizes it even though the regex would not.
+  assert.equal(isEntryPointFile("cmd/main.go", pluginCheck), true);
+  // Plugin says no, but the legacy regex fallback still fires for TS index files.
+  assert.equal(isEntryPointFile("src/index.ts", pluginCheck), true);
+  // Neither the plugin nor the fallback regex match.
+  assert.equal(isEntryPointFile("src/util.ts", pluginCheck), false);
+});
+
+test("TypeScript plugin flags index files as entry points", () => {
+  assert.ok(typescriptPlugin.isEntryPoint, "plugin should provide isEntryPoint");
+  assert.equal(typescriptPlugin.isEntryPoint!("src/index.ts"), true);
+  assert.equal(typescriptPlugin.isEntryPoint!("index.tsx"), true);
+  assert.equal(typescriptPlugin.isEntryPoint!("pkg/index.js"), true);
+  assert.equal(typescriptPlugin.isEntryPoint!("src/agent.ts"), false);
 });
 
 test("Code map respects token budget", () => {

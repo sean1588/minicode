@@ -137,7 +137,7 @@ export function createSearchTool(options: SearchToolOptions): ToolDefinition {
         },
         include: {
           type: "string",
-          description: "Optional glob include filter, e.g. *.ts",
+          description: "Optional glob include filter to restrict matched files, e.g. \"src/**\".",
         },
       },
       required: ["pattern"],

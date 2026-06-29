@@ -119,6 +119,11 @@ export function createProjectIndex(
   let adjacencyFrom = buildAdjacencyFrom(dependencyEdges);
   const root = path.resolve(workspaceRoot);
 
+  // Entry-point conventions are language-specific (`index.ts`, `__init__.py`,
+  // `main.go`, ...). Ask each plugin; code-map keeps a built-in fallback.
+  const pluginIsEntryPoint = (filePath: string): boolean =>
+    plugins.some((p) => p.isEntryPoint?.(filePath) ?? false);
+
   function rebuildSymbolsMap(): void {
     const normalizedSymbols = normalizeIndexedSymbols(files);
     symbols.clear();
@@ -333,7 +338,13 @@ export function createProjectIndex(
     },
 
     getCodeMap(tokenBudget?: number, focusSymbols?: Set<string>): CodeMapResult {
-      return generateCodeMap(files, tokenBudget, dependencyEdges, focusSymbols);
+      return generateCodeMap(
+        files,
+        tokenBudget,
+        dependencyEdges,
+        focusSymbols,
+        pluginIsEntryPoint,
+      );
     },
 
     async reindexFile(filePath: string, content: string): Promise<void> {
