@@ -23,7 +23,7 @@ import {
   saveIndex,
 } from "../indexer/cache.js";
 import { buildProjectIndex } from "../indexer/project-index.js";
-import type { ProjectIndex } from "../indexer/types.js";
+import type { LanguagePlugin, ProjectIndex } from "../indexer/types.js";
 import { sortModelsAlphabetically } from "../model-utils.js";
 import { createToolRegistry } from "../tools/registry.js";
 import {
@@ -37,6 +37,21 @@ import { getSymbolDisplayName } from "../indexer/symbol-names.js";
 import type { ServerMessage } from "./types.js";
 
 export type UiListener = (msg: ServerMessage) => void;
+
+/**
+ * The set of file extensions the workspace watcher should react to, derived
+ * from the loaded language plugins. Keeping this in lockstep with the indexer's
+ * plugin set means a new language plugin (Python, Go, …) automatically gets
+ * live reindexing without touching this file. Extensions are lowercased to
+ * match `path.extname(...).toLowerCase()` at the call site.
+ */
+export function watchExtensionsFromPlugins(
+  plugins: LanguagePlugin[],
+): Set<string> {
+  return new Set(
+    plugins.flatMap((p) => p.extensions.map((e) => e.toLowerCase())),
+  );
+}
 
 export class AgentBridge {
   private agent: CodingAgent | undefined;
@@ -301,7 +316,6 @@ export class AgentBridge {
 
   // ── File watcher for automatic reindexing ──
 
-  private static readonly WATCH_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
   private static readonly SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
   private static readonly REINDEX_DEBOUNCE_MS = 300;
 
@@ -313,6 +327,9 @@ export class AgentBridge {
     if (!this.projectIndex || this.fileWatcher) return;
 
     const workspaceRoot = this.config.workspaceRoot;
+    // Derive the watched extensions from the loaded plugins so any language
+    // plugin's files trigger reindexing, not just TS/JS.
+    const watchExtensions = watchExtensionsFromPlugins(this.projectIndex.plugins);
 
     try {
       this.fileWatcher = watch(workspaceRoot, { recursive: true }, (_event, filename) => {
@@ -326,7 +343,7 @@ export class AgentBridge {
 
         // Skip non-indexable extensions
         const ext = path.extname(normalized).toLowerCase();
-        if (!AgentBridge.WATCH_EXTENSIONS.has(ext)) return;
+        if (!watchExtensions.has(ext)) return;
 
         // Debounce: if same file changes rapidly, only reindex once
         const existing = this.reindexTimers.get(normalized);
