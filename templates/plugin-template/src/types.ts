@@ -37,4 +37,10 @@ export interface LanguagePlugin {
     symbols: IndexedSymbol[],
     projectFiles: Map<string, string>,
   ): DependencyEdge[];
+  /**
+   * Optional: whether `filePath` is a conventional entry-point file for this
+   * language (e.g. `index.ts`, `__init__.py`, `main.go`). Entry-point files
+   * are ranked higher in the code map.
+   */
+  isEntryPoint?(filePath: string): boolean;
 }
