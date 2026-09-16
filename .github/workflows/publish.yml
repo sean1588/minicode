@@ -1,5 +1,7 @@
 # Manual publish: Actions → Publish to npm → Run workflow
-# Requires: NPM_TOKEN (npm Automation token)
+# Auth: npm trusted publishing (OIDC). No NPM_TOKEN secret. The package's
+# npmjs.com settings must list this repo + workflow file (publish.yml) as a
+# trusted publisher. Requires npm >= 11.5.1, hence Node 24.
 # Note: Bump version in package.json locally after publishing if you want repo in sync
 name: Publish to npm
 
@@ -10,6 +12,10 @@ on:
         description: "Version to publish (e.g. 0.2.0)"
         required: true
         type: string
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   publish:
@@ -24,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           registry-url: "https://registry.npmjs.org"
 
@@ -46,6 +52,4 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
