@@ -1,5 +1,7 @@
 # Manual publish: Actions → Publish agent-sdk to npm → Run workflow
-# Requires: NPM_TOKEN (npm Automation token, scope owner of @minicode)
+# Auth: npm trusted publishing (OIDC). No NPM_TOKEN secret. The package's
+# npmjs.com settings must list this repo + workflow file (publish-sdk.yml) as a
+# trusted publisher. Requires npm >= 11.5.1, hence Node 24.
 #
 # Publishes packages/agent-sdk as @sean.holung/minicode-sdk. The package is
 # marked `private: true` in the workspace; this workflow strips that
@@ -19,6 +21,10 @@ on:
         required: true
         type: string
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -32,7 +38,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           registry-url: "https://registry.npmjs.org"
 
@@ -92,5 +98,3 @@ jobs:
       - name: Publish to npm
         working-directory: packages/agent-sdk
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
