@@ -35,5 +35,10 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "zod": "^3.25.76"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sean1588/minicode.git",
+    "directory": "packages/agent-sdk"
   }
 }
