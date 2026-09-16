@@ -58,8 +58,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",
     "@inkjs/ui": "^2.0.0",
-    "@sean.holung/minicode-sdk": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@sean.holung/minicode-sdk": "*",
     "ajv": "^8.18.0",
     "dotenv": "^17.3.1",
     "ink": "^6.8.0",
@@ -81,5 +81,9 @@
     "eslint": "^10.0.0",
     "tsx": "^4.21.0",
     "typescript-eslint": "^8.56.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sean1588/minicode.git"
   }
 }
