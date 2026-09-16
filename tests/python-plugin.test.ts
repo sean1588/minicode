@@ -26,6 +26,19 @@ test("getPluginForFile routes .pyi stub files to Python plugin", async () => {
   assert.equal(plugin!.name, "python");
 });
 
+test("Python plugin flags package/module entry points", async () => {
+  const plugins = await loadPlugins("/tmp");
+  const python = plugins.find((p) => p.name === "python");
+  assert.ok(python, "python plugin should load");
+  assert.ok(python!.isEntryPoint, "should expose isEntryPoint");
+  for (const file of ["__init__.py", "pkg/__init__.py", "pkg/__main__.py"]) {
+    assert.equal(python!.isEntryPoint!(file), true, `${file} should be an entry point`);
+  }
+  for (const file of ["pkg/module.py", "main.go", "src/index.ts"]) {
+    assert.equal(python!.isEntryPoint!(file), false, `${file} should not be an entry point`);
+  }
+});
+
 test("buildProjectIndex indexes a Python workspace", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "minicode-py-index-"));
   await writeFile(

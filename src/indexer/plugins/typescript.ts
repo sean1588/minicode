@@ -86,6 +86,10 @@ function createPlugin() {
       return EXTENSIONS.some((ext) => lower.endsWith(ext));
     },
 
+    isEntryPoint(filePath: string): boolean {
+      return /(?:^|\/)index\.[jt]sx?$/.test(filePath.replace(/\\/g, "/"));
+    },
+
     indexFile(filePath: string, content: string): IndexedSymbol[] {
       const sourceFile = ts.createSourceFile(
         filePath,
