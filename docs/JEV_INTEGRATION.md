@@ -297,31 +297,59 @@ the main model to classify its own task) and the web UI's model switcher.
   turns every ContextBench, CCBench, and ts-bench run into labelled data for a few
   cents. That is the evidence loop the strategy doc asks for.
 
-## How to wire it in
+## How to wire it in (and keep it optional)
 
-1. **Client.** Add `packages/agent-sdk/src/model/decisions.ts` with a `DecisionClient`
-   interface (`decide(state, questions) → answers`) and a `JevDecisionClient` that posts
-   to the OpenRouter decisions endpoint. `src/lib/jev.ts` and `src/lib/schema.ts` in
-   `jev-playground` are already a validated TypeScript client and request schema; port
-   them. Reuse the SDK's retry/backoff (`client.ts:243-300`) for 429/5xx.
-2. **Config.** `JEV_ENABLED` (default off), `JEV_MODEL` (default `typesafe/jev-1.13`),
-   `JEV_API_KEY` (default: the OpenRouter key), `JEV_TIMEOUT_MS` (default 3000).
-   Add them to `AgentConfig` (`types.ts:63`), `src/agent/config.ts`, and the benchmark
-   config. Per-feature toggles can come later; start with one switch.
-3. **Injection.** Pass an optional `decisionClient` into `CodingAgent` (constructor at
-   `agent.ts:321`). Every hook checks `if (this.decisions)` and otherwise runs the
-   existing code path, so behaviour with Jev off is unchanged.
-4. **Policy in code.** Put thresholds in one `policy.ts` per feature, the way
-   `jev-playground/src/lib/policy.ts` does, and log every decision (question, answer,
-   probability, threshold, action) to the session trace so thresholds can be tuned from
-   real runs.
-5. **Budget guard.** Cap decision calls per step (two is plenty: one before tools, one
-   after) and fan out questions instead of adding calls. Never put a Jev call on the
-   streaming path.
-6. **Fallback.** When `JEV_ENABLED` is off, the same `DecisionClient` interface can be
-   backed by the main model through the existing `outputSchema` structured-output
-   path (`packages/agent-sdk/src/agent/structured-output.ts`), which is slower and
-   pricier but keeps one code path.
+Jev is a refinement layered on the existing heuristics, never a replacement. With no
+key configured, the code that runs is today's code.
+
+1. **Interface, injected, nullable.** Add `packages/agent-sdk/src/decisions/` with a
+   `DecisionClient` interface (`decide(state, questions) → answers`) and a
+   `JevDecisionClient` that posts to the decisions endpoint. `src/lib/jev.ts` and
+   `src/lib/schema.ts` in `jev-playground` are a validated TypeScript client and
+   request schema; port them. Reuse the SDK's retry/backoff (`client.ts:243-300`).
+   `CodingAgent` takes an optional `decisions?: DecisionClient` (constructor at
+   `agent.ts:321`). Every hook is `if (this.decisions) refine; else today`.
+   A single `createDecisionClient(config)` returns `undefined` when nothing is
+   configured, and the CLI (`src/index.ts`), web bridge (`agent-bridge.ts:111`) and
+   benchmark runner (`benchmark-run.ts:779`) all call it the same way.
+2. **Explicit opt-in, key-resolved.** Config block named `decisions` (provider-neutral,
+   so another vendor or a local classifier can back the same interface later):
+   `JEV_ENABLED` (default off), `JEV_API_KEY` (falls back to `OPENROUTER_API_KEY`),
+   `JEV_BASE_URL` (default OpenRouter; `ts_` keys → TypeSafe direct, `vck_` → Vercel
+   gateway, the same request body everywhere), `JEV_MODEL` (default
+   `typesafe/jev-1.13`), `JEV_TIMEOUT_MS` (default 3000). Add to `AgentConfig`
+   (`types.ts:63`), `src/agent/config.ts`, `editable-config.ts`, and the benchmark
+   config. Keep it opt-in rather than auto-on when an OpenRouter key exists: Jev needs
+   prepaid credits and silently adding spend is the wrong surprise. Print one startup
+   line (`decisions: jev via openrouter` / `decisions: off`) and expose the toggle in
+   `/config` and the web setup overlay.
+3. **Heuristic is the floor; Jev only adds.**
+   - End-of-turn gate: compute the regex retry reason first; Jev may promote `null` to
+     a reason, never demote one.
+   - Command gate: the regex denylist always runs and always wins. Jev can add a block
+     or an ask, never remove one. The one relaxation (auto-allowing read-only commands)
+     lives behind the new `AUTO_ALLOW=smart` value that no existing config selects.
+   - Trimming, truncation, loop guard: the positional or hash-based result is the
+     default branch; Jev's answer is consulted only when present.
+4. **Fail open at runtime, with a circuit breaker.** A decision call never throws into
+   the loop: on timeout use the heuristic; on 401/402 or three consecutive failures,
+   disable the client for the session and log once. The safety gate falls back to
+   regex plus the permission prompt, which is also today's behaviour.
+5. **Policy in code.** Thresholds live in one `policy.ts` per feature, the way
+   `jev-playground/src/lib/policy.ts` does. Log every decision (question, answer,
+   probability, threshold, action) to the session trace so thresholds can be tuned
+   from real runs. A `/decisions` slash command can show status, call count and
+   estimated spend.
+6. **Budget guard.** Cap decision calls per step (two is plenty: one before tools, one
+   after) and fan out questions instead of adding calls. Never put a decision call on
+   the streaming path.
+7. **Tests need no key.** Inject a `FakeDecisionClient` with canned answers; the
+   existing suite runs with `decisions: undefined` and is unchanged. Nothing hits the
+   network in tests.
+8. **Optional third backend.** The main model can back the same interface through the
+   existing `outputSchema` structured-output path
+   (`packages/agent-sdk/src/agent/structured-output.ts`). It is slower and pricier, so
+   it too must be opt-in, never the default for users without Jev.
 
 ## Suggested order
 
