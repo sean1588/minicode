@@ -1,5 +1,10 @@
 import { getSymbolDisplayName } from "./symbol-names.js";
-import type { CodeMapResult, DependencyEdge, IndexedSymbol } from "./types.js";
+import type {
+  CodeMapResult,
+  DependencyEdge,
+  IndexedSymbol,
+  LanguagePlugin,
+} from "./types.js";
 
 const DEFAULT_TOKEN_BUDGET = 1500;
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -35,8 +40,20 @@ function selectFormatter(): typeof formatSymbol {
     : formatSymbolNamed;
 }
 
-function isEntryPointFile(filePath: string): boolean {
+/**
+ * Whether a file is a conventional entry point, used as the lowest-priority
+ * tiebreaker when ranking symbols for the code map. Language-specific entry
+ * points come from the loaded plugins (`isEntryPoint`); the built-in TS/JS
+ * `index.*` heuristic remains as a fallback for plugins that don't implement
+ * the hook (and when no plugins are available, e.g. plain `generateCodeMap`
+ * calls in tests).
+ */
+export function isEntryPointFile(
+  filePath: string,
+  plugins?: LanguagePlugin[],
+): boolean {
   const name = filePath.replace(/\\/g, "/");
+  if (plugins?.some((p) => p.isEntryPoint?.(name))) return true;
   return /(?:^|\/)index\.[jt]sx?$/.test(name);
 }
 
@@ -86,6 +103,7 @@ function expandFocusSet(
 function createSymbolRanker(
   adjacency: { byFrom: Map<string, DependencyEdge[]>; byTo: Map<string, DependencyEdge[]> },
   focusSymbols?: Set<string>,
+  plugins?: LanguagePlugin[],
 ) {
   const refCount = new Map<string, number>();
   for (const [target, edges] of adjacency.byTo) {
@@ -109,8 +127,8 @@ function createSymbolRanker(
     const refA = refCount.get(a.qualifiedName) ?? 0;
     const refB = refCount.get(b.qualifiedName) ?? 0;
     if (refA !== refB) return refB - refA;
-    const entryA = isEntryPointFile(a.filePath) ? 1 : 0;
-    const entryB = isEntryPointFile(b.filePath) ? 1 : 0;
+    const entryA = isEntryPointFile(a.filePath, plugins) ? 1 : 0;
+    const entryB = isEntryPointFile(b.filePath, plugins) ? 1 : 0;
     return entryB - entryA;
   };
 }
@@ -125,12 +143,15 @@ export type { CodeMapResult };
  * @param focusSymbols Optional set of symbol qualified names to boost to the top.
  *   These symbols (and their 1-hop dependency neighbors) will be ranked above all
  *   others, ensuring they survive truncation within the token budget.
+ * @param plugins Optional loaded language plugins, used to identify entry-point
+ *   files when ranking symbols. Falls back to a built-in heuristic when omitted.
  */
 export function generateCodeMap(
   symbolsByFile: Map<string, IndexedSymbol[]>,
   tokenBudget = DEFAULT_TOKEN_BUDGET,
   dependencyEdges?: DependencyEdge[],
   focusSymbols?: Set<string>,
+  plugins?: LanguagePlugin[],
 ): CodeMapResult {
   const totalCount = [...symbolsByFile.values()].reduce(
     (sum, syms) => sum + syms.length,
@@ -143,7 +164,7 @@ export function generateCodeMap(
     ? buildAdjacencyMaps(dependencyEdges)
     : { byFrom: new Map<string, DependencyEdge[]>(), byTo: new Map<string, DependencyEdge[]>() };
   const rank = dependencyEdges
-    ? createSymbolRanker(adjacency, focusSymbols)
+    ? createSymbolRanker(adjacency, focusSymbols, plugins)
     : (a: IndexedSymbol, b: IndexedSymbol) =>
         (a.exported === b.exported ? 0 : a.exported ? -1 : 1);
 

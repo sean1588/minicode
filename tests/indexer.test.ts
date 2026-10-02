@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { generateCodeMap } from "../src/indexer/code-map.js";
+import { generateCodeMap, isEntryPointFile } from "../src/indexer/code-map.js";
 import { getPluginForFile, loadPlugins } from "../src/indexer/plugin-loader.js";
+import type { LanguagePlugin } from "../src/indexer/types.js";
 import { buildProjectIndex } from "../src/indexer/project-index.js";
 import { typescriptPlugin } from "../src/indexer/plugins/typescript.js";
 import { normalizeIndexedSymbols } from "../src/indexer/symbol-names.js";
@@ -58,6 +59,24 @@ test("TypeScript plugin handles arrow functions assigned to const", () => {
   assert.equal(arrow!.kind, "function");
 });
 
+test("TypeScript plugin flags index files as entry points", () => {
+  assert.ok(typescriptPlugin.isEntryPoint, "should expose isEntryPoint");
+  for (const file of ["index.ts", "src/index.tsx", "lib/index.js", "a/b/index.jsx"]) {
+    assert.equal(
+      typescriptPlugin.isEntryPoint!(file),
+      true,
+      `${file} should be an entry point`,
+    );
+  }
+  for (const file of ["src/agent.ts", "main.go", "indexer.ts", "src/index.py"]) {
+    assert.equal(
+      typescriptPlugin.isEntryPoint!(file),
+      false,
+      `${file} should not be an entry point`,
+    );
+  }
+});
+
 test("Plugin loader returns the built-in TypeScript plugin", async () => {
   const plugins = await loadPlugins("/tmp");
   assert.ok(plugins.length >= 1);
@@ -92,6 +111,29 @@ test("verify-index fixture exercises full indexing pipeline", async () => {
   const codeMap = index.getCodeMap();
   assert.ok(codeMap.text.includes("Processor"));
   assert.ok(codeMap.text.includes("parseAndProcess"));
+});
+
+test("isEntryPointFile consults plugins and falls back to the legacy heuristic", () => {
+  const goPlugin: LanguagePlugin = {
+    name: "go",
+    extensions: [".go"],
+    canIndex: (f) => f.endsWith(".go"),
+    indexFile: () => [],
+    isEntryPoint: (f) => f.endsWith("main.go"),
+  };
+
+  // Plugin-provided entry points are honored.
+  assert.equal(isEntryPointFile("cmd/main.go", [goPlugin]), true);
+  assert.equal(isEntryPointFile("cmd/server.go", [goPlugin]), false);
+
+  // Legacy TS/JS heuristic remains as the fallback, even alongside a
+  // plugin that doesn't claim the file.
+  assert.equal(isEntryPointFile("src/index.ts", [goPlugin]), true);
+
+  // No plugins: pure legacy behavior is preserved.
+  assert.equal(isEntryPointFile("src/index.tsx"), true);
+  assert.equal(isEntryPointFile("src/agent.ts"), false);
+  assert.equal(isEntryPointFile("pkg/__init__.py"), false);
 });
 
 test("Code map generator produces expected format", () => {

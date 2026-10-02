@@ -514,6 +514,11 @@ function createPlugin() {
       return EXTENSIONS.some((ext) => lower.endsWith(ext));
     },
 
+    isEntryPoint(filePath: string): boolean {
+      const base = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+      return base === "__init__.py" || base === "__main__.py";
+    },
+
     indexFile(filePath: string, content: string): IndexedSymbol[] {
       const tree = parse(filePath, content);
       const symbols: IndexedSymbol[] = [];

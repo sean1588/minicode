@@ -333,7 +333,7 @@ export function createProjectIndex(
     },
 
     getCodeMap(tokenBudget?: number, focusSymbols?: Set<string>): CodeMapResult {
-      return generateCodeMap(files, tokenBudget, dependencyEdges, focusSymbols);
+      return generateCodeMap(files, tokenBudget, dependencyEdges, focusSymbols, plugins);
     },
 
     async reindexFile(filePath: string, content: string): Promise<void> {
