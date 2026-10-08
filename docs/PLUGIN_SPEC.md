@@ -342,6 +342,10 @@ User-natural lookups still work: `getSymbol("Foo")` and `getSymbol("Foo.bar")` r
 
 minicode loads plugins in this order (first match for a file wins):
 
-1. Built-in plugins (TypeScript, Python)
+1. Built-in plugins (TypeScript, Python, Go)
 2. npm packages matching `minicode-plugin-*` in workspace `package.json` dependencies
 3. Local plugins in `<workspace>/.minicode/plugins/*.js`
+
+## Reference: Go Plugin
+
+Go support lives in `packages/minicode-plugin-go/` and is bundled by default. It uses `tree-sitter-go` for declarations and conservative same-package call/type-reference edges. See [the Go plugin README](../packages/minicode-plugin-go/README.md) for naming, supported declarations, and resolution limits.
