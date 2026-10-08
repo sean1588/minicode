@@ -497,6 +497,7 @@ function getHljsLanguage(filePath: string): string {
     jsx: 'javascript',
     py: 'python',
     pyi: 'python',
+    go: 'go',
     json: 'json',
     md: 'markdown',
     css: 'css',

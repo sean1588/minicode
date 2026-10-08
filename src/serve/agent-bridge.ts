@@ -301,7 +301,6 @@ export class AgentBridge {
 
   // ── File watcher for automatic reindexing ──
 
-  private static readonly WATCH_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
   private static readonly SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
   private static readonly REINDEX_DEBOUNCE_MS = 300;
 
@@ -324,9 +323,8 @@ export class AgentBridge {
         const parts = normalized.split("/");
         if (parts.some((p) => AgentBridge.SKIP_DIRS.has(p) || p.startsWith("."))) return;
 
-        // Skip non-indexable extensions
-        const ext = path.extname(normalized).toLowerCase();
-        if (!AgentBridge.WATCH_EXTENSIONS.has(ext)) return;
+        // Use plugin eligibility so new languages and language-specific exclusions work here too.
+        if (!this.projectIndex.plugins.some((plugin) => plugin.canIndex(normalized))) return;
 
         // Debounce: if same file changes rapidly, only reindex once
         const existing = this.reindexTimers.get(normalized);

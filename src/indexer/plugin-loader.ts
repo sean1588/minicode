@@ -3,7 +3,7 @@ import { typescriptPlugin } from "./plugins/typescript.js";
 
 /**
  * Load all available language plugins.
- * Built-in: TypeScript, Python.
+ * Built-in: TypeScript, Python, Go.
  * Also loads: npm packages (minicode-plugin-*), local plugins (.minicode/plugins/).
  */
 export async function loadPlugins(
@@ -12,7 +12,7 @@ export async function loadPlugins(
   const plugins: LanguagePlugin[] = [];
 
   plugins.push(typescriptPlugin);
-  await loadPythonPlugin(plugins);
+  await loadBuiltinPlugins(plugins);
 
   await loadNpmPlugins(workspaceRoot, plugins);
   await loadLocalPlugins(workspaceRoot, plugins);
@@ -21,20 +21,25 @@ export async function loadPlugins(
 }
 
 /**
- * Load the built-in Python plugin via dynamic import so a missing native
- * dependency (e.g. failed `node-gyp` build for `tree-sitter`) degrades
- * gracefully: Python files simply won't be indexed, but the rest of
- * minicode keeps working.
+ * Dynamically load built-in parser packages so a failed native dependency build
+ * (e.g. node-gyp for tree-sitter) disables only that language's indexing.
+ * TypeScript remains available even when either native parser cannot load.
  */
-async function loadPythonPlugin(plugins: LanguagePlugin[]): Promise<void> {
-  try {
-    const mod = await import("minicode-plugin-python");
-    if (mod.pythonPlugin) plugins.push(mod.pythonPlugin);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[warn] Python plugin failed to load (Python files will not be indexed): ${message}`,
-    );
+async function loadBuiltinPlugins(plugins: LanguagePlugin[]): Promise<void> {
+  const builtins = [
+    { name: "Python", load: async () => (await import("minicode-plugin-python")).pythonPlugin },
+    { name: "Go", load: async () => (await import("minicode-plugin-go")).goPlugin },
+  ];
+  for (const { name, load } of builtins) {
+    try {
+      const plugin = await load();
+      if (plugin) plugins.push(plugin);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[warn] ${name} plugin failed to load (${name} files will not be indexed): ${message}`,
+      );
+    }
   }
 }
 

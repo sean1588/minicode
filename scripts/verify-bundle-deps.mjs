@@ -149,6 +149,7 @@ async function main() {
   const wsDistRoots = [
     "packages/agent-sdk/dist/src",
     "packages/minicode-plugin-python/dist/src",
+    "packages/minicode-plugin-go/dist/src",
   ];
   for (const root of wsDistRoots) {
     const abs = path.join(ROOT, root);
