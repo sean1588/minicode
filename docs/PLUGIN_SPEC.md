@@ -348,4 +348,34 @@ minicode loads plugins in this order (first match for a file wins):
 
 ## Reference: Go Plugin
 
-Go support lives in `packages/minicode-plugin-go/` and is bundled by default. It uses `tree-sitter-go` for declarations and conservative same-package call/type-reference edges. See [the Go plugin README](../packages/minicode-plugin-go/README.md) for naming, supported declarations, and resolution limits.
+The built-in Go plugin is powered by `tree-sitter-go` and lives in `packages/minicode-plugin-go/`. No Go toolchain, language server, or workspace `package.json` is required.
+
+It extracts:
+
+- `function_declaration` → `function`
+- `method_declaration` → `method`, including value, pointer, and generic receivers
+- `type_spec` with `struct_type` → `class`, allowing methods to nest in the code map
+- `type_spec` with `interface_type` → `interface`; `method_elem` → `method`
+- Other `type_spec` declarations and `type_alias` → `type`
+- Package-level `var_spec` / `const_spec` → `variable`, with first-line signatures
+- Adjacent standalone comments → `docComment`, excluding compiler directives and trailing comments on prior declarations; spec docs override group docs
+- Export visibility follows Go's Unicode uppercase initial convention
+
+It implements `resolveDependencies` with:
+
+- Package-scoped bare calls and named type references across files in the same directory and package clause
+- Constant-time source lookup through a map keyed by file, original qualified name, and start line, preserving normalized build-tag alternatives
+- Conservative whole-declaration suppression of local bindings, including generic receiver type parameters, type switches, and select receives
+- No edges for ambiguous targets, self references, external selectors, or files with dot imports
+
+Parsing remains stateless: resolution reparses eligible Go files, including after non-Go edits. This avoids retained ASTs and cache invalidation across workspaces; incremental parsing is deferred. Cross-package resolution, receiver dispatch, generic calls, interface implementation, and build-tag evaluation remain unsupported. `vendor/`, `testdata/`, and underscore-prefixed path segments are excluded by the plugin.
+
+### Package-prefixed `qualifiedName`
+
+Go packages are identified by directory plus package clause, not by filename. `Run` in a root file with `package main` becomes `main.Run`. `Open` in `internal/store` with `package store` becomes `internal/store/store.Open`; a receiver method becomes `internal/store/store.Store.Get`. The slash separates directories and the dot separates symbols. Including the clause distinguishes external test packages; including the directory separates packages that share a name.
+
+Short names, `Type.Method`, and `package.Type.Method` aliases remain searchable. Build-tag alternatives retain the host indexer's disambiguated identities.
+
+### Built-in packaging debt
+
+The bundled package list is explicit in root `dependencies`, `bundleDependencies`, `build:workspaces`, the bundle verifier's `wsDistRoots`, and the loader's built-in table. Keep these in sync when adding a language. This duplicates registration data but preserves the current SDK-first build and publish process; a shared packaging manifest is deferred rather than introduced as part of Go support.

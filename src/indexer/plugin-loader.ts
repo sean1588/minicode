@@ -12,7 +12,7 @@ export async function loadPlugins(
   const plugins: LanguagePlugin[] = [];
 
   plugins.push(typescriptPlugin);
-  await loadNativePlugins(plugins);
+  await loadBuiltinPlugins(plugins);
 
   await loadNpmPlugins(workspaceRoot, plugins);
   await loadLocalPlugins(workspaceRoot, plugins);
@@ -20,15 +20,20 @@ export async function loadPlugins(
   return plugins;
 }
 
-/** Missing native dependencies disable only the affected built-in language. */
-async function loadNativePlugins(plugins: LanguagePlugin[]): Promise<void> {
+/**
+ * Dynamically load built-in parser packages so a failed native dependency build
+ * (e.g. node-gyp for tree-sitter) disables only that language's indexing.
+ * TypeScript remains available even when either native parser cannot load.
+ */
+async function loadBuiltinPlugins(plugins: LanguagePlugin[]): Promise<void> {
   const builtins = [
     { name: "Python", load: async () => (await import("minicode-plugin-python")).pythonPlugin },
     { name: "Go", load: async () => (await import("minicode-plugin-go")).goPlugin },
   ];
   for (const { name, load } of builtins) {
     try {
-      plugins.push(await load());
+      const plugin = await load();
+      if (plugin) plugins.push(plugin);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
@@ -63,8 +68,7 @@ async function loadNpmPlugins(
     try {
       const mod = await import(pkgName);
       const plugin = mod.default ?? mod.plugin ?? mod;
-      if (plugin && typeof plugin.canIndex === "function" &&
-          !plugins.some((loaded) => loaded.name === plugin.name)) {
+      if (plugin && typeof plugin.canIndex === "function") {
         plugins.push(plugin as LanguagePlugin);
       }
     } catch {
